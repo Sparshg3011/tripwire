@@ -30,9 +30,7 @@ def test_unknown_version_rejected():
 def test_typo_in_key_rejected():
     # "actoin" instead of "action" must be an error, not silently ignored
     with pytest.raises(ValidationError):
-        Policy.model_validate(
-            {"version": 1, "tools": {"send_email": {"actoin": "block"}}}
-        )
+        Policy.model_validate({"version": 1, "tools": {"send_email": {"actoin": "block"}}})
 
 
 def test_bad_regex_rejected_at_load_time():
@@ -49,9 +47,7 @@ def test_flow_rules_cannot_allow():
     # Flows may only tighten. An "allow" flow would let tainted context
     # relax a rule, which defeats the whole point.
     with pytest.raises(ValidationError):
-        FlowRule.model_validate(
-            {"when": "context_tainted", "tools": ["x"], "action": "allow"}
-        )
+        FlowRule.model_validate({"when": "context_tainted", "tools": ["x"], "action": "allow"})
 
 
 def test_source_class_defaults_to_untrusted():

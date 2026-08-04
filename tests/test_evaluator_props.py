@@ -76,12 +76,28 @@ def test_taint_never_relaxes(reference_policy, call, state):
     # Same call, same session — flipping taint on may only move the
     # decision toward block. This is invariant 6 as a property.
     severity = {"allow": 0, "gate": 1, "block": 2}
-    clean = evaluate(call, SessionSnapshot(
-        turn=state.turn, tainted=False, tool_counts=state.tool_counts,
-        tool_sums=state.tool_sums, history=state.history), reference_policy)
-    tainted = evaluate(call, SessionSnapshot(
-        turn=state.turn, tainted=True, tool_counts=state.tool_counts,
-        tool_sums=state.tool_sums, history=state.history), reference_policy)
+    clean = evaluate(
+        call,
+        SessionSnapshot(
+            turn=state.turn,
+            tainted=False,
+            tool_counts=state.tool_counts,
+            tool_sums=state.tool_sums,
+            history=state.history,
+        ),
+        reference_policy,
+    )
+    tainted = evaluate(
+        call,
+        SessionSnapshot(
+            turn=state.turn,
+            tainted=True,
+            tool_counts=state.tool_counts,
+            tool_sums=state.tool_sums,
+            history=state.history,
+        ),
+        reference_policy,
+    )
     assert severity[tainted.decision] >= severity[clean.decision]
 
 
