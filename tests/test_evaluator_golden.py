@@ -153,7 +153,9 @@ def test_taint_leaves_existing_gate_alone(reference_policy):
 
 
 def test_taint_ignores_tools_outside_the_flow(reference_policy):
-    v = evaluate(ToolCall("issue_refund", {"amount": 5}), SessionSnapshot(tainted=True), reference_policy)
+    v = evaluate(
+        ToolCall("issue_refund", {"amount": 5}), SessionSnapshot(tainted=True), reference_policy
+    )
     assert v.decision == "allow"
 
 
@@ -189,5 +191,11 @@ def test_case_insensitive_regex():
             },
         }
     )
-    assert evaluate(ToolCall("send_email", {"to": "Admin@CORP.com"}), FRESH, policy).decision == "allow"
-    assert evaluate(ToolCall("send_email", {"to": "other@corp.com"}), FRESH, policy).decision == "block"
+    assert (
+        evaluate(ToolCall("send_email", {"to": "Admin@CORP.com"}), FRESH, policy).decision
+        == "allow"
+    )
+    assert (
+        evaluate(ToolCall("send_email", {"to": "other@corp.com"}), FRESH, policy).decision
+        == "block"
+    )

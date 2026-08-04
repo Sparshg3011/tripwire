@@ -17,10 +17,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 GENESIS = "0" * 64
 
@@ -54,7 +55,8 @@ class AuditLog:
         self._redact = redact
         self._seq, self._prev = self._resume()
         try:
-            self._fh = open(self.path, "a", encoding="utf-8")
+            # held open for the life of the log, closed in close()
+            self._fh = open(self.path, "a", encoding="utf-8")  # noqa: SIM115
         except OSError as e:
             raise AuditWriteError(f"cannot open audit log {self.path}: {e}") from e
 
@@ -86,7 +88,7 @@ class AuditLog:
             data = self._redact(data)
         record = {
             "seq": self._seq,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
             "prev": self._prev,
             "kind": kind,
             "data": data,
