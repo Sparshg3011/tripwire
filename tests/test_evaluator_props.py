@@ -5,7 +5,7 @@ didn't say "block".
 """
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from tripwire.policy.evaluator import evaluate
@@ -55,7 +55,7 @@ snapshots = st.builds(
 
 
 @given(call=calls, state=snapshots)
-@settings(max_examples=300)
+@settings(max_examples=300, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_total_and_well_formed(reference_policy, call, state):
     v = evaluate(call, state, reference_policy)
     assert isinstance(v, Verdict)
@@ -65,13 +65,13 @@ def test_total_and_well_formed(reference_policy, call, state):
 
 
 @given(call=calls, state=snapshots)
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_deterministic(reference_policy, call, state):
     assert evaluate(call, state, reference_policy) == evaluate(call, state, reference_policy)
 
 
 @given(call=calls, state=snapshots)
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_taint_never_relaxes(reference_policy, call, state):
     # Same call, same session — flipping taint on may only move the
     # decision toward block. This is invariant 6 as a property.
@@ -102,7 +102,7 @@ def test_taint_never_relaxes(reference_policy, call, state):
 
 
 @given(call=calls, state=snapshots)
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_shadow_flips_flag_not_decision(reference_policy, call, state):
     shadow_policy = reference_policy.model_copy(update={"enforce": False})
     enforced = evaluate(call, state, reference_policy)
