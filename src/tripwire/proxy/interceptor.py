@@ -12,6 +12,8 @@ real ones and the proxy never passes anything else.
 
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
@@ -24,7 +26,7 @@ from tripwire.policy.schema import Policy
 from tripwire.policy.types import SessionSnapshot, ToolCall, Verdict
 from tripwire.proxy.upstream import Upstream
 from tripwire.session import SessionState
-from tripwire.tx import AuditLog
+from tripwire.tx import AuditLog, AuditWriteError
 
 BLOCKED_CODE = "tripwire_blocked"
 
@@ -64,6 +66,17 @@ class Interceptor:
         self.evaluate = evaluate
 
     async def handle(self, name: str, arguments: dict) -> types.CallToolResult:
+        try:
+            return await self._handle(name, arguments)
+        except AuditWriteError as e:
+            # We can't write down what we're about to do, so we stop
+            # doing things. This lives here rather than in the server
+            # wrapper because every way of using tripwire — proxy or
+            # library — comes through this method.
+            print(f"tripwire: FATAL: {e}", file=sys.stderr, flush=True)
+            os._exit(70)
+
+    async def _handle(self, name: str, arguments: dict) -> types.CallToolResult:
         verdict, args, snapshot = self._decide(name, arguments)
 
         self.audit.append(
