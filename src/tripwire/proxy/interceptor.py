@@ -18,6 +18,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
+import anyio
 from mcp import types
 
 from tripwire.policy.canonical import canonicalize as real_canonicalize
@@ -31,6 +32,14 @@ from tripwire.tx import AuditLog, AuditWriteError
 BLOCKED_CODE = "tripwire_blocked"
 
 DECISIONS = ("allow", "block", "gate")
+
+
+def _describe(e: BaseException) -> str:
+    """Exceptions with empty messages are common (KeyError(''), plenty of
+    the builtins), and "policy evaluation failed: " tells a reader
+    nothing. The type name is the part that always says something."""
+    text = str(e)
+    return f"{type(e).__name__}: {text}" if text else type(e).__name__
 
 
 def _refused(reason: str, rule_id: str) -> types.CallToolResult:
@@ -64,10 +73,19 @@ class Interceptor:
         self.session = session
         self.canonicalize = canonicalize
         self.evaluate = evaluate
+        self._lock = anyio.Lock()
 
     async def handle(self, name: str, arguments: dict) -> types.CallToolResult:
         try:
-            return await self._handle(name, arguments)
+            # One call at a time. Everything stateful — per-session
+            # limits, sequence windows, taint — is decided from a
+            # snapshot taken before the upstream round trip, so letting
+            # two calls overlap would let both read the same state and
+            # both pass a limit that only had room for one. Serialising
+            # costs throughput inside a single session; a limit that two
+            # parallel calls can walk through costs the whole feature.
+            async with self._lock:
+                return await self._handle(name, arguments)
         except AuditWriteError as e:
             # We can't write down what we're about to do, so we stop
             # doing things. This lives here rather than in the server
@@ -110,12 +128,23 @@ class Interceptor:
         except Exception as e:
             # Upstream died holding our request. We don't know how far it
             # got, so the call counts and whatever came back is untrusted.
-            self.audit.append("tool_error", {"tool": name, "error": str(e)})
+            self.audit.append("tool_error", {"tool": name, "error": _describe(e)})
             self._remember(name, args, is_error=True)
             return types.CallToolResult(
                 isError=True,
-                content=[types.TextContent(type="text", text=f"upstream call failed: {e}")],
+                content=[
+                    types.TextContent(type="text", text=f"upstream call failed: {_describe(e)}")
+                ],
             )
+        except BaseException:
+            # Cancellation lands here — the agent hung up, or a timeout
+            # fired, while the tool was already running. Cancelling us
+            # doesn't cancel the side effect, so it still gets written
+            # down and still counts. Then we let the cancellation finish
+            # its job.
+            self.audit.append("tool_cancelled", {"tool": name})
+            self._remember(name, args, is_error=True)
+            raise
 
         self.audit.append("tool_result", {"tool": name, "is_error": bool(result.isError)})
         self._remember(name, args, is_error=bool(result.isError))
@@ -133,8 +162,8 @@ class Interceptor:
             self.session.record(name, args)
             self.session.observe_result(name, is_error=is_error)
         except Exception as e:
-            self.session.broken = f"lost track of the session after {name}: {e}"
-            self.audit.append("state_error", {"tool": name, "error": str(e)})
+            self.session.broken = f"lost track of the session after {name}: {_describe(e)}"
+            self.audit.append("state_error", {"tool": name, "error": _describe(e)})
 
     def _decide(
         self, name: str, arguments: dict
@@ -150,7 +179,7 @@ class Interceptor:
             # whether anything untrusted is in play. Assume the worst.
             blind = SessionSnapshot(tainted=True)
             return (
-                self._fail_closed("session_error", f"session state unreadable: {e}"),
+                self._fail_closed("session_error", f"session state unreadable: {_describe(e)}"),
                 original,
                 blind,
             )
@@ -159,7 +188,9 @@ class Interceptor:
             args = self.canonicalize(name, original, self.policy)
         except Exception as e:
             return (
-                self._fail_closed("canonicalizer_error", f"could not read arguments: {e}"),
+                self._fail_closed(
+                    "canonicalizer_error", f"could not read arguments: {_describe(e)}"
+                ),
                 original,
                 snapshot,
             )
@@ -168,7 +199,7 @@ class Interceptor:
             verdict = self.evaluate(ToolCall(name, args), snapshot, self.policy)
         except Exception as e:
             return (
-                self._fail_closed("evaluator_error", f"policy evaluation failed: {e}"),
+                self._fail_closed("evaluator_error", f"policy evaluation failed: {_describe(e)}"),
                 args,
                 snapshot,
             )
