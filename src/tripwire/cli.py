@@ -6,7 +6,7 @@ import sys
 import anyio
 
 from tripwire.policy import PolicyError, load_policy
-from tripwire.tx import verify_log
+from tripwire.tx import AuditWriteError, verify_log
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -54,7 +54,9 @@ def main(argv: list[str] | None = None) -> None:
 
         try:
             anyio.run(serve, args.policy, args.upstream, args.audit)
-        except (PolicyError, UpstreamError) as e:
+        except (PolicyError, UpstreamError, AuditWriteError) as e:
+            # bad policy, dead upstream, nowhere to write the log: all
+            # three mean we can't do the job, so we don't pretend to
             print(f"tripwire: refusing to start: {e}", file=sys.stderr)
             sys.exit(2)
         except KeyboardInterrupt:

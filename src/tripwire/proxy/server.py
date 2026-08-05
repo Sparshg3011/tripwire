@@ -7,8 +7,6 @@ through the interceptor instead of the tool.
 
 from __future__ import annotations
 
-import os
-import sys
 from pathlib import Path
 
 from mcp import types
@@ -19,7 +17,7 @@ from tripwire.policy import load_policy
 from tripwire.proxy.interceptor import Interceptor
 from tripwire.proxy.upstream import Upstream
 from tripwire.session import SessionState
-from tripwire.tx import AuditLog, AuditWriteError
+from tripwire.tx import AuditLog
 
 
 def build_server(interceptor: Interceptor) -> Server:
@@ -32,15 +30,11 @@ def build_server(interceptor: Interceptor) -> Server:
     # validate_input=False: the upstream validates its own inputs, and a
     # firewall shouldn't quietly change what gets through on its own
     # judgement. Saying no is the policy engine's job.
+    # the interceptor halts the process itself if the audit log fails, so
+    # there is nothing to catch here
     @server.call_tool(validate_input=False)
     async def call_tool(name: str, arguments: dict) -> types.CallToolResult:
-        try:
-            return await interceptor.handle(name, arguments)
-        except AuditWriteError as e:
-            # Invariant: if we can't record it, we don't do it — and we
-            # don't keep running either.
-            print(f"tripwire: FATAL: {e}", file=sys.stderr, flush=True)
-            os._exit(70)
+        return await interceptor.handle(name, arguments)
 
     return server
 
