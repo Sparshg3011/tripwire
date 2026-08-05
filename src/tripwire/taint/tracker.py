@@ -35,10 +35,13 @@ Rules:
   * Sticky: once tainted, tainted. observe_result() must never be able
     to turn it back off.
 
-  * tainted_by keeps every tool that contributed, in call order, with no
-    duplicates. `tripwire trace` reads it to answer "what made this
-    session dirty, and when" — so order matters and the first entry is
-    the one that did it.
+  * tainted_by accumulates every untrusted tool whose result we saw, not
+    just the first one, deduplicated, in the order the results arrived.
+    Results, not calls: this object is fed outcomes, and it has no way
+    to know what order the calls went out in. `tripwire trace` reads
+    this to answer "what made this session dirty, and what kept it
+    dirty" — the first entry is the one that did it, the rest are how
+    much untrusted material is in play.
 
 Contract: no I/O, no clock, no randomness. Total — observe_result takes
 whatever tool name arrives off the wire, including ones no policy has
