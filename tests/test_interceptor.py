@@ -7,6 +7,7 @@ plumbing: who gets called, in what order, and what the agent is handed back.
 
 import json
 
+import anyio
 import pytest
 from mcp import types
 
@@ -54,6 +55,19 @@ class FakeUpstream:
         self.calls.append((name, args))
         if self._boom is not None:
             raise self._boom
+        return self.result
+
+
+class SlowUpstream(FakeUpstream):
+    """Yields control mid-call so overlapping calls can actually overlap."""
+
+    def __init__(self, delay=0.01):
+        super().__init__()
+        self.delay = delay
+
+    async def call(self, name, args):
+        self.calls.append((name, args))
+        await anyio.sleep(self.delay)
         return self.result
 
 
@@ -310,3 +324,45 @@ async def test_a_broken_session_fails_every_later_call_closed(make):
     assert itc.upstream.calls == [("add", {"a": 1})]
     assert result.isError
     assert "session_error" in result.content[0].text
+
+
+# --- concurrency and cancellation ---
+
+
+async def test_parallel_calls_do_not_share_a_stale_snapshot(make):
+    # Two calls in flight at once must not both decide from turn 0. If
+    # they do, any per-session limit can be walked straight through by
+    # firing the calls together instead of one after another.
+    seen = []
+
+    def watch(call, snapshot, policy):
+        seen.append(snapshot.turn)
+        return Verdict("allow", "tools.*", "fine")
+
+    itc = make(watch, upstream=SlowUpstream())
+    async with anyio.create_task_group() as tg:
+        for _ in range(4):
+            tg.start_soon(itc.handle, "add", {})
+
+    assert sorted(seen) == [0, 1, 2, 3]
+
+
+async def test_cancelled_call_is_still_recorded(make, records):
+    # Hanging up on tripwire doesn't hang up on the tool. Whatever the
+    # tool did still happened, so it still counts and still gets logged.
+    itc = make(returns(Verdict("allow", "tools.*", "fine")), upstream=SlowUpstream(delay=5))
+
+    with anyio.move_on_after(0.05):
+        await itc.handle("send_email", {"to": "a@b.com"})
+
+    kinds = [r["kind"] for r in records()]
+    assert kinds == ["decision", "tool_call", "tool_cancelled"]
+    assert itc.session.snapshot().tool_counts == {"send_email": 1}
+
+
+async def test_fail_closed_reasons_name_the_exception_type(make, records):
+    itc = make(explodes(KeyError()))  # empty message on purpose
+    result = await itc.handle("add", {})
+
+    assert "KeyError" in result.content[0].text
+    assert "KeyError" in records()[0]["data"]["reason"]
