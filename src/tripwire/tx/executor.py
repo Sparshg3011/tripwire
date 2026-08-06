@@ -79,6 +79,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from pathlib import Path
+from typing import Any
 
 from mcp import types
 
@@ -93,7 +94,7 @@ class DuplicateInFlight(Exception):
     """This exact call is already on the ledger with no known outcome."""
 
 
-def intent_key(session_id: str, tool: str, args: dict) -> str:
+def intent_key(session_id: str, tool: str, args: dict[str, Any]) -> str:
     """SHA-256 hex over (session_id, tool, compact-sorted-json args)."""
     raise NotImplementedError("intent_key not written yet — see module docstring")
 
@@ -103,7 +104,7 @@ class TxExecutor:
         raise NotImplementedError("TxExecutor not written yet — see module docstring")
 
     async def run(
-        self, tool: str, args: dict, forward: Forward
+        self, tool: str, args: dict[str, Any], forward: Forward
     ) -> tuple[types.CallToolResult, bool]:
         """Execute through the ledger. Returns (result, replayed)."""
         raise NotImplementedError
