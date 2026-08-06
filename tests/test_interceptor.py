@@ -366,3 +366,171 @@ async def test_fail_closed_reasons_name_the_exception_type(make, records):
 
     assert "KeyError" in result.content[0].text
     assert "KeyError" in records()[0]["data"]["reason"]
+
+
+# --- gate flow ---
+
+
+GATED = Verdict("gate", "flows.0", "Untrusted content in context.")
+
+
+class FakeGate:
+    """Answers every request the same way and keeps what it was asked."""
+
+    def __init__(self, answer):
+        self._answer = answer
+        self.requests = []
+
+    async def request(self, req):
+        self.requests.append(req)
+        if isinstance(self._answer, Exception):
+            raise self._answer
+        return self._answer
+
+
+class StuckGate:
+    """The human never came back to the terminal."""
+
+    async def request(self, req):
+        await anyio.sleep(3600)
+
+
+class DirtyTaint(FakeTaint):
+    """A session that already touched something untrusted."""
+
+    tainted = True
+
+    def __init__(self):
+        super().__init__()
+        self.tainted_by = ("fetch_url",)
+
+
+# the make fixture can't take a gate, so gated interceptors are built by
+# hand the same way it builds them
+def gated(
+    audit_path, gate, evaluate, canonicalize=passthrough, enforce=True, taint=None, timeout=120
+):
+    policy = Policy(version=1, enforce=enforce, defaults={"gate_timeout_seconds": timeout})
+    session = SessionState(policy, taint=taint if taint is not None else FakeTaint())
+    return Interceptor(
+        policy,
+        AuditLog(audit_path),
+        FakeUpstream(),
+        session,
+        gate=gate,
+        canonicalize=canonicalize,
+        evaluate=evaluate,
+    )
+
+
+async def test_approval_forwards_and_audits_the_whole_exchange(audit_path, records):
+    itc = gated(audit_path, FakeGate(True), returns(GATED))
+    result = await itc.handle("send_email", {"to": "a@b.com"})
+
+    assert itc.upstream.calls == [("send_email", {"to": "a@b.com"})]
+    assert result is itc.upstream.result
+    assert [r["kind"] for r in records()] == [
+        "decision",
+        "gate_requested",
+        "gate_approved",
+        "tool_call",
+        "tool_result",
+    ]
+
+
+async def test_denial_refuses_without_touching_upstream(audit_path, records):
+    itc = gated(audit_path, FakeGate(False), returns(GATED))
+    result = await itc.handle("send_email", {"to": "a@b.com"})
+
+    assert itc.upstream.calls == []
+    assert result.isError
+    assert "denied" in result.content[0].text
+    assert [r["kind"] for r in records()] == ["decision", "gate_requested", "gate_denied"]
+
+
+async def test_gate_timeout_refuses_and_says_nobody_answered(audit_path, records):
+    itc = gated(audit_path, StuckGate(), returns(GATED), timeout=1)
+    result = await itc.handle("send_email", {"to": "a@b.com"})
+
+    assert itc.upstream.calls == []
+    assert result.isError
+    assert "No human answered within 1s" in result.content[0].text
+    assert [r["kind"] for r in records()] == ["decision", "gate_requested", "gate_timeout"]
+
+
+async def test_gate_crash_is_audited_and_fails_closed(audit_path, records):
+    itc = gated(audit_path, FakeGate(RuntimeError("terminal went away")), returns(GATED))
+    result = await itc.handle("send_email", {"to": "a@b.com"})
+
+    assert itc.upstream.calls == []
+    assert result.isError
+    assert "approval gate failed" in result.content[0].text
+    assert [r["kind"] for r in records()] == ["decision", "gate_requested", "gate_error"]
+
+
+async def test_a_truthy_answer_that_is_not_true_is_refused(audit_path, records):
+    # only True is a yes. A gate returning "yes" is a broken gate, not a
+    # human saying no, and the log shouldn't claim someone reviewed this
+    itc = gated(audit_path, FakeGate("yes"), returns(GATED))
+    result = await itc.handle("send_email", {"to": "a@b.com"})
+
+    assert itc.upstream.calls == []
+    assert result.isError
+    assert [r["kind"] for r in records()] == ["decision", "gate_requested", "gate_error"]
+
+
+async def test_shadow_mode_never_consults_the_gate(audit_path, records):
+    class NeverGate:
+        async def request(self, req):
+            raise AssertionError("gate consulted in shadow mode")
+
+    itc = gated(
+        audit_path,
+        NeverGate(),
+        returns(Verdict("gate", "flows.0", "would have gated", shadow=True)),
+        enforce=False,
+    )
+    result = await itc.handle("send_email", {"to": "a@b.com"})
+
+    assert itc.upstream.calls == [("send_email", {"to": "a@b.com"})]
+    assert result is itc.upstream.result
+    assert [r["kind"] for r in records()] == ["decision", "tool_call", "tool_result"]
+
+
+async def test_approved_gated_call_advances_session_state(audit_path):
+    itc = gated(audit_path, FakeGate(True), returns(GATED))
+    await itc.handle("send_email", {"to": "a@b.com"})
+
+    snap = itc.session.snapshot()
+    assert snap.turn == 1
+    assert snap.tool_counts == {"send_email": 1}
+
+
+async def test_denied_gated_call_leaves_no_trace_in_the_session(audit_path):
+    itc = gated(audit_path, FakeGate(False), returns(GATED))
+    await itc.handle("send_email", {"to": "a@b.com"})
+
+    snap = itc.session.snapshot()
+    assert snap.turn == 0
+    assert snap.tool_counts == {}
+    assert snap.history == ()
+
+
+async def test_the_gate_is_asked_with_canonicalized_args_and_session_context(audit_path):
+    def strip_zero_width(tool, args, policy):
+        return {k: v.replace("\u200b", "") for k, v in args.items()}
+
+    gate = FakeGate(True)
+    itc = gated(audit_path, gate, returns(GATED), canonicalize=strip_zero_width, taint=DirtyTaint())
+    await itc.handle("send_email", {"to": "a@b\u200b.com"})
+    await itc.handle("send_email", {"to": "c@d.com"})
+
+    first, second = gate.requests
+    assert first.tool == "send_email"
+    assert first.args == {"to": "a@b.com"}  # the human judges what would actually run
+    assert first.rule_id == "flows.0"
+    assert first.reason == "Untrusted content in context."
+    assert first.tainted is True
+    assert first.tainted_by == ("fetch_url",)
+    assert first.turn == 0
+    assert second.turn == 1
