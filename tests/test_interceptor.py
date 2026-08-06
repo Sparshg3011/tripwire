@@ -197,7 +197,7 @@ async def test_gate_refuses_while_no_gate_is_wired(make, records):
     assert itc.upstream.calls == []
     assert result.isError
     text = result.content[0].text.lower()
-    assert "approval gates aren't wired up yet" in text
+    assert "no approval gate is configured" in text
     assert [r["kind"] for r in records()] == ["decision", "gate_unavailable"]
 
 

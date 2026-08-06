@@ -19,6 +19,15 @@ def main(argv: list[str] | None = None) -> None:
         "--upstream", required=True, help='upstream command, e.g. "npx some-server"'
     )
     p_serve.add_argument("--audit", default="tripwire-audit.jsonl", help="audit log path")
+    p_serve.add_argument(
+        "--gate",
+        choices=["none", "cli", "web"],
+        default="none",
+        help="how a human approves gated calls (default: none — gated calls are refused)",
+    )
+    p_serve.add_argument(
+        "--gate-port", type=int, default=8642, help="port for --gate web (127.0.0.1 only)"
+    )
 
     p_validate = sub.add_parser("validate", help="check a policy file")
     p_validate.add_argument("policy")
@@ -50,13 +59,15 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
     elif args.command == "serve":
+        from tripwire.gate import GateUnavailable
         from tripwire.proxy import UpstreamError, serve
 
         try:
-            anyio.run(serve, args.policy, args.upstream, args.audit)
-        except (PolicyError, UpstreamError, AuditWriteError) as e:
-            # bad policy, dead upstream, nowhere to write the log: all
-            # three mean we can't do the job, so we don't pretend to
+            anyio.run(serve, args.policy, args.upstream, args.audit, args.gate, args.gate_port)
+        except (PolicyError, UpstreamError, AuditWriteError, GateUnavailable) as e:
+            # bad policy, dead upstream, nowhere to write the log, or a
+            # gate that can't run here: we can't do the job, so we don't
+            # pretend to
             print(f"tripwire: refusing to start: {e}", file=sys.stderr)
             sys.exit(2)
         except KeyboardInterrupt:

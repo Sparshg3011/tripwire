@@ -15,12 +15,12 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Mapping
-from dataclasses import replace
 from typing import Any
 
 import anyio
 from mcp import types
 
+from tripwire.gate import ApprovalGate, ApprovalRequest
 from tripwire.policy.canonical import canonicalize as real_canonicalize
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
@@ -64,6 +64,7 @@ class Interceptor:
         audit: AuditLog,
         upstream: Upstream,
         session: SessionState,
+        gate: ApprovalGate | None = None,
         canonicalize=real_canonicalize,
         evaluate=real_evaluate,
     ):
@@ -71,6 +72,7 @@ class Interceptor:
         self.audit = audit
         self.upstream = upstream
         self.session = session
+        self.gate = gate
         self.canonicalize = canonicalize
         self.evaluate = evaluate
         self._lock = anyio.Lock()
@@ -110,17 +112,16 @@ class Interceptor:
             },
         )
 
-        # shadow mode evaluates everything and stops nothing; that is the
-        # entire point of it, including when the verdict is a block.
-        if not verdict.shadow and verdict.decision != "allow":
+        # shadow mode evaluates everything and stops nothing — and that
+        # includes not dragging a human out of their day for a gate that
+        # wouldn't have gated
+        if not verdict.shadow:
+            if verdict.decision == "block":
+                return _refused(verdict.reason, verdict.rule_id)
             if verdict.decision == "gate":
-                verdict = replace(
-                    verdict,
-                    reason=f"{verdict.reason} Approval gates aren't wired up yet, "
-                    f"so this call is refused rather than guessed at.",
-                )
-                self.audit.append("gate_unavailable", {"tool": name, "rule": verdict.rule_id})
-            return _refused(verdict.reason, verdict.rule_id)
+                approved, why = await self._ask_human(name, args, verdict, snapshot)
+                if not approved:
+                    return _refused(f"{verdict.reason} {why}", verdict.rule_id)
 
         self.audit.append("tool_call", {"tool": name, "args": args})
         try:
@@ -149,6 +150,66 @@ class Interceptor:
         self.audit.append("tool_result", {"tool": name, "is_error": bool(result.isError)})
         self._remember(name, args, is_error=bool(result.isError))
         return result
+
+    async def _ask_human(
+        self, name: str, args: Mapping[str, Any], verdict: Verdict, snapshot: SessionSnapshot
+    ) -> tuple[bool, str]:
+        """One question, one answer, and only "yes" is a yes. A timeout,
+        a crashed gate, or no gate at all air on the side the firewall
+        always airs on.
+
+        Note what holding the session lock through this means: while a
+        human thinks, the session queues. That's not an accident — later
+        calls must be judged against a world where this call either
+        happened or didn't, and that isn't known until the human says.
+        """
+        if self.gate is None:
+            self.audit.append("gate_unavailable", {"tool": name, "rule": verdict.rule_id})
+            return False, (
+                "A human needs to approve this call, but no approval gate is "
+                "configured (start tripwire with --gate cli or --gate web)."
+            )
+
+        request = ApprovalRequest(
+            tool=name,
+            args=args,
+            rule_id=verdict.rule_id,
+            reason=verdict.reason,
+            tainted=snapshot.tainted,
+            tainted_by=self._taint_trail(),
+            turn=snapshot.turn,
+        )
+        timeout = self.policy.defaults.gate_timeout_seconds
+        self.audit.append(
+            "gate_requested", {"tool": name, "rule": verdict.rule_id, "timeout": timeout}
+        )
+
+        answer = None
+        try:
+            with anyio.move_on_after(timeout):
+                answer = await self.gate.request(request)
+        except AuditWriteError:
+            raise
+        except Exception as e:
+            self.audit.append("gate_error", {"tool": name, "error": _describe(e)})
+            return False, f"The approval gate failed ({_describe(e)}), so the call is refused."
+
+        if answer is True:
+            self.audit.append("gate_approved", {"tool": name, "rule": verdict.rule_id})
+            return True, ""
+        if answer is None:
+            self.audit.append("gate_timeout", {"tool": name, "seconds": timeout})
+            return False, f"No human answered within {timeout}s."
+        self.audit.append("gate_denied", {"tool": name, "rule": verdict.rule_id})
+        return False, "A human reviewed this call and denied it."
+
+    def _taint_trail(self) -> tuple[str, ...]:
+        # display context for the human, not enforcement — if the tracker
+        # can't say, the human just sees less history
+        try:
+            return tuple(self.session.taint.tainted_by)
+        except Exception:
+            return ()
 
     def _remember(self, name: str, args: Mapping[str, Any], is_error: bool) -> None:
         """Book-keeping for a call that has already happened.
