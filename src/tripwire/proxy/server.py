@@ -7,12 +7,14 @@ through the interceptor instead of the tool.
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
+from tripwire.gate import ApprovalGate, CliGate, WebGate
 from tripwire.policy import load_policy
 from tripwire.proxy.interceptor import Interceptor
 from tripwire.proxy.upstream import Upstream
@@ -39,11 +41,27 @@ def build_server(interceptor: Interceptor) -> Server:
     return server
 
 
-async def serve(policy_path: str | Path, upstream_cmd: str, audit_path: str | Path) -> None:
-    # All three of these raise on problems, and that's the point:
-    # bad policy / dead upstream / unwritable log = refuse to start.
+async def serve(
+    policy_path: str | Path,
+    upstream_cmd: str,
+    audit_path: str | Path,
+    gate_mode: str = "none",
+    gate_port: int = 8642,
+) -> None:
+    # Everything here raises on problems, and that's the point: bad
+    # policy / dead upstream / unwritable log / unreachable gate =
+    # refuse to start.
     policy = load_policy(policy_path)
     audit = AuditLog(audit_path)
+
+    gate: ApprovalGate | None = None
+    if gate_mode == "cli":
+        gate = CliGate()
+    elif gate_mode == "web":
+        gate = WebGate(port=gate_port)
+        # stdout is the MCP wire; stderr is the operator's console
+        print(f"tripwire: approvals at {gate.url}", file=sys.stderr, flush=True)
+
     upstream = Upstream(upstream_cmd)
     await upstream.start()
 
@@ -53,14 +71,17 @@ async def serve(policy_path: str | Path, upstream_cmd: str, audit_path: str | Pa
             "upstream": upstream_cmd,
             "tools": [t.name for t in upstream.tools],
             "enforce": policy.enforce,
+            "gate": gate_mode,
         },
     )
 
     session = SessionState(policy)
-    server = build_server(Interceptor(policy, audit, upstream, session))
+    server = build_server(Interceptor(policy, audit, upstream, session, gate=gate))
     try:
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())
     finally:
         audit.append("proxy_stop", {})
         await upstream.aclose()
+        if isinstance(gate, (CliGate, WebGate)):
+            gate.close()
