@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import anyio
 
-from tripwire.gate.base import ApprovalRequest
+from tripwire.gate.base import ApprovalRequest, GateUnavailable
 
 POLL_SECONDS = 0.2
 
@@ -44,12 +44,20 @@ class _Pending:
     decision: bool | None = None
 
 
+ARGS_PREVIEW = 4000  # a 200k argument shouldn't be the approval page
+
+
 class WebGate:
     def __init__(self, port: int = 8642):
         self._pending: dict[str, _Pending] = {}
         self._mutex = threading.Lock()
         self.token = secrets.token_urlsafe(16)
-        self._server = ThreadingHTTPServer(("127.0.0.1", port), _handler_for(self))
+        try:
+            self._server = ThreadingHTTPServer(("127.0.0.1", port), _handler_for(self))
+        except OSError as e:
+            # port in use, usually a second tripwire. Refuse to start
+            # rather than run with a gate nobody can reach.
+            raise GateUnavailable(f"--gate web can't listen on 127.0.0.1:{port} ({e})") from e
         self.port = self._server.server_address[1]  # resolves port=0
         threading.Thread(target=self._server.serve_forever, daemon=True).start()
 
@@ -116,6 +124,20 @@ CARD = """<div class="card">
 </div>"""
 
 
+def _token_ok(given: str, expected: str) -> bool:
+    # constant time: the token is the only thing standing between a local
+    # process and approving the agent's calls, so don't leak it a
+    # character at a time through comparison timing
+    return secrets.compare_digest(given, expected)
+
+
+def _preview(args: object) -> str:
+    text = json.dumps(dict(args), sort_keys=True, indent=2, default=str)  # type: ignore[arg-type]
+    if len(text) > ARGS_PREVIEW:
+        return f"{text[:ARGS_PREVIEW]}\n... ({len(text) - ARGS_PREVIEW} more chars)"
+    return text
+
+
 def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: object) -> None:
@@ -132,7 +154,7 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                 self.send_response(404)
                 self.end_headers()
                 return
-            if parse_qs(url.query).get("k", [""])[0] != gate.token:
+            if not _token_ok(parse_qs(url.query).get("k", [""])[0], gate.token):
                 self._forbidden()
                 return
 
@@ -148,9 +170,7 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                         tool=html.escape(req.tool),
                         turn=req.turn,
                         taint=taint,
-                        args=html.escape(
-                            json.dumps(dict(req.args), sort_keys=True, indent=2, default=str)
-                        ),
+                        args=html.escape(_preview(req.args)),
                         rule=html.escape(req.rule_id),
                         reason=html.escape(req.reason),
                         rid=html.escape(rid),
@@ -171,7 +191,7 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                 return
             length = int(self.headers.get("Content-Length") or 0)
             form = parse_qs(self.rfile.read(length).decode())
-            if form.get("k", [""])[0] != gate.token:
+            if not _token_ok(form.get("k", [""])[0], gate.token):
                 self._forbidden()
                 return
 
