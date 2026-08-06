@@ -33,6 +33,8 @@ BLOCKED_CODE = "tripwire_blocked"
 
 DECISIONS = ("allow", "block", "gate")
 
+_NO_ANSWER = object()  # distinct from any value a gate could return
+
 
 def _describe(e: BaseException) -> str:
     """Exceptions with empty messages are common (KeyError(''), plenty of
@@ -184,7 +186,10 @@ class Interceptor:
             "gate_requested", {"tool": name, "rule": verdict.rule_id, "timeout": timeout}
         )
 
-        answer = None
+        # A gate that returns None is not the same event as a gate that
+        # never returned, even though both refuse. Own sentinel, so the
+        # log says which actually happened.
+        answer: object = _NO_ANSWER
         try:
             with anyio.move_on_after(timeout):
                 answer = await self.gate.request(request)
@@ -197,9 +202,13 @@ class Interceptor:
         if answer is True:
             self.audit.append("gate_approved", {"tool": name, "rule": verdict.rule_id})
             return True, ""
-        if answer is None:
+        if answer is _NO_ANSWER:
             self.audit.append("gate_timeout", {"tool": name, "seconds": timeout})
             return False, f"No human answered within {timeout}s."
+        if answer is not False:
+            # the gate answered, but not with a yes or a no
+            self.audit.append("gate_error", {"tool": name, "error": f"gate returned {answer!r}"})
+            return False, "The approval gate gave an unusable answer, so the call is refused."
         self.audit.append("gate_denied", {"tool": name, "rule": verdict.rule_id})
         return False, "A human reviewed this call and denied it."
 
