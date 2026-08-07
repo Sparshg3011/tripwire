@@ -67,3 +67,7 @@ extend-select = ["I"]
 # error anywhere in the policy engine has to become a block rather than
 # a traceback — that is invariant 1, not an oversight.
 "src/tripwire/proxy/interceptor.py" = ["BLE001"]
+# replay runs the same policy engine over recorded traffic and reports
+# what it would have decided. A candidate policy that makes the engine
+# throw is a real answer — "this one would have blocked" — not a crash.
+"src/tripwire/replay.py" = ["BLE001"]
