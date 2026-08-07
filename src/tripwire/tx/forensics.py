@@ -94,6 +94,7 @@ def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
             current = Step(
                 turn=data.get("turn", 0),
                 tool=data.get("tool", "?"),
+                args=data.get("args", {}) or {},
                 decision=data.get("decision", "?"),
                 rule=data.get("rule", "?"),
                 reason=data.get("reason", ""),
