@@ -81,7 +81,9 @@ class Summary:
     benign_runs: int = 0
     benign_completed: int = 0
     gate_prompts: int = 0
-    by_family: dict[str, tuple[int, int]] = field(default_factory=dict)  # family -> (succeeded, total)
+    by_family: dict[str, tuple[int, int]] = field(
+        default_factory=dict
+    )  # family -> (succeeded, total)
 
     @property
     def attack_success_rate(self) -> float:
