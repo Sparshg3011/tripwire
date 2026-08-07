@@ -14,10 +14,14 @@ import io
 import json
 import os
 import select
-import termios
 import time
 
 import anyio
+
+try:
+    import termios
+except ImportError:  # windows: there is no controlling terminal to ask
+    termios = None  # type: ignore[assignment]
 
 from tripwire.gate.base import ApprovalRequest, GateUnavailable
 
@@ -37,6 +41,11 @@ def _flatten(text: str) -> str:
 class CliGate:
     def __init__(self, tty_path: str = "/dev/tty", timeout: float = 120.0):
         self.timeout = timeout
+        if termios is None:
+            raise GateUnavailable(
+                "--gate cli needs a POSIX terminal, which this platform "
+                "doesn't have; use --gate web"
+            )
         try:
             # Binary + unbuffered under a TextIOWrapper, because text mode
             # "r+" builds a BufferedRandom, which demands a seekable
