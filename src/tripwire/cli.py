@@ -19,6 +19,24 @@ from tripwire.tx import (
 )
 
 
+def check_chain(path: str) -> None:
+    """Say so, loudly, before showing anyone a log as evidence.
+
+    trace and report read a log and tell a story about it. If the chain
+    is broken, that story may be the attacker's, so it can't be printed
+    without the warning attached — a forensic tool that quietly renders
+    tampered input is worse than one that doesn't exist.
+    """
+    result = verify_log(path)
+    if not result.ok:
+        print(
+            f"WARNING: {path} fails its integrity check at line {result.bad_line} "
+            f"({result.why}). Everything below is UNVERIFIED and may have been "
+            f"altered. Run `tripwire verify` for detail.\n",
+            file=sys.stderr,
+        )
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tripwire", description="MCP firewall for AI agents")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -81,6 +99,7 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
     elif args.command == "trace":
+        check_chain(args.log)
         try:
             records = read_records(args.log)
         except LogError as e:
@@ -104,6 +123,7 @@ def main(argv: list[str] | None = None) -> None:
         print(format_trace(trace(records, session_id), session_id))
 
     elif args.command == "report":
+        check_chain(args.log)
         try:
             records = read_records(args.log)
         except LogError as e:
@@ -114,6 +134,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "replay":
         from tripwire.replay import format_replay, replay
 
+        check_chain(args.log)
         try:
             records = read_records(args.log)
             candidate = load_policy(args.policy)
