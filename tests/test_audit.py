@@ -117,3 +117,26 @@ def test_empty_log_verifies(tmp_path):
     path.touch()
     result = verify_log(path)
     assert result.ok and result.records == 0
+
+
+def test_only_one_writer_at_a_time(tmp_path):
+    # two proxies on one log would each cache the chain head at startup
+    # and then build on a stale hash, shredding the chain for both
+    first = AuditLog(tmp_path / "audit.jsonl", session_id="a")
+    with pytest.raises(AuditWriteError, match="already writing"):
+        AuditLog(tmp_path / "audit.jsonl", session_id="b")
+
+    first.close()
+    second = AuditLog(tmp_path / "audit.jsonl", session_id="b")
+    second.append("proxy_start", {})
+    second.close()
+    assert verify_log(tmp_path / "audit.jsonl").ok
+
+
+def test_records_carry_their_session(tmp_path):
+    log = AuditLog(tmp_path / "audit.jsonl", session_id="deadbeef")
+    log.append("decision", {"tool": "add"})
+    log.close()
+
+    record = json.loads((tmp_path / "audit.jsonl").read_text())
+    assert record["session"] == "deadbeef"

@@ -15,14 +15,14 @@ halt: no audit record, no side effect.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 GENESIS = "0" * 64
 
@@ -31,6 +31,28 @@ Redactor = Callable[[dict[str, Any]], dict[str, Any]]
 
 class AuditWriteError(Exception):
     pass
+
+
+def _lock_exclusive(fh: IO[str]) -> None:
+    """Take a non-blocking exclusive lock, whichever way this OS offers.
+
+    Raises OSError if someone else already holds it. Written per-platform
+    rather than with fcntl at import time, because fcntl doesn't exist on
+    Windows and importing tripwire has to work everywhere the agent runs.
+    """
+    if sys.platform == "win32":
+        import msvcrt
+
+        # windows locks byte ranges, not files; one byte at the start is
+        # enough to make a second writer fail
+        fh.seek(0)
+        msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
+        fh.seek(0, 2)
+        return
+
+    import fcntl
+
+    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
 
 
 def _hash_line(line: str) -> str:
@@ -68,7 +90,7 @@ class AuditLog:
         # and only discovered later by someone trying to use it as
         # evidence. Better to refuse the second process outright.
         try:
-            fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _lock_exclusive(self._fh)
         except OSError as e:
             self._fh.close()
             raise AuditWriteError(
