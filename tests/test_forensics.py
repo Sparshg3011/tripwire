@@ -341,8 +341,8 @@ def test_long_arguments_are_truncated(log_path):
 
     out = format_trace(trace(read_records(log_path), "s1"), "s1")
     args_line = next(line for line in out.splitlines() if "args" in line)
-    assert "more)" in args_line
-    assert len(args_line) < 200
+    assert "more chars)" in args_line
+    assert len(args_line) < 300
 
 
 def test_a_session_with_no_calls_says_so():
@@ -490,9 +490,11 @@ def test_format_report_renders_every_nonzero_number(log_path):
 
     squeezed = " ".join(format_report(report(read_records(log_path))).split())
     assert "7 call(s) across 1 session(s)" in squeezed
-    assert "allowed 3" in squeezed
-    assert "blocked 2" in squeezed
-    assert "sent to a human 1" in squeezed
+    assert "allowed outright 3" in squeezed
+    assert "blocked by policy 2" in squeezed
+    # a gate verdict says a human was asked; the gate_* record says what
+    # they answered, and the report has to show both
+    assert "sent to a human 1 (approved 0, refused 1)" in squeezed
     assert "shadow mode) 1" in squeezed
     assert "untrusted content 1" in squeezed
     assert "2 tools.delete_file" in squeezed
