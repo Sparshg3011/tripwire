@@ -15,6 +15,7 @@ halt: no audit record, no side effect.
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 from collections.abc import Callable
@@ -60,6 +61,20 @@ class AuditLog:
             self._fh = open(self.path, "a", encoding="utf-8")  # noqa: SIM115
         except OSError as e:
             raise AuditWriteError(f"cannot open audit log {self.path}: {e}") from e
+
+        # One writer per log, enforced. Each writer caches the chain head
+        # at startup, so two proxies appending to one file would each
+        # build on a stale hash and shred the chain for both — silently,
+        # and only discovered later by someone trying to use it as
+        # evidence. Better to refuse the second process outright.
+        try:
+            fcntl.flock(self._fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as e:
+            self._fh.close()
+            raise AuditWriteError(
+                f"another process is already writing {self.path} ({e}); "
+                f"give each proxy its own audit log"
+            ) from e
 
     def _resume(self) -> tuple[int, str]:
         if not self.path.exists() or self.path.stat().st_size == 0:
