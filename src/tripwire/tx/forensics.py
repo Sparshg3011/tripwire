@@ -38,9 +38,17 @@ def read_records(path: str | Path) -> list[dict[str, Any]]:
         if not line.strip():
             continue
         try:
-            records.append(json.loads(line))
+            record = json.loads(line)
         except json.JSONDecodeError as e:
             raise LogError(f"{path}: line {n} is not valid json ({e})") from e
+        # `null`, `42` and `[1,2]` are all valid json and none of them is
+        # a record. Catching that here is what keeps every reader below
+        # from meeting an int where it expected a mapping.
+        if not isinstance(record, dict):
+            raise LogError(f"{path}: line {n} is json but not a record object")
+        if not isinstance(record.get("data", {}), dict):
+            raise LogError(f"{path}: line {n} has a data field that isn't an object")
+        records.append(record)
     return records
 
 
@@ -109,8 +117,11 @@ def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
             continue  # proxy_start and friends: not part of any call
 
         if kind == "tool_call":
-            current.args = data.get("args", {}) or {}
-            current.outcome = "ok"
+            current.args = data.get("args", {}) or current.args
+            # forwarded, fate unknown until a result record says otherwise.
+            # Calling this "ok" here would make a call whose outcome was
+            # never written down read exactly like a confirmed success.
+            current.outcome = "forwarded, outcome never recorded"
         elif kind == "tool_result":
             current.outcome = "error" if data.get("is_error") else "ok"
         elif kind == "tool_error":
@@ -145,6 +156,19 @@ def _gate_note(kind: str, data: dict[str, Any]) -> str:
     return kind
 
 
+def _flat(text: object) -> str:
+    """One line, printable, no exceptions.
+
+    Tool names, args and reasons all carry attacker-influenced text into
+    this report. A newline in any of them would otherwise let the
+    attacker draw extra steps into the incident report — forged evidence
+    in a log whose hash chain still verifies perfectly, because nothing
+    was tampered with: we printed exactly what was recorded.
+    """
+    s = str(text)
+    return "".join(c if c.isprintable() else f"\\x{ord(c):02x}" for c in s)
+
+
 def format_trace(steps: list[Step], session_id: str) -> str:
     if not steps:
         return f"session {session_id}: no tool calls recorded"
@@ -156,32 +180,44 @@ def format_trace(steps: list[Step], session_id: str) -> str:
         flag = mark.get(step.decision, step.decision)
         if step.shadow:
             flag = "shadow" if step.decision != "allow" else flag
-        out.append(f"  turn {step.turn:<3} {flag} {step.tool}")
-        if step.args:
-            out.append(f"      args   {_short(step.args)}")
-        out.append(f"      rule   {step.rule}")
+        out.append(f"  turn {step.turn:<3} {flag} {_flat(step.tool)}")
+        for line in _short(step.args):
+            out.append(f"      args   {line}")
+        out.append(f"      rule   {_flat(step.rule)}")
         if step.reason:
-            out.append(f"      reason {step.reason}")
+            out.append(f"      reason {_flat(step.reason)}")
         if step.shadow and step.decision != "allow":
             out.append("      NOTE   shadow mode: this ran anyway")
         for note in step.notes:
-            out.append(f"      →      {note}")
+            out.append(f"      →      {_flat(note)}")
         if step.outcome != "ok":
-            out.append(f"      result {step.outcome}")
+            out.append(f"      result {_flat(step.outcome)}")
         out.append("")
 
     tainted_at = next((s for s in steps if "this result tainted the session" in s.notes), None)
     if tainted_at is not None:
         out.append(
-            f"  untrusted content entered at turn {tainted_at.turn} via {tainted_at.tool}; "
-            f"every later verdict was decided with that in mind."
+            f"  untrusted content entered at turn {tainted_at.turn} via "
+            f"{_flat(tainted_at.tool)}; every later verdict was decided with that in mind."
         )
     return "\n".join(out)
 
 
-def _short(args: dict[str, Any], limit: int = 120) -> str:
-    text = json.dumps(args, sort_keys=True, default=str)
-    return text if len(text) <= limit else f"{text[:limit]}... ({len(text) - limit} more)"
+def _short(args: dict[str, Any], limit: int = 200) -> list[str]:
+    """One line per argument, each trimmed on its own.
+
+    Trimming the whole dict as a single blob sorts `body` before `to`
+    and then cuts — so a long enough body pushes the recipient off the
+    end, and the exfil address vanishes from the incident report. Every
+    argument gets its own budget instead.
+    """
+    lines = []
+    for key in sorted(args):
+        value = json.dumps(args[key], default=str)
+        if len(value) > limit:
+            value = f"{value[:limit]}... ({len(value) - limit} more chars)"
+        lines.append(f"{_flat(key)}={_flat(value)}")
+    return lines
 
 
 # --- report -----------------------------------------------------------
@@ -193,11 +229,26 @@ class Report:
     calls: int = 0
     allowed: int = 0
     blocked: int = 0
-    gated: int = 0
+    gated: int = 0  # calls sent to a human — not calls a human allowed
+    gate_approved: int = 0
+    gate_refused: int = 0  # denied, timed out, errored, or no gate at all
     shadow_would_block: int = 0
     by_rule: Counter[str] = field(default_factory=Counter)
     by_tool: Counter[str] = field(default_factory=Counter)
     tainted_sessions: int = 0
+
+    @property
+    def executed(self) -> int:
+        """Calls that actually reached a tool."""
+        return self.allowed + self.gate_approved + self.shadow_would_block
+
+    @property
+    def refused(self) -> int:
+        """Calls that didn't, however they were stopped."""
+        return self.blocked + self.gate_refused
+
+
+GATE_REFUSALS = ("gate_denied", "gate_timeout", "gate_error", "gate_unavailable")
 
 
 def report(records: list[dict[str, Any]]) -> Report:
@@ -209,6 +260,15 @@ def report(records: list[dict[str, Any]]) -> Report:
         data = r.get("data", {}) or {}
         if kind == "session_tainted":
             tainted.add(r.get("session", ""))
+            continue
+        # A gate verdict says a human was asked; only these say what the
+        # human answered. Counting "sent to a human" as the outcome would
+        # report a refused call as though it went through.
+        if kind == "gate_approved":
+            rep.gate_approved += 1
+            continue
+        if kind in GATE_REFUSALS:
+            rep.gate_refused += 1
             continue
         if kind != "decision":
             continue
@@ -237,9 +297,12 @@ def report(records: list[dict[str, Any]]) -> Report:
 def format_report(rep: Report) -> str:
     out = [
         f"{rep.calls} call(s) across {rep.sessions} session(s)",
-        f"  allowed          {rep.allowed}",
-        f"  blocked          {rep.blocked}",
-        f"  sent to a human  {rep.gated}",
+        f"  allowed outright   {rep.allowed}",
+        f"  blocked by policy  {rep.blocked}",
+        (
+            f"  sent to a human    {rep.gated}"
+            f"  (approved {rep.gate_approved}, refused {rep.gate_refused})"
+        ),
     ]
     if rep.shadow_would_block:
         out.append(f"  WOULD have been stopped (shadow mode)  {rep.shadow_would_block}")
