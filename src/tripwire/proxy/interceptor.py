@@ -105,6 +105,10 @@ class Interceptor:
             "decision",
             {
                 "tool": name,
+                # the args go here, not just on the forward: a refused
+                # call is exactly the one whose arguments you want to
+                # read afterwards, and it never gets a tool_call record
+                "args": args,
                 "decision": verdict.decision,
                 "rule": verdict.rule_id,
                 "reason": verdict.reason,
