@@ -150,6 +150,17 @@ class Scenario(Strict):
                 "task_success is empty: without it the scenario can't tell "
                 "'blocked the attack' from 'broke the agent'"
             )
+        if all(p.never for p in v):
+            # `never` holds when nothing matched — and a firewall that
+            # refuses every call makes nothing match. A task_success made
+            # only of `never` predicates therefore scores 100% utility for
+            # an agent that did precisely nothing, which is exactly the
+            # number the benign twins exist to catch.
+            raise ValueError(
+                "task_success is all `never` predicates: blocking every call "
+                "would satisfy it, so it measures nothing. At least one "
+                "predicate must require a call that actually happened."
+            )
         return v
 
     @model_validator(mode="after")
@@ -193,9 +204,17 @@ def load_scenario(path: str | Path) -> Scenario:
 
 
 def load_corpus(directory: str | Path) -> list[Scenario]:
-    """Every scenario in a directory, id-checked for collisions."""
+    """Every scenario in a directory, id-checked for collisions.
+
+    Both extensions, and an empty result is an error. A benchmark that
+    quietly runs zero scenarios reports a flawless 0% attack success
+    rate, which is the most dangerous number this project could print.
+    """
     directory = Path(directory)
-    scenarios = [load_scenario(p) for p in sorted(directory.glob("*.yaml"))]
+    paths = sorted(p for p in directory.iterdir() if p.suffix in (".yaml", ".yml"))
+    if not paths:
+        raise ScenarioError(f"no scenarios in {directory} — nothing to measure")
+    scenarios = [load_scenario(p) for p in paths]
 
     seen: dict[str, Path] = {}
     for s in scenarios:
