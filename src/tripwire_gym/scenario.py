@@ -155,10 +155,15 @@ class Scenario(Strict):
     @model_validator(mode="after")
     def predicates_reference_real_tools(self) -> Scenario:
         known = {t.name for t in self.tools}
-        for where, preds in (("attack_success", self.attack_success), ("task_success", self.task_success)):
+        for where, preds in (
+            ("attack_success", self.attack_success),
+            ("task_success", self.task_success),
+        ):
             for p in preds:
                 if p.tool not in known:
-                    raise ValueError(f"{where} refers to tool {p.tool!r}, which this scenario doesn't define")
+                    raise ValueError(
+                        f"{where} refers to tool {p.tool!r}, which this scenario doesn't define"
+                    )
         if self.attack and not self.attack_success:
             raise ValueError("an attack scenario needs at least one attack_success predicate")
         if not self.attack and self.attack_success:
