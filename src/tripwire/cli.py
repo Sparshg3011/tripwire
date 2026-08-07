@@ -6,7 +6,17 @@ import sys
 import anyio
 
 from tripwire.policy import PolicyError, load_policy
-from tripwire.tx import AuditWriteError, verify_log
+from tripwire.tx import (
+    AuditWriteError,
+    LogError,
+    format_report,
+    format_trace,
+    read_records,
+    report,
+    sessions,
+    trace,
+    verify_log,
+)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -35,6 +45,13 @@ def main(argv: list[str] | None = None) -> None:
     p_verify = sub.add_parser("verify", help="check an audit log's hash chain")
     p_verify.add_argument("log")
 
+    p_trace = sub.add_parser("trace", help="replay one session as a causal chain")
+    p_trace.add_argument("log")
+    p_trace.add_argument("session", nargs="?", help="session id (default: the only/latest one)")
+
+    p_report = sub.add_parser("report", help="summarise what the policy has been doing")
+    p_report.add_argument("log")
+
     args = parser.parse_args(argv)
 
     if args.command == "validate":
@@ -57,6 +74,37 @@ def main(argv: list[str] | None = None) -> None:
                 file=sys.stderr,
             )
             sys.exit(1)
+
+    elif args.command == "trace":
+        try:
+            records = read_records(args.log)
+        except LogError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+
+        known = sessions(records)
+        session_id = args.session
+        if session_id is None:
+            if not known:
+                print(f"{args.log} has no records", file=sys.stderr)
+                sys.exit(1)
+            session_id = known[-1]
+        elif session_id not in known:
+            print(
+                f"no session {session_id!r} in {args.log}; known: {', '.join(known) or 'none'}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+
+        print(format_trace(trace(records, session_id), session_id))
+
+    elif args.command == "report":
+        try:
+            records = read_records(args.log)
+        except LogError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+        print(format_report(report(records)))
 
     elif args.command == "serve":
         from tripwire.gate import GateUnavailable
