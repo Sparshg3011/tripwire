@@ -52,6 +52,11 @@ def main(argv: list[str] | None = None) -> None:
     p_report = sub.add_parser("report", help="summarise what the policy has been doing")
     p_report.add_argument("log")
 
+    p_replay = sub.add_parser("replay", help="re-judge recorded traffic under a candidate policy")
+    p_replay.add_argument("log")
+    p_replay.add_argument("--policy", required=True, help="the candidate policy to try")
+    p_replay.add_argument("session", nargs="?", help="session id (default: every session)")
+
     args = parser.parse_args(argv)
 
     if args.command == "validate":
@@ -105,6 +110,21 @@ def main(argv: list[str] | None = None) -> None:
             print(e, file=sys.stderr)
             sys.exit(1)
         print(format_report(report(records)))
+
+    elif args.command == "replay":
+        from tripwire.replay import format_replay, replay
+
+        try:
+            records = read_records(args.log)
+            candidate = load_policy(args.policy)
+        except (LogError, PolicyError) as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+
+        wanted = [args.session] if args.session else sessions(records)
+        for sid in wanted:
+            print(format_replay(replay(records, sid, candidate), args.policy))
+            print()
 
     elif args.command == "serve":
         from tripwire.gate import GateUnavailable
