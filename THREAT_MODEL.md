@@ -81,11 +81,34 @@ form and sending another would make the check theatre. The cost: tools
 receive a lightly rewritten string, which is why the rewrites are
 small, enumerated, and tested.
 
-**The audit chain does not detect tail truncation.** Deleting the last
-k lines leaves a prefix that still verifies. Fixing this needs an
-external anchor (a periodically published head hash); v0.1 documents it
-instead of pretending. Rewriting or removing anything *before* the tail
-is detected.
+**The audit chain does not protect the tail.** Two related gaps, both
+inherent to a chain with no external anchor:
+
+- Deleting the last k lines leaves a prefix that still verifies.
+- The **final** record is covered by no other record's hash, so its
+  contents can be rewritten and the chain still verifies. Only when a
+  later record is appended does the previous one become fixed.
+
+So the log is tamper-evident for everything except its own end. Fixing
+that needs an anchor outside the file — a periodically published head
+hash, or a second append-only sink. v0.1 documents it rather than
+pretending. Rewriting or removing anything before the tail is detected
+and located exactly.
+
+**One writer per audit log, enforced.** Each writer caches the chain
+head when it opens the file, so two proxies appending to one log would
+each build on a stale hash and shred the chain for both — silently,
+discovered only by whoever later tried to use it as evidence. The
+second process now fails to take an exclusive lock and refuses to
+start. Give every proxy its own log.
+
+**Forensic output is escaped, not trusted.** Tool names, arguments and
+reasons are all partly attacker-authored and all get printed by
+`tripwire trace`. Unprintable characters are escaped so injected
+newlines can't draw extra steps into an incident report — forged
+evidence in a log whose hash chain verifies perfectly, because nothing
+was tampered with. `trace`, `report` and `replay` also check the chain
+before printing and say loudly when it's broken.
 
 **The tx ledger trusts a tool's own error report.** A result flagged
 `isError` clears its intent row so transient failures stay retryable. A
