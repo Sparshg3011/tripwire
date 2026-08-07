@@ -53,7 +53,10 @@ async def serve(
     # policy / dead upstream / unwritable log / unreachable gate =
     # refuse to start.
     policy = load_policy(policy_path)
-    session_id = secrets.token_hex(4)
+    # 64 bits, not 32: sessions from one log get traced by id, and two
+    # runs colliding would splice two unrelated incidents into one
+    # convincing-looking causal chain
+    session_id = secrets.token_hex(8)
     audit = AuditLog(audit_path, session_id=session_id)
 
     gate: ApprovalGate | None = None
