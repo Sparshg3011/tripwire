@@ -228,12 +228,26 @@ class Interceptor:
         a retry and a second one. Instead the session is marked broken,
         which makes every later call fail closed — contained, not hidden.
         """
+        was_tainted = self._tainted_now()
         try:
             self.session.record(name, args)
             self.session.observe_result(name, is_error=is_error)
         except Exception as e:
             self.session.broken = f"lost track of the session after {name}: {_describe(e)}"
             self.audit.append("state_error", {"tool": name, "error": _describe(e)})
+            return
+
+        # The moment untrusted content entered is the first line of any
+        # incident report, and it's only visible here — one turn later
+        # every verdict just says "tainted: true" with no cause.
+        if not was_tainted and self._tainted_now():
+            self.audit.append("session_tainted", {"tool": name})
+
+    def _tainted_now(self) -> bool:
+        try:
+            return bool(self.session.taint.tainted)
+        except Exception:
+            return False
 
     def _decide(
         self, name: str, arguments: dict
