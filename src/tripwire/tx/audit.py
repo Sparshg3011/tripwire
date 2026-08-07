@@ -50,8 +50,9 @@ class AuditLog:
     never touches disk.
     """
 
-    def __init__(self, path: str | Path, redact: Redactor | None = None):
+    def __init__(self, path: str | Path, session_id: str = "", redact: Redactor | None = None):
         self.path = Path(path)
+        self.session_id = session_id
         self._redact = redact
         self._seq, self._prev = self._resume()
         try:
@@ -90,6 +91,9 @@ class AuditLog:
             "seq": self._seq,
             "ts": datetime.now(UTC).isoformat(),
             "prev": self._prev,
+            # one log file can hold many runs, and an incident is always
+            # about one of them
+            "session": self.session_id,
             "kind": kind,
             "data": data,
         }

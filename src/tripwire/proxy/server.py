@@ -7,6 +7,7 @@ through the interceptor instead of the tool.
 
 from __future__ import annotations
 
+import secrets
 import sys
 from pathlib import Path
 
@@ -52,7 +53,8 @@ async def serve(
     # policy / dead upstream / unwritable log / unreachable gate =
     # refuse to start.
     policy = load_policy(policy_path)
-    audit = AuditLog(audit_path)
+    session_id = secrets.token_hex(4)
+    audit = AuditLog(audit_path, session_id=session_id)
 
     gate: ApprovalGate | None = None
     if gate_mode == "cli":
@@ -61,6 +63,8 @@ async def serve(
         gate = WebGate(port=gate_port)
         # stdout is the MCP wire; stderr is the operator's console
         print(f"tripwire: approvals at {gate.url}", file=sys.stderr, flush=True)
+
+    print(f"tripwire: session {session_id}", file=sys.stderr, flush=True)
 
     upstream = Upstream(upstream_cmd)
     await upstream.start()
