@@ -134,17 +134,30 @@ bugs into security wins is worse than no harness.
 Written down because a benchmark that hides its own weaknesses is an
 advertisement.
 
-**No human is simulated at the gate.** The runner starts the proxy
-without `--gate`, so a `require_approval` verdict is refused rather than
-asked. That makes the `strict` tier's utility a *lower bound* — every
-gated call that a real operator would have approved counts as a
-refusal — and it pins the gate-prompt column at zero. It also means the
-`gate_social_engineering` family can't yet be scored for what it's
-actually about: whether injected content can talk a human into
-approving. Fixing this needs the runner to drive the real web gate and
-answer it on a policy (always approve / always deny / approve unless
-tainted), and until it does, treat strict's utility number as
-pessimistic and the gate column as unmeasured.
+**The human at the gate is bracketed, not modelled.** A gate's
+effectiveness depends on somebody outside the software, and you can't
+put a real person in a hundred-run matrix. Rather than invent one
+plausible operator, the runner drives the real web gate with `--human
+approve` (says yes to everything) and `--human deny` (says no to
+everything) and reports both:
+
+```bash
+python -m tripwire_gym --human approve   # upper bound on utility
+python -m tripwire_gym --human deny      # lower bound
+```
+
+A real operator lives between those two, so the truth is inside the
+interval — and **the width of the interval is itself a finding**: it is
+exactly how much of tripwire's protection is being delegated to a
+human's attention. A tier whose two numbers are far apart is a tier
+that depends on somebody reading carefully.
+
+What this still doesn't measure: whether injected content can *talk* a
+human into approving. Neither extreme reads the request, so the
+`gate_social_engineering` family is scored on whether a gate fires at
+all, not on whether a person could be talked past it. That needs human
+subjects, and it is out of scope for a benchmark that has to run a
+hundred times.
 
 **Defended and undefended runs record slightly different arguments.**
 Tripwire forwards the *canonicalized* form of an argument upstream —
