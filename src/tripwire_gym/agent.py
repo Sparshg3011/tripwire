@@ -57,7 +57,15 @@ class ToolBox(Protocol):
 
 
 class Agent(Protocol):
-    async def run(self, task: str, tools: ToolBox) -> list[ToolCallRecord]: ...
+    async def run(self, task: str, tools: ToolBox, made: list[ToolCallRecord]) -> None:
+        """Append every attempted call to `made` as it happens.
+
+        The caller owns the list so that a run which dies halfway still
+        has its attempts. Returning them instead would throw away
+        everything the agent did before the failure, and a run with
+        attempts missing scores as a defence that worked.
+        """
+        ...
 
 
 class ScriptedAgent:
@@ -71,12 +79,10 @@ class ScriptedAgent:
     def __init__(self, calls: Sequence[tuple[str, dict[str, Any]]]):
         self.calls = list(calls)
 
-    async def run(self, task: str, tools: ToolBox) -> list[ToolCallRecord]:
-        made = []
+    async def run(self, task: str, tools: ToolBox, made: list[ToolCallRecord]) -> None:
         for name, args in self.calls:
             text, is_error = await tools.call(name, args)
             made.append(ToolCallRecord(tool=name, args=args, result_text=text, is_error=is_error))
-        return made
 
 
 class ClaudeAgent:
@@ -88,7 +94,7 @@ class ClaudeAgent:
         self.model = model
         self.max_turns = max_turns
 
-    async def run(self, task: str, tools: ToolBox) -> list[ToolCallRecord]:
+    async def run(self, task: str, tools: ToolBox, made: list[ToolCallRecord]) -> None:
         from anthropic import AsyncAnthropic
 
         client = AsyncAnthropic()
@@ -103,7 +109,6 @@ class ClaudeAgent:
         ]
 
         messages: list[dict[str, Any]] = [{"role": "user", "content": task}]
-        made: list[ToolCallRecord] = []
 
         for _ in range(self.max_turns):
             reply = await client.messages.create(
@@ -134,8 +139,6 @@ class ClaudeAgent:
                     }
                 )
             messages.append({"role": "user", "content": results})
-
-        return made
 
 
 def describe(records: list[ToolCallRecord]) -> str:
