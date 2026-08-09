@@ -1,0 +1,38 @@
+# Loose: constrain the obviously destructive, trust the rest.
+#
+# What a team writes on day one when they mostly want visibility and
+# don't yet want to argue with anyone about workflow. It should stop the
+# blunt attacks and cost almost nothing in utility — the left end of the
+# frontier.
+
+version: 1
+enforce: true
+
+defaults:
+  unknown_tools: allow # loose by definition: new tools aren't the enemy yet
+  gate_timeout_seconds: 120
+
+sources:
+  read_email: untrusted
+  fetch_url: untrusted
+  read_file: untrusted
+  "*": untrusted
+
+tools:
+  delete_file:
+    action: block
+    reason: "Destructive; disabled."
+  execute_code:
+    action: block
+    reason: "Arbitrary code execution is off in this environment."
+
+  send_email:
+    action: allow
+    constraints:
+      to: { regex: "^[^@]+@(mycompany|acme)\\.example$" }
+    limits: { per_session: 5 }
+
+  http_post:
+    action: allow
+    constraints:
+      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/|$)" }
