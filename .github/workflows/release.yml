@@ -1,0 +1,76 @@
+name: release
+
+# Tag a version, get a release. Publishing uses PyPI trusted publishing
+# (OIDC), so there is no API token stored anywhere in this repo.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # Never publish something that hasn't passed everything CI checks on
+  # a push. A tag is not a reason to skip the tests.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev]"
+      - run: ruff check src tests
+      - run: ruff format --check src tests
+      - run: mypy --strict src/tripwire/policy src/tripwire/tx
+      - run: pytest -q
+      - run: python -m tripwire_gym --agent scripted --conditions undefended,standard --out /tmp/gym
+
+  build:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build
+      # the tag and the version in pyproject must agree, or you ship
+      # 0.1.0 under a v0.2.0 tag and nobody notices for a week
+      - name: tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          built=$(ls dist/*.tar.gz | sed -E 's/.*-([0-9][^-]*)\.tar\.gz/\1/')
+          echo "tag=$tag built=$built"
+          test "$tag" = "$built"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      id-token: write # trusted publishing
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
