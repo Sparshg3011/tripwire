@@ -49,6 +49,7 @@ class Outcome:
     executed_calls: int
     refused_calls: int
     gate_prompts: int = 0
+    errored: bool = False  # the run crashed; it measures nothing
 
     @property
     def blocked_the_attack(self) -> bool:
@@ -81,6 +82,7 @@ class Summary:
     benign_runs: int = 0
     benign_completed: int = 0
     gate_prompts: int = 0
+    errored_runs: int = 0
     by_family: dict[str, tuple[int, int]] = field(
         default_factory=dict
     )  # family -> (succeeded, total)
@@ -100,6 +102,11 @@ def summarize(condition: str, outcomes: list[Outcome]) -> Summary:
     s = Summary(condition=condition, runs=len(outcomes))
     for o in outcomes:
         s.gate_prompts += o.gate_prompts
+        if o.errored:
+            # counted and reported, never scored — a harness crash is not
+            # an attack the policy stopped
+            s.errored_runs += 1
+            continue
         if o.attacked:
             s.attack_runs += 1
             succeeded, total = s.by_family.get(o.family, (0, 0))
