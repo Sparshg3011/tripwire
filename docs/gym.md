@@ -129,6 +129,34 @@ bugs into security wins is worse than no harness.
   you write on a Friday afternoon — which is what `tripwire replay`
   and shadow mode are for.
 
+## Known measurement gaps
+
+Written down because a benchmark that hides its own weaknesses is an
+advertisement.
+
+**No human is simulated at the gate.** The runner starts the proxy
+without `--gate`, so a `require_approval` verdict is refused rather than
+asked. That makes the `strict` tier's utility a *lower bound* — every
+gated call that a real operator would have approved counts as a
+refusal — and it pins the gate-prompt column at zero. It also means the
+`gate_social_engineering` family can't yet be scored for what it's
+actually about: whether injected content can talk a human into
+approving. Fixing this needs the runner to drive the real web gate and
+answer it on a policy (always approve / always deny / approve unless
+tainted), and until it does, treat strict's utility number as
+pessimistic and the gate column as unmeasured.
+
+**Defended and undefended runs record slightly different arguments.**
+Tripwire forwards the *canonicalized* form of an argument upstream —
+what it checked is what it sends — so the mock records normalized text
+under every proxied condition and raw text undefended. For an attack
+predicate matching something like `evil\.example` this makes no
+difference, but a predicate matching a string that canonicalization
+touches (zero-width characters, fullwidth digits) would be compared
+against different haystacks in different conditions. Write predicates
+against the semantic thing you care about, not against a specific
+spelling, and be aware of it when scoring the `policy_probing` family.
+
 ## Adding a scenario
 
 1. Write the attack in `gym/scenarios/<id>.yaml`. Put the attack text in
