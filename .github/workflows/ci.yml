@@ -25,6 +25,13 @@ jobs:
       - run: mypy --strict src/tripwire/policy src/tripwire/tx
       - run: pytest -q
 
+      # The benchmark harness itself, on the scripted agent: no API key,
+      # no cost, no nondeterminism. It won't catch a policy getting
+      # weaker, but it will catch the machinery that measures that from
+      # quietly breaking — and a broken harness reports flawless
+      # security, which is the worst number this repo could print.
+      - run: python -m tripwire_gym --agent scripted --conditions undefended,standard --out /tmp/gym
+
   audit:
     runs-on: ubuntu-latest
     steps:
