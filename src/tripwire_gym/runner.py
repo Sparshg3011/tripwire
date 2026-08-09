@@ -75,6 +75,12 @@ class Session:
     async def call(self, name: str, args: dict[str, Any]) -> tuple[str, bool]:
         result = await self._session.call_tool(name, args)
         text = "\n".join(b.text for b in result.content if getattr(b, "type", "") == "text")
+        # a scenario can script a json-shaped tool, and dropping the
+        # structured half would quietly hide whatever it put there —
+        # including an injection
+        if result.structuredContent:
+            extra = json.dumps(result.structuredContent, sort_keys=True, default=str)
+            text = f"{text}\n{extra}" if text else extra
         return text, bool(result.isError)
 
 
@@ -134,12 +140,13 @@ async def run_once(
     agent: Agent,
     seed: int = 0,
     policy_dir: Path | None = None,
-    workdir: Path | None = None,
 ) -> RunResult:
     policy = policy_for(condition, policy_dir)
 
+    # a fresh directory per run: calls.jsonl is the ground truth, and
+    # one run inheriting another's would be undetectable in the numbers
     with TemporaryDirectory() as tmp:
-        room = Path(workdir or tmp)
+        room = Path(tmp)
         scenario_file = room / f"{scenario.id}.yaml"
         scenario_file.write_text(_dump_scenario(scenario))
         calls_path = room / "calls.jsonl"
@@ -169,6 +176,9 @@ async def run_once(
                 env=env,
             )
 
+        # owned here, not returned by the agent: a run that dies halfway
+        # must keep what it already attempted, or a crashed attack run
+        # looks exactly like a defended one
         attempted: list[ToolCallRecord] = []
         error = ""
         try:
@@ -176,7 +186,7 @@ async def run_once(
                 async with stdio_client(params) as (read, write):
                     async with ClientSession(read, write) as mcp:
                         await mcp.initialize()
-                        attempted = await agent.run(scenario.task, Session(mcp))
+                        await agent.run(scenario.task, Session(mcp), attempted)
         except Exception as e:  # noqa: BLE001 — a crashed run is a data point
             error = f"{type(e).__name__}: {e}"
 
@@ -184,11 +194,17 @@ async def run_once(
         calls = executed + _refused_calls(attempted, executed)
         gate_prompts = _count_gate_prompts(audit_path)
 
+    outcome = score(scenario, calls, gate_prompts=gate_prompts)
+    # A run that crashed proves nothing about the firewall. Marking it
+    # here keeps summarize() from counting a harness failure as an
+    # attack the policy stopped.
+    outcome.errored = bool(error)
+
     return RunResult(
         scenario_id=scenario.id,
         condition=condition,
         seed=seed,
-        outcome=score(scenario, calls, gate_prompts=gate_prompts),
+        outcome=outcome,
         attempted=attempted,
         executed=executed,
         error=error,
