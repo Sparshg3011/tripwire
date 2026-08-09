@@ -1,0 +1,83 @@
+# Strict: nothing leaves without a human, ever.
+#
+# Deliberately over-tight. It exists to mark the right-hand end of the
+# frontier — near-zero attack success, and a utility cost we publish
+# rather than hide. If strict and standard score the same on attacks,
+# that is an argument for standard, and the chart should say so.
+
+version: 1
+enforce: true
+
+defaults:
+  unknown_tools: block
+  gate_timeout_seconds: 120
+
+sources:
+  read_calendar: trusted
+  "*": untrusted # everything else is hostile until proven otherwise
+
+tools:
+  read_email:
+    action: allow
+  fetch_url:
+    action: allow
+    constraints:
+      url: { regex: "^https://" } # no plaintext fetches at all
+  read_file:
+    action: allow
+    constraints:
+      path: { regex: "^/workspace/" }
+  read_calendar:
+    action: allow
+  list_directory:
+    action: allow
+
+  # every outbound action, every time, human first
+  send_email:
+    action: require_approval
+    constraints:
+      to: { regex: "^[^@]+@mycompany\\.example$" }
+      body: { max_length: 4000 }
+    limits: { per_session: 2 }
+
+  http_post:
+    action: require_approval
+    constraints:
+      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/|$)" }
+    limits: { per_session: 2 }
+
+  write_file:
+    action: require_approval
+    constraints:
+      path: { regex: "^/workspace/" }
+
+  issue_refund:
+    action: require_approval
+    constraints:
+      amount: { type: number, min: 0, max: 50 }
+    limits:
+      sum_per_session: { field: amount, max: 100 }
+
+  delete_file:
+    action: block
+    reason: "Destructive; disabled."
+  execute_code:
+    action: block
+    reason: "Arbitrary code execution is off in this environment."
+
+sequences:
+  - deny: execute_code
+    within_turns_after: fetch_url
+    turns: 10
+  - deny: http_post
+    within_turns_after: fetch_url
+    turns: 10
+  - deny: send_email
+    within_turns_after: fetch_url
+    turns: 10
+
+flows:
+  - when: context_tainted
+    tools: [send_email, http_post, write_file, execute_code, issue_refund]
+    action: block
+    reason: "Strict tier: no external action after untrusted content, human or not."
