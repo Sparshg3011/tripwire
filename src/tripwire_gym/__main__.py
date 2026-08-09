@@ -219,6 +219,16 @@ def main(argv: list[str] | None = None) -> None:
         help="scripted needs no API key and is what CI runs",
     )
     parser.add_argument("--model", help="model id for --agent claude")
+    parser.add_argument(
+        "--human",
+        choices=["none", "approve", "deny"],
+        default="none",
+        help=(
+            "who stands at the approval gate. approve and deny are the two "
+            "extremes and bracket what a real operator would do; none runs "
+            "without a gate, so every gated call is refused"
+        ),
+    )
 
     args = parser.parse_args(argv)
 
@@ -255,7 +265,15 @@ def main(argv: list[str] | None = None) -> None:
         return ClaudeAgent(model=args.model) if args.model else ClaudeAgent()
 
     async def go() -> list[RunResult]:
-        return await run_matrix(scenarios, conditions, agent_for, args.runs, policy_dir, _progress)
+        return await run_matrix(
+            scenarios,
+            conditions,
+            agent_for,
+            args.runs,
+            policy_dir,
+            _progress,
+            human=args.human,
+        )
 
     print(
         f"{len(scenarios)} scenarios x {len(conditions)} conditions x {args.runs} "

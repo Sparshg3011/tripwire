@@ -35,6 +35,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from tripwire_gym.agent import Agent, ToolCallRecord
+from tripwire_gym.human import Human, find_gate_url
 from tripwire_gym.scenario import Scenario
 from tripwire_gym.scoring import Call, Outcome, score
 
@@ -93,6 +94,7 @@ class RunResult:
     attempted: list[ToolCallRecord] = field(default_factory=list)
     executed: list[Call] = field(default_factory=list)
     error: str = ""
+    gate_answers: int = 0  # approvals the simulated human granted or refused
 
 
 def _executed_calls(calls_path: Path) -> list[Call]:
@@ -140,7 +142,11 @@ async def run_once(
     agent: Agent,
     seed: int = 0,
     policy_dir: Path | None = None,
+    human: str = "none",
 ) -> RunResult:
+    """`human` decides who stands at the approval gate: "approve" or
+    "deny" for the two extremes, "none" to run without a gate at all
+    (which makes every gated call a refusal)."""
     policy = policy_for(condition, policy_dir)
 
     # a fresh directory per run: calls.jsonl is the ground truth, and
@@ -155,22 +161,28 @@ async def run_once(
         mock_cmd = [sys.executable, "-m", "tripwire_gym.mock_server", str(scenario_file)]
         env = {**os.environ, "TRIPWIRE_GYM_CALLS": str(calls_path)}
 
+        gated = policy is not None and human != "none"
         if policy is None:
             params = StdioServerParameters(command=mock_cmd[0], args=mock_cmd[1:], env=env)
         else:
+            argv = [
+                "-m",
+                "tripwire",
+                "serve",
+                "--policy",
+                str(policy),
+                "--upstream",
+                shlex.join(mock_cmd),
+                "--audit",
+                str(audit_path),
+            ]
+            if gated:
+                # port 0: every run gets its own gate, so a matrix can't
+                # have two proxies fighting over one port
+                argv += ["--gate", "web", "--gate-port", "0"]
             params = StdioServerParameters(
                 command=sys.executable,
-                args=[
-                    "-m",
-                    "tripwire",
-                    "serve",
-                    "--policy",
-                    str(policy),
-                    "--upstream",
-                    shlex.join(mock_cmd),
-                    "--audit",
-                    str(audit_path),
-                ],
+                args=argv,
                 # the proxy spawns the mock itself, and the child needs
                 # the calls path — this is why Upstream takes an env
                 env=env,
@@ -181,12 +193,25 @@ async def run_once(
         # looks exactly like a defended one
         attempted: list[ToolCallRecord] = []
         error = ""
+        answered = 0
+        stderr_path = room / "proxy-stderr.log"
         try:
             with anyio.fail_after(180):
-                async with stdio_client(params) as (read, write):
-                    async with ClientSession(read, write) as mcp:
-                        await mcp.initialize()
-                        await agent.run(scenario.task, Session(mcp), attempted)
+                # one small local file, opened once at run start
+                with open(stderr_path, "w+") as errlog:  # noqa: ASYNC230
+                    async with stdio_client(params, errlog=errlog) as (read, write):
+                        async with ClientSession(read, write) as mcp:
+                            await mcp.initialize()
+                            async with anyio.create_task_group() as tg:
+                                approver = None
+                                if gated:
+                                    approver = await _start_human(tg, stderr_path, human)
+                                await agent.run(scenario.task, Session(mcp), attempted)
+                                # the agent is done, so nobody is left to
+                                # ask; without this the group waits forever
+                                tg.cancel_scope.cancel()
+                            if approver is not None:
+                                answered = approver.answered
         except Exception as e:  # noqa: BLE001 — a crashed run is a data point
             error = f"{type(e).__name__}: {e}"
 
@@ -208,7 +233,24 @@ async def run_once(
         attempted=attempted,
         executed=executed,
         error=error,
+        gate_answers=answered,
     )
+
+
+async def _start_human(tg, stderr_path: Path, answer: str) -> Human | None:
+    """Wait for the proxy to announce its gate, then stand at it.
+
+    The URL carries a per-run token and a port we didn't choose, so it
+    can only be learned by reading what the proxy printed.
+    """
+    for _ in range(50):
+        url = find_gate_url(stderr_path.read_text() if stderr_path.exists() else "")
+        if url is not None:
+            approver = Human(url, answer=answer)
+            tg.start_soon(approver.watch)
+            return approver
+        await anyio.sleep(0.1)
+    return None  # no gate appeared; gated calls will simply be refused
 
 
 def _count_gate_prompts(audit_path: Path) -> int:
@@ -234,6 +276,7 @@ async def run_matrix(
     runs: int = 1,
     policy_dir: Path | None = None,
     on_result=None,
+    human: str = "none",
 ) -> list[RunResult]:
     """Every scenario, under every condition, N times.
 
@@ -246,7 +289,12 @@ async def run_matrix(
         for condition in conditions:
             for seed in range(runs):
                 result = await run_once(
-                    scenario, condition, agent_for(scenario, condition, seed), seed, policy_dir
+                    scenario,
+                    condition,
+                    agent_for(scenario, condition, seed),
+                    seed,
+                    policy_dir,
+                    human=human,
                 )
                 results.append(result)
                 if on_result is not None:
