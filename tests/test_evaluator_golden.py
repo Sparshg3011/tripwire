@@ -3,12 +3,8 @@ examples/policy.yaml. This file is the contract: when these are green,
 the evaluator is done.
 """
 
-import pytest
-
 from tripwire.policy.evaluator import evaluate
 from tripwire.policy.types import SessionSnapshot, ToolCall
-
-pytestmark = pytest.mark.skip(reason="waiting on evaluator implementation")
 
 FRESH = SessionSnapshot()
 
