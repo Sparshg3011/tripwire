@@ -71,3 +71,6 @@ extend-select = ["I"]
 # what it would have decided. A candidate policy that makes the engine
 # throw is a real answer — "this one would have blocked" — not a crash.
 "src/tripwire/replay.py" = ["BLE001"]
+# canonicalize() is total by contract: args arrive off the wire, so a
+# value it can't walk is a value it leaves alone, never an exception.
+"src/tripwire/policy/canonical.py" = ["BLE001"]
