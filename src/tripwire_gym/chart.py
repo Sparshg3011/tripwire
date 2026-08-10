@@ -127,11 +127,15 @@ def frontier(summaries: list[Summary], path: str | Path, error_bars: bool = True
         )
         # labels on the right-hand points would run off the canvas
         outside = x > 82
+        # conditions can land on the same coordinates — shadow is supposed
+        # to sit exactly on undefended, that's what makes it a control — so
+        # stack their labels instead of printing them over each other
+        stacked = sum(1 for px, py in points if abs(px - x) < 2 and abs(py - y) < 2)
         ax.annotate(
             s.condition,
             (x, y),
             textcoords="offset points",
-            xytext=(-11, 9) if outside else (11, 9),
+            xytext=(-11, 9 - 15 * stacked) if outside else (11, 9 - 15 * stacked),
             ha="right" if outside else "left",
             fontsize=10.5,
             fontweight="semibold",
