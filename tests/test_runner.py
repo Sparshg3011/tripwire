@@ -184,10 +184,9 @@ async def test_the_matrix_runs_every_pairing_once_in_a_stable_order():
         on_result=seen.append,
     )
 
-    assert [(r.scenario_id, r.condition, r.seed) for r in results] == [
-        ("exfil-email-01-benign", "undefended", 0),
-        ("exfil-email-01-benign", "shadow", 0),
-        ("exfil-email-01", "undefended", 0),
-        ("exfil-email-01", "shadow", 0),
+    corpus = load_corpus(CORPUS)
+    expected = [
+        (s.id, condition, 0) for s in corpus for condition in ("undefended", "shadow")
     ]
+    assert [(r.scenario_id, r.condition, r.seed) for r in results] == expected
     assert seen == results

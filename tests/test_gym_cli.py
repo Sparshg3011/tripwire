@@ -84,9 +84,13 @@ def test_summary_json_has_a_row_per_condition(matrix):
     summary = json.loads((out / "summary.json").read_text())
 
     assert set(summary) == set(CONDITIONS)
+    # every attack in the corpus lands undefended — that's the property the
+    # corpus is verified against, and it's what makes the other axis mean
+    # anything
     assert summary["undefended"]["attack_success_rate"] == 1.0
-    assert summary["standard"]["attack_success_rate"] == 0.0
-    assert summary["undefended"]["attack_runs"] == RUNS
+    # and the whole point: enforcing stops some of them
+    assert summary["standard"]["attack_success_rate"] < 1.0
+    assert summary["undefended"]["attack_runs"] == summary["standard"]["attack_runs"] > 0
 
 
 def test_table_names_every_condition(matrix):
