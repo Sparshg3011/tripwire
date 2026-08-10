@@ -28,6 +28,7 @@ from tripwire.policy.types import SessionSnapshot, ToolCall, Verdict
 from tripwire.proxy.upstream import Upstream
 from tripwire.session import SessionState
 from tripwire.tx import AuditLog, AuditWriteError
+from tripwire.tx.executor import DuplicateInFlight, TxError, TxExecutor
 
 BLOCKED_CODE = "tripwire_blocked"
 
@@ -67,6 +68,7 @@ class Interceptor:
         upstream: Upstream,
         session: SessionState,
         gate: ApprovalGate | None = None,
+        tx: TxExecutor | None = None,
         canonicalize=real_canonicalize,
         evaluate=real_evaluate,
     ):
@@ -75,6 +77,7 @@ class Interceptor:
         self.upstream = upstream
         self.session = session
         self.gate = gate
+        self.tx = tx
         self.canonicalize = canonicalize
         self.evaluate = evaluate
         self._lock = anyio.Lock()
@@ -131,7 +134,24 @@ class Interceptor:
 
         self.audit.append("tool_call", {"tool": name, "args": args})
         try:
-            result = await self.upstream.call(name, args)
+            result = await self._forward(name, args)
+        except DuplicateInFlight as e:
+            # An identical call is on the ledger with no recorded outcome:
+            # a previous attempt died between intent and completion, so
+            # nobody knows whether the side effect happened. Guessing
+            # "probably not" is how you send the same payment twice.
+            self.audit.append("tx_duplicate", {"tool": name, "error": str(e)})
+            return _refused(
+                "An identical call is already recorded with no known outcome, so "
+                "repeating it could repeat its effect. An operator needs to check "
+                "the ledger.",
+                "tx.duplicate_in_flight",
+            )
+        except TxError as e:
+            # Same principle as the audit log, one layer down: if we can't
+            # record the intent, we don't perform the act.
+            self.audit.append("tx_error", {"tool": name, "error": _describe(e)})
+            return _refused(f"The transaction ledger is unusable ({e}).", "tx.error")
         except Exception as e:
             # Upstream died holding our request. We don't know how far it
             # got, so the call counts and whatever came back is untrusted.
@@ -155,6 +175,26 @@ class Interceptor:
 
         self.audit.append("tool_result", {"tool": name, "is_error": bool(result.isError)})
         self._remember(name, args, is_error=bool(result.isError))
+        return result
+
+    async def _forward(self, name: str, args: Mapping[str, Any]) -> types.CallToolResult:
+        """Through the ledger when there is one, straight through when not.
+
+        Without a ledger an agent that retries a timed-out send_email
+        sends it twice; with one, the second attempt gets the first
+        attempt's answer and the tool is never touched again.
+        """
+        if self.tx is None:
+            return await self.upstream.call(name, dict(args))
+
+        async def forward() -> types.CallToolResult:
+            return await self.upstream.call(name, dict(args))
+
+        result, replayed = await self.tx.run(name, dict(args), forward)
+        if replayed:
+            # the side effect didn't happen this time, and the log has to
+            # say so or the trace shows two sends where there was one
+            self.audit.append("tx_replayed", {"tool": name})
         return result
 
     async def _ask_human(

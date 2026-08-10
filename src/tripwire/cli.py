@@ -56,6 +56,13 @@ def main(argv: list[str] | None = None) -> None:
     p_serve.add_argument(
         "--gate-port", type=int, default=8642, help="port for --gate web (127.0.0.1 only)"
     )
+    p_serve.add_argument(
+        "--tx-db",
+        help=(
+            "sqlite ledger for idempotency; with it a retried identical call "
+            "returns the first call's result instead of running the tool twice"
+        ),
+    )
 
     p_validate = sub.add_parser("validate", help="check a policy file")
     p_validate.add_argument("policy")
@@ -150,10 +157,19 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "serve":
         from tripwire.gate import GateUnavailable
         from tripwire.proxy import UpstreamError, serve
+        from tripwire.tx.executor import TxError
 
         try:
-            anyio.run(serve, args.policy, args.upstream, args.audit, args.gate, args.gate_port)
-        except (PolicyError, UpstreamError, AuditWriteError, GateUnavailable) as e:
+            anyio.run(
+                serve,
+                args.policy,
+                args.upstream,
+                args.audit,
+                args.gate,
+                args.gate_port,
+                args.tx_db,
+            )
+        except (PolicyError, UpstreamError, AuditWriteError, GateUnavailable, TxError) as e:
             # bad policy, dead upstream, nowhere to write the log, or a
             # gate that can't run here: we can't do the job, so we don't
             # pretend to

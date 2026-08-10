@@ -21,6 +21,7 @@ from tripwire.proxy.interceptor import Interceptor
 from tripwire.proxy.upstream import Upstream
 from tripwire.session import SessionState
 from tripwire.tx import AuditLog
+from tripwire.tx.executor import TxExecutor
 
 
 def build_server(interceptor: Interceptor) -> Server:
@@ -48,6 +49,7 @@ async def serve(
     audit_path: str | Path,
     gate_mode: str = "none",
     gate_port: int = 8642,
+    tx_db: str | Path | None = None,
 ) -> None:
     # Everything here raises on problems, and that's the point: bad
     # policy / dead upstream / unwritable log / unreachable gate =
@@ -83,12 +85,15 @@ async def serve(
     )
 
     session = SessionState(policy)
-    server = build_server(Interceptor(policy, audit, upstream, session, gate=gate))
+    tx = TxExecutor(tx_db, session_id) if tx_db else None
+    server = build_server(Interceptor(policy, audit, upstream, session, gate=gate, tx=tx))
     try:
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())
     finally:
         audit.append("proxy_stop", {})
         await upstream.aclose()
+        if tx is not None:
+            tx.close()
         if isinstance(gate, (CliGate, WebGate)):
             gate.close()
