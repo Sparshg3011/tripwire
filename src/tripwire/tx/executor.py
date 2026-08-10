@@ -77,6 +77,9 @@ and make it green.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import sqlite3
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -94,20 +97,96 @@ class DuplicateInFlight(Exception):
     """This exact call is already on the ledger with no known outcome."""
 
 
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS intents (
+    key      TEXT PRIMARY KEY,
+    tool     TEXT NOT NULL,
+    state    TEXT NOT NULL,
+    result   TEXT
+)
+"""
+
+
 def intent_key(session_id: str, tool: str, args: dict[str, Any]) -> str:
     """SHA-256 hex over (session_id, tool, compact-sorted-json args)."""
-    raise NotImplementedError("intent_key not written yet — see module docstring")
+    body = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
+    # the separators are part of the key: a differently-spaced encoding
+    # of the same call has to hash the same, or dedup silently stops
+    material = f"{session_id}\x00{tool}\x00{body}"
+    return hashlib.sha256(material.encode()).hexdigest()
 
 
 class TxExecutor:
     def __init__(self, db_path: str | Path, session_id: str) -> None:
-        raise NotImplementedError("TxExecutor not written yet — see module docstring")
+        self.session_id = session_id
+        self.path = Path(db_path)
+        try:
+            self._db = sqlite3.connect(self.path, isolation_level=None)
+            # WAL so a reader (an operator inspecting the ledger) never
+            # blocks the proxy; busy_timeout so brief contention waits
+            # instead of failing the call
+            self._db.execute("PRAGMA journal_mode=WAL")
+            self._db.execute("PRAGMA busy_timeout=5000")
+            self._db.execute(SCHEMA)
+        except sqlite3.Error as e:
+            raise TxError(f"cannot open the ledger at {self.path}: {e}") from e
 
     async def run(
         self, tool: str, args: dict[str, Any], forward: Forward
     ) -> tuple[types.CallToolResult, bool]:
-        """Execute through the ledger. Returns (result, replayed)."""
-        raise NotImplementedError
+        key = intent_key(self.session_id, tool, args)
+        row = self._one("SELECT state, result FROM intents WHERE key = ?", (key,))
+
+        if row is not None:
+            state, stored = row
+            if state == "done":
+                return self._revive(stored), True
+            # in_flight: a previous attempt died between writing its
+            # intent and recording an outcome. Nobody knows whether the
+            # side effect happened, so nobody gets to guess.
+            raise DuplicateInFlight(
+                f"{tool} is already on the ledger for this session with no recorded outcome; "
+                f"inspect {self.path} before retrying"
+            )
+
+        # intent first, always: a side effect with no prior record is the
+        # one thing this class exists to prevent
+        self._write(
+            "INSERT INTO intents (key, tool, state) VALUES (?, ?, 'in_flight')", (key, tool)
+        )
+
+        result = await forward()
+
+        if result.isError:
+            # the tool says it failed, and we take its word — transient
+            # failures have to stay retryable or this strangles the agent
+            self._write("DELETE FROM intents WHERE key = ?", (key,))
+            return result, False
+
+        self._write(
+            "UPDATE intents SET state = 'done', result = ? WHERE key = ?",
+            (result.model_dump_json(), key),
+        )
+        return result, False
+
+    def _revive(self, stored: str | None) -> types.CallToolResult:
+        try:
+            return types.CallToolResult.model_validate_json(stored or "")
+        except Exception as e:
+            raise TxError(f"the ledger holds a result we can't read back: {e}") from e
+
+    def _one(self, sql: str, params: tuple[Any, ...]) -> tuple[Any, ...] | None:
+        try:
+            row: tuple[Any, ...] | None = self._db.execute(sql, params).fetchone()
+            return row
+        except sqlite3.Error as e:
+            raise TxError(f"ledger read failed: {e}") from e
+
+    def _write(self, sql: str, params: tuple[Any, ...]) -> None:
+        try:
+            self._db.execute(sql, params)
+        except sqlite3.Error as e:
+            raise TxError(f"ledger write failed: {e}") from e
 
     def close(self) -> None:
-        raise NotImplementedError
+        self._db.close()
