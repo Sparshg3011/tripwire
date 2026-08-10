@@ -25,7 +25,7 @@ tools:
   fetch_url:
     action: allow
     constraints:
-      url: { regex: "^https?://" }
+      url: { regex: "^https?://.*" }
   read_file:
     action: allow
   read_calendar:
@@ -43,13 +43,13 @@ tools:
   http_post:
     action: allow
     constraints:
-      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/|$)" }
+      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/.*)?" }
     limits: { per_session: 5 }
 
   write_file:
     action: allow
     constraints:
-      path: { regex: "^/workspace/" }
+      path: { regex: "^/workspace/.*" }
 
   issue_refund:
     action: allow
