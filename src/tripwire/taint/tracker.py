@@ -59,17 +59,28 @@ from tripwire.policy.schema import Policy
 class TaintTracker:
     def __init__(self, policy: Policy) -> None:
         self.policy = policy
+        self._tainted = False
+        self._by: list[str] = []
 
     @property
     def tainted(self) -> bool:
         """True once any untrusted result has been observed."""
-        raise NotImplementedError
+        return self._tainted
 
     @property
     def tainted_by(self) -> tuple[str, ...]:
-        """Tools that tainted the session, in call order, deduplicated."""
-        raise NotImplementedError
+        """Tools that tainted the session, in observation order."""
+        return tuple(self._by)
 
     def observe_result(self, tool: str, is_error: bool = False) -> None:
-        """Report that `tool` returned a result. Errors taint too."""
-        raise NotImplementedError
+        """Report that `tool` returned a result. Errors taint too.
+
+        is_error is accepted and ignored, deliberately: an error body
+        comes from upstream like any other, and "fetch failed: <the url
+        the attacker chose, echoed back>" carries text just fine.
+        """
+        if self.policy.source_class(tool) != "untrusted":
+            return
+        self._tainted = True
+        if tool not in self._by:
+            self._by.append(tool)

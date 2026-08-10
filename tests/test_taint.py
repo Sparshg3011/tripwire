@@ -16,8 +16,6 @@ from tripwire.policy import load_policy
 from tripwire.policy.schema import Policy
 from tripwire.taint import TaintTracker
 
-pytestmark = pytest.mark.skip(reason="waiting on TaintTracker implementation")
-
 # The property test can't use the fixture — hypothesis doesn't re-run a
 # function-scoped one per example.
 REFERENCE = load_policy(Path(__file__).parent.parent / "examples" / "policy.yaml")
