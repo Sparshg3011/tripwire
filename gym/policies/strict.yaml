@@ -22,11 +22,11 @@ tools:
   fetch_url:
     action: allow
     constraints:
-      url: { regex: "^https://" } # no plaintext fetches at all
+      url: { regex: "^https://.*" } # no plaintext fetches at all
   read_file:
     action: allow
     constraints:
-      path: { regex: "^/workspace/" }
+      path: { regex: "^/workspace/.*" }
   read_calendar:
     action: allow
   list_directory:
@@ -43,13 +43,13 @@ tools:
   http_post:
     action: require_approval
     constraints:
-      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/|$)" }
+      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/.*)?" }
     limits: { per_session: 2 }
 
   write_file:
     action: require_approval
     constraints:
-      path: { regex: "^/workspace/" }
+      path: { regex: "^/workspace/.*" }
 
   issue_refund:
     action: require_approval

@@ -35,4 +35,4 @@ tools:
   http_post:
     action: allow
     constraints:
-      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/|$)" }
+      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/.*)?" }
