@@ -10,8 +10,6 @@ from mcp import types
 
 from tripwire.tx.executor import DuplicateInFlight, TxError, TxExecutor, intent_key
 
-pytestmark = pytest.mark.skip(reason="waiting on TxExecutor implementation")
-
 
 def ok(text="ok"):
     return types.CallToolResult(content=[types.TextContent(type="text", text=text)])
