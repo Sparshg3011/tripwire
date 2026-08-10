@@ -25,6 +25,9 @@ refused to start.
 - `tripwire replay` re-judges recorded traffic under a candidate policy
 - Shadow mode: full evaluation, zero blocking
 - The gym: adversarial benchmark with a real agent, scripted toolboxes,
-  benign twins, and the security/utility frontier chart
+  benign twins, and the security/utility frontier chart. 22 attack
+  scenarios across seven families, each with a twin, each verified to
+  land undefended. The standard tier stops 91% of them at 41% benign
+  completion; both attacks that survive are named in the README.
 
 [Unreleased]: https://github.com/Sparshg3011/tripwire/commits/main
