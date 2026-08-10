@@ -105,7 +105,11 @@ def test_reference_twin_is_the_same_run_without_the_attack():
 def test_corpus_loads_and_the_twin_reference_resolves():
     by_id = {s.id: s for s in load_corpus(CORPUS)}
 
-    assert set(by_id) == {"exfil-email-01", "exfil-email-01-benign"}
+    # every attack declares a twin, and every declared twin exists
+    attacks = [s for s in by_id.values() if s.attack]
+    twins = {s.id for s in by_id.values() if not s.attack}
+    assert attacks, "a corpus with no attacks measures nothing"
+    assert all(s.benign_twin in twins for s in attacks)
     twin = by_id[by_id["exfil-email-01"].benign_twin]
     assert twin.attack is False
 

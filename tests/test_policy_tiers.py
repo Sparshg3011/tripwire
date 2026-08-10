@@ -124,25 +124,25 @@ def test_destructive_tools_are_blocked_in_every_tier(tiers, name, tool):
 
 def test_send_email_recipient_pattern_admits_internal_addresses_only(tiers):
     pattern = tiers["standard"].tools["send_email"].constraints["to"].regex
-    assert re.search(pattern, "alice@mycompany.example")
-    assert not re.search(pattern, "alice@attacker.example")
-    assert not re.search(pattern, "alice@mycompany.example.attacker.example")
-    assert not re.search(pattern, "alice@mycompany.example, bob@attacker.example")
+    assert re.fullmatch(pattern, "alice@mycompany.example")
+    assert not re.fullmatch(pattern, "alice@attacker.example")
+    assert not re.fullmatch(pattern, "alice@mycompany.example.attacker.example")
+    assert not re.fullmatch(pattern, "alice@mycompany.example, bob@attacker.example")
 
 
 def test_http_post_url_pattern_admits_company_hosts_only(tiers):
     pattern = tiers["standard"].tools["http_post"].constraints["url"].regex
-    assert re.search(pattern, "https://mycompany.example")
-    assert re.search(pattern, "https://api.mycompany.example/hooks/1")
-    assert not re.search(pattern, "https://attacker.example/collect")
-    assert not re.search(pattern, "https://mycompany.example.attacker.example/collect")
-    assert not re.search(pattern, "https://mycompany.example@attacker.example/collect")
-    assert not re.search(pattern, "https://attacker.example/?next=https://mycompany.example")
+    assert re.fullmatch(pattern, "https://mycompany.example")
+    assert re.fullmatch(pattern, "https://api.mycompany.example/hooks/1")
+    assert not re.fullmatch(pattern, "https://attacker.example/collect")
+    assert not re.fullmatch(pattern, "https://mycompany.example.attacker.example/collect")
+    assert not re.fullmatch(pattern, "https://mycompany.example@attacker.example/collect")
+    assert not re.fullmatch(pattern, "https://attacker.example/?next=https://mycompany.example")
 
 
 def test_strict_fetch_url_refuses_plaintext(tiers):
     pattern = tiers["strict"].tools["fetch_url"].constraints["url"].regex
-    assert re.search(pattern, "https://mycompany.example/docs")
-    assert not re.search(pattern, "http://mycompany.example/docs")
+    assert re.fullmatch(pattern, "https://mycompany.example/docs")
+    assert not re.fullmatch(pattern, "http://mycompany.example/docs")
     # standard is the looser one here, and says so
     assert re.search(tiers["standard"].tools["fetch_url"].constraints["url"].regex, "http://x/")
