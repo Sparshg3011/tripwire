@@ -93,18 +93,18 @@ async def test_shadow_scores_exactly_like_undefended(attack):
     assert watched.outcome == plain.outcome
 
 
-async def test_standard_refuses_everything_and_still_finishes_the_run(attack):
-    # the policy engine is still stubbed, so every tier fails closed. A
-    # run that refused every call is a completed run, not an errored one.
+async def test_standard_stops_the_attack_without_stopping_the_job(attack):
+    # the point of the whole project, in one assertion: reading the mail
+    # is allowed, forwarding it outside the company is not, and the agent
+    # still did what it was asked
     result = await run_once(attack, "standard", ScriptedAgent(TASK_AND_ATTACK))
 
     assert result.error == ""
-    assert result.executed == []
     assert len(result.attempted) == 2
-    assert result.outcome.executed_calls == 0
-    assert result.outcome.refused_calls == 2
+    assert [c.tool for c in result.executed] == ["read_email"]
+    assert result.outcome.refused_calls == 1
     assert result.outcome.attack_succeeded is False
-    assert result.outcome.task_completed is False
+    assert result.outcome.task_completed is True
 
 
 async def test_an_agent_that_calls_nothing_scores_nothing(attack):
