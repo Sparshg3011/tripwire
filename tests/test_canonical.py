@@ -13,8 +13,6 @@ from hypothesis import strategies as st
 from tripwire.policy.canonical import canonicalize
 from tripwire.policy.schema import Policy
 
-pytestmark = pytest.mark.skip(reason="waiting on canonicalize implementation")
-
 ZERO_WIDTHS = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
 
 HOST_FIELDS = ["url", "host", "hostname", "domain", "to", "recipient", "email", "address"]

@@ -86,6 +86,9 @@ line there and make it green.
 
 from __future__ import annotations
 
+import math
+import re
+import unicodedata
 from collections.abc import Mapping
 from typing import Any
 
@@ -100,5 +103,64 @@ HOST_FIELDS = frozenset(
 INVISIBLE = frozenset("\u200b\u200c\u200d\u2060\ufeff")
 
 
+# C5's idea of a number, spelled out rather than delegated to float().
+# float() also takes "1_000", "nan", "inf" and non-ascii digits that NFKC
+# doesn't fold, and none of those should quietly become numbers here.
+NUMERIC = re.compile(r"^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$")
+
+
+def _clean(text: str) -> str:
+    """C2 then C1. Order matters: removing an invisible can leave two
+    characters adjacent that then compose, and normalizing last is what
+    makes the whole function idempotent."""
+    stripped = "".join(c for c in text if c not in INVISIBLE)
+    return unicodedata.normalize("NFKC", stripped)
+
+
+def _walk(value: Any) -> Any:
+    """C1/C2 over every string anywhere in the args.
+
+    Keys are left alone — normalizing them can collide two distinct keys
+    into one and silently drop a value, which is worse than the problem
+    it would fix.
+    """
+    if isinstance(value, str):
+        return _clean(value)
+    if isinstance(value, Mapping):
+        return {k: _walk(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_walk(v) for v in value]
+    return value
+
+
+def _numeric_fields(tool: str, policy: Policy) -> set[str]:
+    rule = policy.tools.get(tool)
+    if rule is None:
+        return set()
+    return {name for name, c in rule.constraints.items() if c.type == "number"}
+
+
 def canonicalize(tool: str, args: Mapping[str, Any], policy: Policy) -> dict[str, Any]:
-    raise NotImplementedError("canonicalize not written yet — see module docstring")
+    try:
+        out = {key: _walk(value) for key, value in args.items()}
+    except Exception:
+        # Total by contract: args come off the wire, so anything at all
+        # can be in there. A value we can't walk is a value we leave.
+        out = dict(args)
+
+    numeric = _numeric_fields(tool, policy)
+    for key, value in list(out.items()):
+        # C4: host-like fields lose every trailing dot. Stripping only
+        # one would leave "corp.com.." dotted and make this non-idempotent.
+        if key in HOST_FIELDS and isinstance(value, str):
+            value = value.rstrip(".")
+            out[key] = value
+
+        # C5: a numeric string on a field the policy constrains as a
+        # number. Bools are never touched — True is not 1 here.
+        if key in numeric and isinstance(value, str) and NUMERIC.match(value.strip()):
+            parsed = float(value.strip())
+            if math.isfinite(parsed):
+                out[key] = parsed
+
+    return out
