@@ -4,14 +4,11 @@ attacker can too — and an evaluator that crashes is an evaluator that
 didn't say "block".
 """
 
-import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from tripwire.policy.evaluator import evaluate
 from tripwire.policy.types import SessionSnapshot, ToolCall, Verdict
-
-pytestmark = pytest.mark.skip(reason="waiting on evaluator implementation")
 
 KNOWN_TOOLS = ["send_email", "issue_refund", "delete_file", "execute_code", "fetch_url"]
 
