@@ -89,13 +89,39 @@ is individually legal.
 ```bash
 pip install "tripwire-agent[gym]"
 
-# smoke test the harness, no API key, no cost
-python -m tripwire_gym --agent scripted --conditions undefended,standard
-
-# the real thing
-export ANTHROPIC_API_KEY=...
-python -m tripwire_gym --runs 5 --out gym/results
+# everything at once: both brackets, charts, RESULTS.md
+./gym/run_benchmark.sh                    # scripted, free, ~3 min
+./gym/run_benchmark.sh claude 5
 ```
+
+### Which model sits in the agent seat
+
+Any of them. The harness speaks two protocols, which between them cover
+most of what people run:
+
+| agent | endpoint | notes |
+|---|---|---|
+| `scripted` | none | fixed plan, no key, no cost. What CI runs. |
+| `claude` | Anthropic | `ANTHROPIC_API_KEY` |
+| `nvidia` | `integrate.api.nvidia.com` | NVIDIA's hosted open models (Nemotron and friends). `NVIDIA_API_KEY`, free credits at build.nvidia.com |
+| `ollama` | `localhost:11434` | fully local, no key, no cost |
+| `openai` | whatever `--base-url` says | vLLM, OpenAI, Groq, Together, anything OpenAI-compatible |
+
+```bash
+./gym/run_benchmark.sh nvidia 5 nvidia/llama-3.3-nemotron-super-49b-v1
+./gym/run_benchmark.sh ollama 3 llama3.1:8b
+```
+
+**Running more than one model is a check, not a flourish.** Tripwire's
+decisions don't depend on which model is being defended, so the
+*security* number should barely move between models — while the
+*utility* number should move a lot, because a stronger model recovers
+from a refusal and a weaker one gives up. If two models disagree on the
+security axis, something is wrong with the firewall or with the
+measurement, and that is worth knowing before publishing either.
+
+Open-weight models have a second advantage for a published benchmark:
+anyone can rerun your exact numbers without an account.
 
 Results land as `results.jsonl` (one run per line) and `summary.json`
 (per-condition rates). The chart comes from those.

@@ -30,7 +30,7 @@ from pathlib import Path
 
 import anyio
 
-from tripwire_gym.agent import ClaudeAgent, ScriptedAgent
+from tripwire_gym.agent import ClaudeAgent, OpenAICompatAgent, ScriptedAgent
 from tripwire_gym.runner import CONDITIONS, GYM, GymError, RunResult, run_matrix
 from tripwire_gym.scenario import Scenario, ScenarioError, load_corpus
 from tripwire_gym.scoring import Summary, summarize
@@ -199,6 +199,32 @@ def _die(message: str) -> None:
     sys.exit(2)
 
 
+# Shortcuts for the endpoints people actually use. Everything here is
+# just an OpenAI-compatible base_url — the agent code doesn't know or
+# care which one it's talking to, which is the point: the firewall's
+# behaviour shouldn't depend on whose model is being defended.
+PROVIDERS: dict[str, dict[str, str | bool]] = {
+    "nvidia": {
+        # NVIDIA's hosted open models (Nemotron and friends). Free credits
+        # to start, and the models are open weights, so the same run can
+        # be reproduced locally by anyone who doubts it.
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "key_var": "NVIDIA_API_KEY",
+        "needs_key": True,
+        "signup": "https://build.nvidia.com",
+        "example": "nvidia/llama-3.3-nemotron-super-49b-v1",
+    },
+    "ollama": {
+        # fully local, no key, no cost — the cheapest way to get a real
+        # model into the loop instead of the scripted stand-in
+        "base_url": "http://localhost:11434/v1",
+        "key_var": "OLLAMA_API_KEY",
+        "needs_key": False,
+        "example": "llama3.1:8b",
+    },
+}
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="python -m tripwire_gym", description="run the tripwire benchmark"
@@ -214,11 +240,18 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--policy-dir", default=str(GYM / "policies"), help="policy tier yaml")
     parser.add_argument(
         "--agent",
-        choices=["claude", "scripted"],
+        choices=["claude", "openai", "scripted", *PROVIDERS],
         default="claude",
-        help="scripted needs no API key and is what CI runs",
+        help=(
+            "scripted needs no API key and is what CI runs. openai talks to any "
+            "OpenAI-compatible endpoint via --base-url; " + ", ".join(PROVIDERS) + " are "
+            "presets for that"
+        ),
     )
-    parser.add_argument("--model", help="model id for --agent claude")
+    parser.add_argument("--model", help="model id (required for openai-compatible agents)")
+    parser.add_argument(
+        "--base-url", help="OpenAI-compatible endpoint; overrides the preset for --agent"
+    )
     parser.add_argument(
         "--human",
         choices=["none", "approve", "deny"],
@@ -239,6 +272,23 @@ def main(argv: list[str] | None = None) -> None:
             "ANTHROPIC_API_KEY is not set, so --agent claude has nothing to run. "
             "Export a key, or use --agent scripted to smoke-test the harness."
         )
+
+    if args.agent in ("openai", *PROVIDERS):
+        preset = PROVIDERS.get(args.agent, {})
+        base_url = args.base_url or preset.get("base_url")
+        key_var = preset.get("key_var", "OPENAI_API_KEY")
+        if not args.model:
+            hint = f" (try --model {preset['example']})" if preset.get("example") else ""
+            _die(f"--agent {args.agent} needs --model{hint}")
+        if base_url is None and not os.environ.get(key_var):
+            _die(f"{key_var} is not set and no --base-url was given")
+        # a local server usually wants no key at all, so its absence is
+        # only fatal for the hosted presets
+        if preset.get("needs_key") and not os.environ.get(key_var):
+            _die(
+                f"{key_var} is not set, so --agent {args.agent} has nothing to run. "
+                f"Get one at {preset.get('signup', 'the provider')}."
+            )
 
     if args.runs < 1:
         _die(f"--runs {args.runs} measures nothing")
@@ -262,7 +312,14 @@ def main(argv: list[str] | None = None) -> None:
     def agent_for(scenario: Scenario, condition: str, seed: int):
         if args.agent == "scripted":
             return ScriptedAgent(scripted_calls(scenario))
-        return ClaudeAgent(model=args.model) if args.model else ClaudeAgent()
+        if args.agent == "claude":
+            return ClaudeAgent(model=args.model) if args.model else ClaudeAgent()
+        preset = PROVIDERS.get(args.agent, {})
+        return OpenAICompatAgent(
+            model=args.model,
+            base_url=args.base_url or preset.get("base_url"),
+            api_key=os.environ.get(preset.get("key_var", "OPENAI_API_KEY")),
+        )
 
     async def go() -> list[RunResult]:
         return await run_matrix(

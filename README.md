@@ -66,6 +66,14 @@ Reproduce it in about two minutes, no API key:
 ./gym/run_benchmark.sh          # regenerates every number, chart and table below
 ```
 
+Or put a real model in the agent seat — Anthropic, NVIDIA's hosted open
+models, or anything OpenAI-compatible including a local ollama:
+
+```bash
+./gym/run_benchmark.sh nvidia 5 nvidia/llama-3.3-nemotron-super-49b-v1
+./gym/run_benchmark.sh ollama 3 llama3.1:8b        # local, no key, no cost
+```
+
 **Read the shadow row first.** It scores identically to undefended,
 which is the control working: the harness is measuring the *policy*,
 not the mere presence of a proxy.

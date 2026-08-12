@@ -3,6 +3,8 @@
 #
 #   ./gym/run_benchmark.sh                 # scripted agent, free, ~3 min
 #   ./gym/run_benchmark.sh claude 5        # real model, 5 seeds per cell
+#   ./gym/run_benchmark.sh nvidia 5 nvidia/llama-3.3-nemotron-super-49b-v1
+#   ./gym/run_benchmark.sh ollama 3 llama3.1:8b        # local, no key, no cost
 #
 # Writes gym/results/{approve,deny}/ plus the charts and RESULTS.md.
 # Everything the writeup quotes comes out of this one command, so the
@@ -12,6 +14,7 @@ set -euo pipefail
 
 AGENT="${1:-scripted}"
 RUNS="${2:-1}"
+MODEL="${3:-}"
 OUT="gym/results"
 PY="${PY:-.venv/bin/python}"
 
@@ -32,11 +35,15 @@ print(f'  {len(a)} attacks + {len(c) - len(a)} twins across {len({s.family for s
 # quoting either alone picks a point on that line and hopes.
 for BRACKET in approve deny; do
   echo "==> running: agent=$AGENT runs=$RUNS human=$BRACKET"
-  $PY -m tripwire_gym \
-    --agent "$AGENT" \
-    --runs "$RUNS" \
-    --human "$BRACKET" \
-    --out "$OUT/$BRACKET"
+  # spelled out twice rather than with an array: macos ships bash 3.2,
+  # where expanding an empty array under `set -u` is a fatal error
+  if [ -n "$MODEL" ]; then
+    $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$BRACKET" \
+      --out "$OUT/$BRACKET" --model "$MODEL"
+  else
+    $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$BRACKET" \
+      --out "$OUT/$BRACKET"
+  fi
 done
 
 echo "==> charts"
@@ -60,7 +67,7 @@ write_report(
     brackets,
     "RESULTS.md",
     agent="$AGENT",
-    command="./gym/run_benchmark.sh $AGENT $RUNS",
+    command="./gym/run_benchmark.sh $AGENT $RUNS $MODEL",
 )
 print("  RESULTS.md")
 PYEOF
