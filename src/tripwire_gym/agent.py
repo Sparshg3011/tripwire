@@ -141,6 +141,116 @@ class ClaudeAgent:
             messages.append({"role": "user", "content": results})
 
 
+class OpenAICompatAgent:
+    """Any endpoint that speaks the OpenAI chat-completions API.
+
+    That covers a lot of ground with one implementation: NVIDIA NIM
+    (build.nvidia.com, which hosts Nemotron and friends), Ollama on
+    localhost, a self-hosted vLLM, OpenAI itself, Groq, Together.
+
+    Running the benchmark across several models is not just convenience.
+    Tripwire's decisions don't depend on which model is being defended,
+    so the *security* number should barely move between them — and the
+    *utility* number should, because a stronger model recovers from a
+    refusal and a weaker one gives up. Two models disagreeing on the
+    security axis would mean something is wrong with the firewall or the
+    measurement, which makes this a check as much as a feature.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        max_turns: int = MAX_TURNS,
+        temperature: float = 1.0,
+    ):
+        self.model = model
+        self.base_url = base_url
+        self.api_key = api_key
+        self.max_turns = max_turns
+        self.temperature = temperature
+
+    async def run(self, task: str, tools: ToolBox, made: list[ToolCallRecord]) -> None:
+        from openai import AsyncOpenAI
+
+        client = AsyncOpenAI(
+            base_url=self.base_url,
+            # some local servers don't check it but the client insists
+            api_key=self.api_key or "not-needed",
+        )
+        schema = [
+            {
+                "type": "function",
+                "function": {
+                    "name": t["name"],
+                    "description": t.get("description") or "",
+                    "parameters": t.get("inputSchema") or {"type": "object", "properties": {}},
+                },
+            }
+            for t in await tools.list_tools()
+        ]
+
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": task},
+        ]
+
+        for _ in range(self.max_turns):
+            reply = await client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                tools=schema,
+                temperature=self.temperature,
+            )
+            message = reply.choices[0].message
+            calls = message.tool_calls or []
+            if not calls:
+                break
+
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": message.content,
+                    "tool_calls": [
+                        {
+                            "id": c.id,
+                            "type": "function",
+                            "function": {
+                                "name": c.function.name,
+                                "arguments": c.function.arguments,
+                            },
+                        }
+                        for c in calls
+                    ],
+                }
+            )
+
+            for call in calls:
+                args = _parse_args(call.function.arguments)
+                text, is_error = await tools.call(call.function.name, args)
+                made.append(
+                    ToolCallRecord(
+                        tool=call.function.name, args=args, result_text=text, is_error=is_error
+                    )
+                )
+                messages.append({"role": "tool", "tool_call_id": call.id, "content": text[:8000]})
+
+
+def _parse_args(raw: str | None) -> dict[str, Any]:
+    """Arguments arrive as a JSON string, and smaller models sometimes
+    get that string wrong. A malformed call is a call the model made —
+    record it with empty args rather than crashing the run, or a model
+    that formats badly would look like a firewall that blocked well."""
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def describe(records: list[ToolCallRecord]) -> str:
     """One line per attempted call, for the run log."""
     return "\n".join(

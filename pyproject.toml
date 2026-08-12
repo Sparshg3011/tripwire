@@ -37,6 +37,8 @@ tripwire = "tripwire.cli:main"
 # the benchmark: a real agent, a mock toolbox, and the frontier chart
 gym = [
     "anthropic>=0.40",
+    # any OpenAI-compatible endpoint: NVIDIA NIM, ollama, vLLM, OpenAI
+    "openai>=1.40",
     "matplotlib>=3.8",
 ]
 dev = [
