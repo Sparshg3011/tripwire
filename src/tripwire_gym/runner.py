@@ -49,15 +49,23 @@ class GymError(Exception):
 
 
 def policy_for(condition: str, policy_dir: Path | None = None) -> Path | None:
-    """None means 'no proxy at all' — the undefended control."""
+    """None means 'no proxy at all' — the undefended control.
+
+    Any other name is just a policy file: `<policy_dir>/<condition>.yaml`.
+    The five named conditions are conventions, not a closed set, which is
+    what lets an ablation run each mechanism as its own condition without
+    the runner needing to know what an ablation is.
+    """
     if condition == "undefended":
         return None
     directory = policy_dir or (GYM / "policies")
-    if condition == "shadow":
-        return directory / "shadow.yaml"
-    if condition in POLICY_TIERS:
-        return directory / f"{condition}.yaml"
-    raise GymError(f"unknown condition {condition!r}; expected one of {', '.join(CONDITIONS)}")
+    candidate = directory / f"{condition}.yaml"
+    if not candidate.exists():
+        raise GymError(
+            f"no policy for condition {condition!r}: {candidate} does not exist "
+            f"(built-in conditions are {', '.join(CONDITIONS)})"
+        )
+    return candidate
 
 
 class Session:
