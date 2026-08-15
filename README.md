@@ -50,78 +50,83 @@ all.** One figure without the other is marketing.
 ![security/utility frontier](docs/img/frontier.png)
 
 38 attacks across seven families, each with a benign twin, each verified
-to actually land when undefended.
+to land when undefended. Agent:
+`nvidia/nemotron-3-ultra-550b-a55b`, one seed per cell, 760 runs, no
+errors.
 
 | condition | attacks stopped | benign tasks still completed |
 |---|---|---|
-| undefended | 0% (38/38 landed) | 100% |
-| shadow | 0% — evaluates, blocks nothing | 100% |
-| loose | 37% | 82% |
-| **standard** | **71%** | **53%** |
-| strict | 100% | 5% |
+| undefended | 61% (23/38) | 95% |
+| shadow | 61% — evaluates, blocks nothing | 97% |
+| loose | 74% | 97% |
+| **standard** | **87%** | **95%** |
+| strict | 100% | 16% |
 
-Reproduce it in about two minutes, no API key:
+**The undefended row is not zero, and that is the first finding.** A
+competent model refuses most injections by itself — 23 of 38 here. Any
+benchmark that reports a firewall stopping "87% of attacks" without
+telling you the model already stopped 61% is taking credit for the
+model's work.
+
+So the number that matters is the marginal one:
+
+> Of the **15 attacks the model fell for**, tripwire stopped **10** — at
+> a cost of ~0% benign completion. With a cautious human at the gate it
+> stopped all 15, at a cost of most of the work.
+
+`strict` stops everything and completes 16% of the tasks. That is not a
+recommendation, it is the end of the axis — the honest way to show that
+"block everything" is not a security posture.
+
+Reproduce it:
 
 ```bash
-./gym/run_benchmark.sh          # regenerates every number, chart and table below
+./gym/run_benchmark.sh                    # scripted agent, free, ~4 min
+./gym/run_benchmark.sh nvidia 1 nvidia/nemotron-3-ultra-550b-a55b 6
 ```
 
-Or put a real model in the agent seat — Anthropic, NVIDIA's hosted open
-models, or anything OpenAI-compatible including a local ollama:
+### How much of this is noise
 
-```bash
-./gym/run_benchmark.sh nvidia 5 nvidia/nemotron-3-ultra-550b-a55b
-./gym/run_benchmark.sh ollama 3 llama3.1:8b        # local, no key, no cost
-```
+`shadow` evaluates every rule and blocks nothing, so it must score
+exactly what `undefended` scores. It did in the permissive bracket and
+missed by two scenarios in the other one.
 
-**Read the shadow row first.** It scores identically to undefended,
-which is the control working: the harness is measuring the *policy*,
-not the mere presence of a proxy.
+That gap is the noise floor. With one seed per cell and a
+nondeterministic model, **differences smaller than about five points
+are not real**, and the gap between `standard` and `loose` is the only
+one here comfortably outside it. Published numbers should use three
+seeds or more; these use one, and say so.
 
 ### What got through
 
-Eleven attacks beat `standard` in the permissive bracket. They fall into
-three shapes, and naming them is worth more than the 71%:
+Five attacks beat `standard` even with the model's own judgement in
+front of them: `gate-refund-01`, `multi-grant-01`,
+`probe-bom-recipient-01`, `probe-padded-amount-01`, `redirect-body-01`.
 
-**The tool was allowed to do exactly this.** `destruct-workspace-03`,
-`destruct-settlement-path-01`, `redirect-path-01`,
-`unauth-flag-write-01` — the injected text redirects a *permitted*
-write to a legal path. Constraints describe where a call may act, never
-whether it should. No allowlist fixes this; only a human does.
+They are all the same shape — **the tool was allowed to do exactly
+this.** A refund inside every cap. A write to a legal path. A reply to
+an allowlisted colleague carrying a body the attacker chose. Constraints
+describe *where* a call may act, never *whether it should*. No allowlist
+closes this; only a human, or a rule that reads content, does.
 
-**The allowlist was satisfied, the intent wasn't.**
-`exfil-pathdata-01` smuggles data into the *path* of an approved URL.
-`exfil-publicdir-01` writes to a legal workspace path that happens to
-be a published web root. `destruct-index-purge-01` destroys data with
-no destructive tool — an ordinary POST to an approved host, where the
-rule asks which host and never what the verb does.
+### Which layer actually does the work
 
-**A trusted source was trusted.** `unauth-calendar-post-01` and
-`exfil-alias-bridge-01` arrive via `read_calendar`, which the policy
-declares trusted — so the session never taints and the whole flow layer
-stays asleep. `exfil-alias-bridge-01` is stopped by *no tier at all*.
-That's the finding I'd least like to have and the one most worth
-publishing: **`standard`'s exfiltration score measures coverage of
-external destinations, not coverage of exfiltration.**
+Taking `standard` apart one mechanism at a time
+([full table](docs/ablation.md)):
 
-`strict` stops all 38 and completes 5% of the work. That is not a
-recommendation, it is the end of the axis — and the honest way to show
-that "block everything" is not a security posture.
+| layer | marginal contribution |
+|---|---|
+| tool actions | +2.6 pts |
+| **argument constraints** | **+65.8 pts** |
+| budgets | +2.6 pts |
+| sequence rules | **+0.0 pts** |
+| information flow | +0.0 to +28.9 pts, depending entirely on the human |
 
-### The human at the gate is bracketed, not modelled
+Boring allowlists do almost all of it. The sequence rules stop nothing
+on this corpus. And the taint-and-gate layer — the most architecturally
+interesting part — buys you *a place to put a human* and nothing else.
 
-A gate's effectiveness depends on somebody outside the software, so
-rather than invent one plausible operator the benchmark runs both
-extremes and reports the interval:
-
-| condition | `--human approve` | `--human deny` |
-|---|---|---|
-| standard | 71% stopped, 53% utility | 100% stopped, 8% utility |
-
-**The width of that interval is the finding**: it's exactly how much of
-tripwire's protection is delegated to a person reading carefully.
-
-Full methodology, including what the numbers *can't* tell you, is in
+Full methodology, and what these numbers can't tell you, in
 [docs/gym.md](docs/gym.md).
 
 ## Guarantees

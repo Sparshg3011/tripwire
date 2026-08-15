@@ -144,8 +144,16 @@ Results land as `results.jsonl` (one run per line) and `summary.json`
 
 **N runs per cell.** Models are nondeterministic; a single run of a
 single scenario is an anecdote. Every scenario runs N times per
-condition (N=5 for published numbers) and the chart carries the spread
-across seeds, not just the mean.
+condition and the chart carries the spread across seeds, not just the
+mean.
+
+The `shadow` control is how you check whether N was big enough. It
+evaluates every rule and blocks nothing, so it has to score exactly what
+`undefended` scores; whatever gap appears between them is measurement
+noise and nothing else. In the published N=1 run that gap was two
+scenarios, so differences under about five points in that run are not
+real. Treat the shadow-to-undefended gap as the error bar you did not
+have to estimate.
 
 **Runs are sequential by default, and concurrency is opt-in.** Runs
 share nothing — each gets its own temp directory, its own proxy
