@@ -23,6 +23,7 @@ from tripwire_gym.analysis import (
     load_results,
     mcnemar,
     mcnemar_note,
+    model_comparison,
     report_markdown,
     variance_note,
     wilson_interval,
@@ -570,3 +571,74 @@ def test_a_bracket_without_the_control_says_what_is_missing():
     section_text = section(report_markdown({"approve": runs}), "Distinguishable from no defence")
 
     assert "no control to test against" in section_text
+
+
+# --- across models ---
+
+
+def _attack(scenario, condition, succeeded, task=True):
+    return RunResult(
+        scenario_id=scenario,
+        condition=condition,
+        seed=0,
+        outcome=Outcome(
+            scenario_id=scenario,
+            family="exfiltration",
+            attacked=True,
+            attack_succeeded=succeeded,
+            task_completed=task,
+            executed_calls=1,
+            refused_calls=0,
+        ),
+    )
+
+
+def _twin(scenario, condition, completed):
+    return RunResult(
+        scenario_id=scenario,
+        condition=condition,
+        seed=0,
+        outcome=Outcome(
+            scenario_id=scenario,
+            family="exfiltration",
+            attacked=False,
+            attack_succeeded=False,
+            task_completed=completed,
+            executed_calls=1,
+            refused_calls=0,
+        ),
+    )
+
+
+def test_model_comparison_counts_what_the_firewall_added():
+    # the model let a and b through; standard caught a, missed b
+    rows = [
+        _attack("a", "undefended", True),
+        _attack("b", "undefended", True),
+        _attack("c", "undefended", False),
+        _attack("a", "standard", False),
+        _attack("b", "standard", True),
+        _attack("c", "standard", False),
+    ]
+    out = model_comparison({"m": rows})
+
+    assert "| `m` | 33% | 67% | 1/2 |" in out
+
+
+def test_model_comparison_reports_the_utility_delta():
+    rows = [
+        _attack("a", "undefended", True),
+        _attack("a", "standard", False),
+        _twin("a-benign", "undefended", True),
+        _twin("a-benign", "standard", False),
+    ]
+    assert "-100 pts" in model_comparison({"m": rows})
+
+
+def test_a_model_that_refused_everything_has_nothing_to_catch():
+    rows = [_attack("a", "undefended", False), _attack("a", "standard", False)]
+    assert "nothing to catch" in model_comparison({"m": rows})
+
+
+def test_models_with_no_attack_runs_are_skipped():
+    assert "`empty`" not in model_comparison({"empty": [_twin("x", "undefended", True)]})
