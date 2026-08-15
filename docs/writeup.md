@@ -164,18 +164,31 @@ of your protection you've delegated to someone's attention.
 
 ## Does it depend on the model?
 
-It shouldn't — the rule engine never sees the model. Two sizes:
+It shouldn't — the rule engine never sees the model. Three of them,
+two labs, 1,368 runs:
 
 | model | model alone | with standard | firewall added |
 |---|---|---|---|
 | nemotron-3-ultra (550B) | 61% | 87% | +26 |
 | nemotron-3.5-lightning (30B) | 53% | 79% | +26 |
+| muse-glimmer (30B) | 82% | 97% | +16 |
 
-The smaller model refuses fewer attacks unaided, and the firewall adds
-the same 26 points to both. Which is the practical argument for this
-kind of defence: it matters *most* on the cheap, fast models people
-actually deploy at scale, and its contribution doesn't degrade as the
-model does.
+The first column is the story. It swings from 53% to 82% — how much each
+model refuses unaided is the biggest single term here, bigger than
+anything tripwire does, and a benchmark that omits it is billing the
+model's work to the tool.
+
+Correct for it and the rest lines up. The two nemotrons gain the same
++26 from different baselines, which is what you want from a defence that
+never sees the model. Muse gains less because it had less left to lose:
+it missed 7 attacks where the 550B missed 15. Measured against what each
+model actually let through, tripwire took back between half and
+six-sevenths, on all three.
+
+So the practical argument isn't that the firewall makes a good model
+great. It's that the cheap fast model you deploy at scale is carrying
+more residual risk, and a rule engine costs the same in front of
+either. [Full table](models.md).
 
 ## What I'd do differently
 
