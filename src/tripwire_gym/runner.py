@@ -315,6 +315,7 @@ async def run_matrix(
     on_result=None,
     human: str = "none",
     concurrency: int = 1,
+    timeout: float = RUN_TIMEOUT,
 ) -> list[RunResult]:
     """Every scenario, under every condition, N times.
 
@@ -355,6 +356,7 @@ async def run_matrix(
             seed,
             policy_dir,
             human=human,
+            timeout=timeout,
         )
 
     if concurrency == 1:
