@@ -24,13 +24,19 @@ if [ -z "${NVIDIA_API_KEY:-}" ]; then
   exit 2
 fi
 
-# Two sizes and three labs. Size varies within nvidia, so the drop between
-# those two rows is capability alone; the other two rows check that
-# nothing here is an artefact of one lab's training.
+# Two sizes and two labs. Size varies within nvidia, so the drop between
+# those two rows is capability alone; the meta row checks that nothing
+# here is an artefact of one lab's training.
+#
+# z-ai/glm-5.2 was tried and dropped. It works — no errors — but it
+# reasons at length on every turn, and a run is ten or so turns: about
+# sixteen minutes each, nineteen hours for one seed of this matrix. That
+# is a fact about long-thinking models on a multi-turn benchmark, not
+# about the model's quality, and it is worth knowing before you queue one
+# up overnight.
 MODELS="
 ultra-550b|nvidia/nemotron-3-ultra-550b-a55b
 lightning-30b|nvidia/nemotron-3.5-lightning-30b-a3b
-glm-5.2|z-ai/glm-5.2
 muse-30b|meta/muse-glimmer-30b
 "
 
