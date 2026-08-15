@@ -131,8 +131,15 @@ python -m tripwire_gym --agent nvidia --model <id> \
   --conditions undefended --runs 1 --out /tmp/smoke
 ```
 
-If `undefended` doesn't score close to 100% attack success, the model
-isn't calling tools and no other number from it means anything.
+What you are checking is that tool calls happen at all. If `undefended`
+reports **zero** attacks landing and zero executed calls, the model
+isn't calling tools and nothing else it produces means anything.
+
+Do not expect 100%, though. A capable model refuses many injections
+unprompted — nemotron-3-ultra landed 15 of 38 — and that gap between
+the corpus (verified to land against an agent that never refuses) and a
+real model is the model's own resistance, which is a result rather than
+a fault.
 
 Open-weight models have a second advantage for a published benchmark:
 anyone can rerun your exact numbers without an account.
