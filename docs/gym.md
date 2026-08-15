@@ -108,7 +108,7 @@ most of what people run:
 | `openai` | whatever `--base-url` says | vLLM, OpenAI, Groq, Together, anything OpenAI-compatible |
 
 ```bash
-./gym/run_benchmark.sh nvidia 5 nvidia/llama-3.3-nemotron-super-49b-v1
+./gym/run_benchmark.sh nvidia 5 nvidia/nemotron-3-ultra-550b-a55b
 ./gym/run_benchmark.sh ollama 3 llama3.1:8b
 ```
 
@@ -119,6 +119,20 @@ decisions don't depend on which model is being defended, so the
 from a refusal and a weaker one gives up. If two models disagree on the
 security axis, something is wrong with the firewall or with the
 measurement, and that is worth knowing before publishing either.
+
+Models on NVIDIA's endpoint that carry an **Agent** or **Agentic AI**
+label are the ones to use — the benchmark needs function calling, and a
+model without it makes zero tool calls, which reads as a firewall that
+blocked everything rather than a model that couldn't participate. The
+smoke run below catches that in a minute:
+
+```bash
+python -m tripwire_gym --agent nvidia --model <id> \
+  --conditions undefended --runs 1 --out /tmp/smoke
+```
+
+If `undefended` doesn't score close to 100% attack success, the model
+isn't calling tools and no other number from it means anything.
 
 Open-weight models have a second advantage for a published benchmark:
 anyone can rerun your exact numbers without an account.

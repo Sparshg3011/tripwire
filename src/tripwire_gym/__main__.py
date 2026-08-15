@@ -212,7 +212,7 @@ PROVIDERS: dict[str, dict[str, str | bool]] = {
         "key_var": "NVIDIA_API_KEY",
         "needs_key": True,
         "signup": "https://build.nvidia.com",
-        "example": "nvidia/llama-3.3-nemotron-super-49b-v1",
+        "example": "nvidia/nemotron-3-ultra-550b-a55b",
     },
     "ollama": {
         # fully local, no key, no cost — the cheapest way to get a real
