@@ -3,7 +3,7 @@
 #
 #   ./gym/run_benchmark.sh                 # scripted agent, free, ~3 min
 #   ./gym/run_benchmark.sh claude 5        # real model, 5 seeds per cell
-#   ./gym/run_benchmark.sh nvidia 5 nvidia/llama-3.3-nemotron-super-49b-v1
+#   ./gym/run_benchmark.sh nvidia 5 nvidia/nemotron-3-ultra-550b-a55b
 #   ./gym/run_benchmark.sh ollama 3 llama3.1:8b        # local, no key, no cost
 #
 # Writes gym/results/{approve,deny}/ plus the charts and RESULTS.md.

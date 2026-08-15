@@ -70,7 +70,7 @@ Or put a real model in the agent seat — Anthropic, NVIDIA's hosted open
 models, or anything OpenAI-compatible including a local ollama:
 
 ```bash
-./gym/run_benchmark.sh nvidia 5 nvidia/llama-3.3-nemotron-super-49b-v1
+./gym/run_benchmark.sh nvidia 5 nvidia/nemotron-3-ultra-550b-a55b
 ./gym/run_benchmark.sh ollama 3 llama3.1:8b        # local, no key, no cost
 ```
 
