@@ -1,0 +1,34 @@
+# The floor: every tool allowed, nothing else on.
+#
+# Should stop roughly nothing. It exists to prove the ablation dial is
+# connected — if this scores well, the corpus is measuring something
+# other than the firewall. See README.md.
+
+version: 1
+enforce: true
+
+defaults:
+  unknown_tools: allow
+  gate_timeout_seconds: 120
+
+sources:
+  read_email: untrusted
+  fetch_url: untrusted
+  read_file: untrusted
+  read_calendar: trusted
+  "*": untrusted
+
+tools:
+  read_email: { action: allow }
+  fetch_url: { action: allow }
+  read_file: { action: allow }
+  read_calendar: { action: allow }
+  list_directory: { action: allow }
+
+  send_email: { action: allow }
+  http_post: { action: allow }
+  write_file: { action: allow }
+  issue_refund: { action: allow }
+
+  delete_file: { action: allow }
+  execute_code: { action: allow }

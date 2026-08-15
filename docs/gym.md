@@ -147,9 +147,48 @@ single scenario is an anecdote. Every scenario runs N times per
 condition (N=5 for published numbers) and the chart carries the spread
 across seeds, not just the mean.
 
-**Runs are sequential.** They share nothing and could run in parallel,
-but a machine juggling five proxies and five model conversations starts
-measuring its own load, and this number ends up on a chart.
+**Runs are sequential by default, and concurrency is opt-in.** Runs
+share nothing — each gets its own temp directory, its own proxy
+subprocess, its own mock server, its own gate on its own port — so
+overlapping them is safe. Whether it's *wise* depends on the agent.
+
+With `--agent scripted` a run is two subprocesses and no waiting: it is
+CPU-bound, and stacking runs makes the machine measure its own load.
+That is the default, and it is what CI runs.
+
+With a real model, almost the whole run is spent waiting on an API. The
+machine is idle, and a full matrix — 38 scenarios, their twins, five
+conditions, five seeds, both brackets — is thousands of runs at roughly
+ten seconds each, which is over ten hours of mostly waiting. So:
+
+```bash
+python -m tripwire_gym --agent claude --runs 5 --concurrency 8
+./gym/run_benchmark.sh claude 5 "" 8       # same, both brackets
+```
+
+Two things this does *not* change, and one it does.
+
+It does not change what is measured. The independent variable is still
+the policy; the ground truth is still the mock's own record; results
+still come back in matrix order, so `results.jsonl` is byte-comparable
+between a sequential run and a concurrent one. `tests/test_concurrency.py`
+asserts exactly that over the real corpus, and it is the whole argument
+for turning the flag on.
+
+It does not change the sequential path. `--concurrency 1` is the same
+loop it always was, not a task group with one slot.
+
+It does change what else the machine was doing. Eight proxies, eight
+mock servers and eight conversations in flight is a different machine
+from one, and the per-run wall clock reflects that — which matters
+because each run carries a 180-second deadline and, in the gated
+brackets, a five-second budget for the proxy to announce its gate.
+Neither is close on an unloaded laptop; both get closer as concurrency
+rises. **Anyone reproducing a published number should note the
+concurrency it was produced under** — `run_benchmark.sh` writes it into
+the reproduce command in `RESULTS.md`, and the runner prints it at
+startup. If a concurrent run and a sequential one disagree, the
+concurrent one is the suspect.
 
 **Errored runs are reported, not dropped.** A run that crashed is not a
 blocked attack. The runner records the error and the CLI exits non-zero

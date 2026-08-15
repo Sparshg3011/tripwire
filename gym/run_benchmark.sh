@@ -5,6 +5,14 @@
 #   ./gym/run_benchmark.sh claude 5        # real model, 5 seeds per cell
 #   ./gym/run_benchmark.sh nvidia 5 nvidia/nemotron-3-ultra-550b-a55b
 #   ./gym/run_benchmark.sh ollama 3 llama3.1:8b        # local, no key, no cost
+#   ./gym/run_benchmark.sh claude 5 "" 8   # 8 runs in flight; hours -> under one
+#
+# The fourth argument is how many runs may be in flight at once. It
+# defaults to 1, which is what the scripted agent wants — those runs are
+# CPU-bound, and stacking them makes the machine measure its own load. A
+# real model spends its run waiting on an API, so raising it costs
+# nothing but should be written down, and is: it goes into the reproduce
+# command in RESULTS.md.
 #
 # Writes gym/results/{approve,deny}/ plus the charts and RESULTS.md.
 # Everything the writeup quotes comes out of this one command, so the
@@ -15,6 +23,7 @@ set -euo pipefail
 AGENT="${1:-scripted}"
 RUNS="${2:-1}"
 MODEL="${3:-}"
+CONCURRENCY="${4:-1}"
 OUT="gym/results"
 PY="${PY:-.venv/bin/python}"
 
@@ -34,15 +43,15 @@ print(f'  {len(a)} attacks + {len(c) - len(a)} twins across {len({s.family for s
 # maximally cooperative human and one for a maximally cautious one — and
 # quoting either alone picks a point on that line and hopes.
 for BRACKET in approve deny; do
-  echo "==> running: agent=$AGENT runs=$RUNS human=$BRACKET"
+  echo "==> running: agent=$AGENT runs=$RUNS human=$BRACKET concurrency=$CONCURRENCY"
   # spelled out twice rather than with an array: macos ships bash 3.2,
   # where expanding an empty array under `set -u` is a fatal error
   if [ -n "$MODEL" ]; then
     $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$BRACKET" \
-      --out "$OUT/$BRACKET" --model "$MODEL"
+      --concurrency "$CONCURRENCY" --out "$OUT/$BRACKET" --model "$MODEL"
   else
     $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$BRACKET" \
-      --out "$OUT/$BRACKET"
+      --concurrency "$CONCURRENCY" --out "$OUT/$BRACKET"
   fi
 done
 
@@ -59,6 +68,18 @@ print("  docs/img/families.png")
 PYEOF
 
 echo "==> report"
+# What to type to get this number again. Concurrency joins the line as
+# soon as it isn't 1 — it changes nothing about what was measured and
+# everything about what else the machine was doing while measuring it,
+# and a reader comparing two runs should be able to see which was loaded.
+# Single quotes around the model so an empty one still holds its place.
+REPRO="./gym/run_benchmark.sh $AGENT $RUNS"
+if [ "$CONCURRENCY" != "1" ]; then
+  REPRO="$REPRO '$MODEL' $CONCURRENCY"
+elif [ -n "$MODEL" ]; then
+  REPRO="$REPRO $MODEL"
+fi
+
 $PY - <<PYEOF
 from tripwire_gym.analysis import load_results, write_report
 
@@ -67,7 +88,7 @@ write_report(
     brackets,
     "RESULTS.md",
     agent="$AGENT",
-    command="./gym/run_benchmark.sh $AGENT $RUNS $MODEL",
+    command="$REPRO",
 )
 print("  RESULTS.md")
 PYEOF

@@ -1,0 +1,60 @@
+# Actions + argument constraints: the recipient allowlist, the host
+# allowlist, the workspace path prefix, the refund bound.
+#
+# No limits, sequences or flows.
+
+version: 1
+enforce: true
+
+defaults:
+  unknown_tools: block
+  gate_timeout_seconds: 120
+
+sources:
+  read_email: untrusted
+  fetch_url: untrusted
+  read_file: untrusted
+  read_calendar: trusted
+  "*": untrusted
+
+tools:
+  read_email:
+    action: allow
+  fetch_url:
+    action: allow
+    constraints:
+      url: { regex: "^https?://.*" }
+  read_file:
+    action: allow
+  read_calendar:
+    action: allow
+  list_directory:
+    action: allow
+
+  send_email:
+    action: allow
+    constraints:
+      to: { regex: "^[^@]+@mycompany\\.example$" }
+      body: { max_length: 10000 }
+
+  http_post:
+    action: allow
+    constraints:
+      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/.*)?" }
+
+  write_file:
+    action: allow
+    constraints:
+      path: { regex: "^/workspace/.*" }
+
+  issue_refund:
+    action: allow
+    constraints:
+      amount: { type: number, min: 0, max: 100 }
+
+  delete_file:
+    action: block
+    reason: "Destructive; disabled."
+  execute_code:
+    action: block
+    reason: "Arbitrary code execution is off in this environment."

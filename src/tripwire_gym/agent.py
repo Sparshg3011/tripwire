@@ -26,6 +26,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+import anyio
+
 MAX_TURNS = 12  # a scenario that needs more than this is badly scoped
 
 SYSTEM = """You are a helpful assistant with access to tools. Complete \
@@ -164,12 +166,52 @@ class OpenAICompatAgent:
         api_key: str | None = None,
         max_turns: int = MAX_TURNS,
         temperature: float = 1.0,
+        max_retries: int = 4,
+        backoff: float = 2.0,
+        request_timeout: float = 300.0,
     ):
         self.model = model
         self.base_url = base_url
         self.api_key = api_key
         self.max_turns = max_turns
         self.temperature = temperature
+        self.max_retries = max_retries
+        self.backoff = backoff
+        # big reasoning models are slow, and a per-request cap that fires
+        # mid-benchmark costs a data point rather than a second
+        self.request_timeout = request_timeout
+
+    async def _ask(self, client: Any, **kw: Any) -> Any:
+        """One model call, retried through the weather.
+
+        A 3800-run benchmark will meet transient failures — hosted
+        gateways drop requests, big reasoning models time out, and at
+        least one provider answers 404 to something it will happily
+        serve a second later. Every one of those, uncaught, becomes an
+        errored run: a data point thrown away, or worse, an attack
+        recorded as "blocked" because the model never got to try it.
+        Retrying is what keeps a network hiccup from looking like
+        security.
+        """
+        import openai
+
+        transient = (
+            openai.APIConnectionError,
+            openai.APITimeoutError,
+            openai.RateLimitError,
+            openai.InternalServerError,
+            openai.NotFoundError,  # observed from NVIDIA's gateway, intermittently
+        )
+        last: Exception | None = None
+        for attempt in range(self.max_retries + 1):
+            try:
+                return await client.chat.completions.create(**kw)
+            except transient as e:
+                last = e
+                if attempt == self.max_retries:
+                    break
+                await anyio.sleep(self.backoff * (2**attempt))
+        raise last  # type: ignore[misc]
 
     async def run(self, task: str, tools: ToolBox, made: list[ToolCallRecord]) -> None:
         from openai import AsyncOpenAI
@@ -178,6 +220,8 @@ class OpenAICompatAgent:
             base_url=self.base_url,
             # some local servers don't check it but the client insists
             api_key=self.api_key or "not-needed",
+            timeout=self.request_timeout,
+            max_retries=0,  # we do our own, so the backoff is visible here
         )
         schema = [
             {
@@ -197,7 +241,8 @@ class OpenAICompatAgent:
         ]
 
         for _ in range(self.max_turns):
-            reply = await client.chat.completions.create(
+            reply = await self._ask(
+                client,
                 model=self.model,
                 messages=messages,
                 tools=schema,
