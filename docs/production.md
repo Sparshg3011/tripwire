@@ -138,6 +138,7 @@ def redact(data):
         data["args"]["body"] = "<redacted>"
     return data
 
+
 AuditLog(path, session_id=sid, redact=redact)
 ```
 
