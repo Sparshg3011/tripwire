@@ -85,6 +85,24 @@ Reproduce it:
 ./gym/run_benchmark.sh nvidia 1 nvidia/nemotron-3-ultra-550b-a55b 6
 ```
 
+### Does it hold up on other models?
+
+The rule engine never sees the model, so it should. Three of them, two
+labs, 1,368 runs:
+
+| model | model alone | with `standard` | firewall adds |
+|---|---|---|---|
+| nemotron-3-ultra (550B) | 61% | 87% | **+26** |
+| nemotron-3.5-lightning (30B) | 53% | 79% | **+26** |
+| muse-glimmer (30B) | 82% | 97% | **+16** |
+
+How much a model refuses unaided swings from 53% to 82% — a bigger term
+than anything tripwire contributes. The two nemotrons gain the same +26
+from different baselines; muse gains less because it had less left to
+lose, missing 7 attacks where the 550B missed 15. Measured against what
+each model actually let through, tripwire took back between half and
+six-sevenths on all three. [Full table and caveats](docs/models.md).
+
 ### How much of this is noise
 
 `shadow` evaluates every rule and blocks nothing, so it must score
@@ -181,6 +199,7 @@ the log hasn't been edited).
 - [Policy language](docs/policy.md) — every rule, evaluation order, canonicalization
 - [Production](docs/production.md) — shadow → read → replay → enforce
 - [The gym](docs/gym.md) — benchmark methodology and its limits
+- [Models](docs/models.md) — the same firewall in front of three different models
 - [Writeup](docs/writeup.md) — the launch post: problem, design, and what got through
 - [Ablation](docs/ablation.md) — which layer actually stops the attacks (answer: the boring one)
 - [Threat model](THREAT_MODEL.md) — what this defends, what it doesn't, and what each choice costs
