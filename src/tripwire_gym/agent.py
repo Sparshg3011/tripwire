@@ -22,6 +22,7 @@ that works under one works under the other.
 from __future__ import annotations
 
 import json
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -166,8 +167,9 @@ class OpenAICompatAgent:
         api_key: str | None = None,
         max_turns: int = MAX_TURNS,
         temperature: float = 1.0,
-        max_retries: int = 4,
+        max_retries: int = 8,
         backoff: float = 2.0,
+        rate_limit_backoff: float = 5.0,
         request_timeout: float = 300.0,
     ):
         self.model = model
@@ -177,6 +179,7 @@ class OpenAICompatAgent:
         self.temperature = temperature
         self.max_retries = max_retries
         self.backoff = backoff
+        self.rate_limit_backoff = rate_limit_backoff
         # big reasoning models are slow, and a per-request cap that fires
         # mid-benchmark costs a data point rather than a second
         self.request_timeout = request_timeout
@@ -210,8 +213,30 @@ class OpenAICompatAgent:
                 last = e
                 if attempt == self.max_retries:
                     break
-                await anyio.sleep(self.backoff * (2**attempt))
+                await anyio.sleep(self._pause(e, attempt))
         raise last  # type: ignore[misc]
+
+    def _pause(self, e: Exception, attempt: int) -> float:
+        """How long to wait before trying again.
+
+        Rate limits get their own, much longer, ladder. A 429 means the
+        endpoint wants less traffic for a while, and the ordinary
+        few-second backoff just walks straight back into it — which is
+        how a whole benchmark ends up 38% errored. If the server said
+        when to come back, believe it.
+        """
+        import openai
+
+        after = None
+        if isinstance(e, openai.RateLimitError):
+            header = (getattr(e, "response", None) or {}) and e.response.headers.get("retry-after")
+            after = float(header) if header and str(header).replace(".", "").isdigit() else None
+            base = after if after is not None else self.rate_limit_backoff * (2**attempt)
+        else:
+            base = self.backoff * (2**attempt)
+        # jitter, so a dozen runs that were throttled together don't all
+        # come back at the same instant and throttle each other again
+        return base * random.uniform(0.7, 1.3)
 
     async def run(self, task: str, tools: ToolBox, made: list[ToolCallRecord]) -> None:
         from openai import AsyncOpenAI
