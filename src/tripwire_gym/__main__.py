@@ -31,7 +31,15 @@ from pathlib import Path
 import anyio
 
 from tripwire_gym.agent import ClaudeAgent, OpenAICompatAgent, ScriptedAgent
-from tripwire_gym.runner import CONDITIONS, GYM, GymError, RunResult, policy_for, run_matrix
+from tripwire_gym.runner import (
+    CONDITIONS,
+    GYM,
+    RUN_TIMEOUT,
+    GymError,
+    RunResult,
+    policy_for,
+    run_matrix,
+)
 from tripwire_gym.scenario import Scenario, ScenarioError, load_corpus
 from tripwire_gym.scoring import Summary, summarize
 
@@ -263,6 +271,16 @@ def main(argv: list[str] | None = None) -> None:
         "--base-url", help="OpenAI-compatible endpoint; overrides the preset for --agent"
     )
     parser.add_argument(
+        "--timeout",
+        type=float,
+        default=RUN_TIMEOUT,
+        help=(
+            "seconds one run may take before it is abandoned. A slow model "
+            "needs a longer leash — an abandoned run is a discarded data "
+            "point, not a blocked attack"
+        ),
+    )
+    parser.add_argument(
         "--human",
         choices=["none", "approve", "deny"],
         default="none",
@@ -348,6 +366,7 @@ def main(argv: list[str] | None = None) -> None:
             _progress,
             human=args.human,
             concurrency=args.concurrency,
+            timeout=args.timeout,
         )
 
     # concurrency is named in the banner even at 1, because it belongs
