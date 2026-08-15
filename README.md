@@ -176,6 +176,7 @@ the log hasn't been edited).
 - [Policy language](docs/policy.md) — every rule, evaluation order, canonicalization
 - [Production](docs/production.md) — shadow → read → replay → enforce
 - [The gym](docs/gym.md) — benchmark methodology and its limits
+- [Ablation](docs/ablation.md) — which layer actually stops the attacks (answer: the boring one)
 - [Threat model](THREAT_MODEL.md) — what this defends, what it doesn't, and what each choice costs
 
 ## Related work
