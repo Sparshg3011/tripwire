@@ -87,21 +87,26 @@ Reproduce it:
 
 ### Does it hold up on other models?
 
-The rule engine never sees the model, so it should. Three of them, two
-labs, 1,368 runs:
+The rule engine never sees the model, so it should. Four of them, three
+labs:
 
 | model | model alone | with `standard` | firewall adds |
 |---|---|---|---|
 | nemotron-3-ultra (550B) | 61% | 87% | **+26** |
 | nemotron-3.5-lightning (30B) | 53% | 79% | **+26** |
 | muse-glimmer (30B) | 82% | 97% | **+16** |
+| glm-5.2 † | 83% | 97% | **+14** |
 
-How much a model refuses unaided swings from 53% to 82% — a bigger term
+How much a model refuses unaided swings from 53% to 83% — a bigger term
 than anything tripwire contributes. The two nemotrons gain the same +26
-from different baselines; muse gains less because it had less left to
-lose, missing 7 attacks where the 550B missed 15. Measured against what
-each model actually let through, tripwire took back between half and
-six-sevenths on all three. [Full table and caveats](docs/models.md).
+from baselines eight points apart; muse and glm gain less because they
+had less left to lose, missing 7 and 6 attacks where the 550B missed 15.
+Measured against what each model actually let through, tripwire took
+back between half and six-sevenths on all four.
+
+† The GLM run dropped 7.7% of its cells to timeouts and is scored on the
+36 attacks that completed under both conditions.
+[Full table and caveats](docs/models.md).
 
 ### How much of this is noise
 

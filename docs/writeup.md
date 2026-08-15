@@ -164,31 +164,38 @@ of your protection you've delegated to someone's attention.
 
 ## Does it depend on the model?
 
-It shouldn't — the rule engine never sees the model. Three of them,
-two labs, 1,368 runs:
+It shouldn't — the rule engine never sees the model. Four of them,
+three labs:
 
 | model | model alone | with standard | firewall added |
 |---|---|---|---|
 | nemotron-3-ultra (550B) | 61% | 87% | +26 |
 | nemotron-3.5-lightning (30B) | 53% | 79% | +26 |
 | muse-glimmer (30B) | 82% | 97% | +16 |
+| glm-5.2 † | 83% | 97% | +14 |
 
-The first column is the story. It swings from 53% to 82% — how much each
+The first column is the story. It swings from 53% to 83% — how much each
 model refuses unaided is the biggest single term here, bigger than
 anything tripwire does, and a benchmark that omits it is billing the
 model's work to the tool.
 
 Correct for it and the rest lines up. The two nemotrons gain the same
-+26 from different baselines, which is what you want from a defence that
-never sees the model. Muse gains less because it had less left to lose:
-it missed 7 attacks where the 550B missed 15. Measured against what each
-model actually let through, tripwire took back between half and
-six-sevenths, on all three.
++26 from baselines eight points apart, which is what you want from a
+defence that never sees the model. Muse and glm gain less because they
+had less left to lose: 7 and 6 missed attacks against the 550B's 15. And
+the two 30B-class models from different labs land within two points of
+each other on both axes, with nothing in the setup arranging that.
+Measured against what each model let through, tripwire took back between
+half and six-sevenths, on all four.
 
 So the practical argument isn't that the firewall makes a good model
 great. It's that the cheap fast model you deploy at scale is carrying
-more residual risk, and a rule engine costs the same in front of
-either. [Full table](models.md).
+more residual risk, and a rule engine costs the same in front of either.
+
+† The GLM run lost 7.7% of its cells to timeouts — it reasons for
+minutes per turn — so it is scored on the 36 attacks that completed
+under both conditions, and its absolute rates lean slightly optimistic.
+[Full table and the rest of that caveat](models.md).
 
 ## What I'd do differently
 

@@ -28,12 +28,14 @@ fi
 # those two rows is capability alone; the meta row checks that nothing
 # here is an artefact of one lab's training.
 #
-# z-ai/glm-5.2 was tried and dropped. It works — no errors — but it
-# reasons at length on every turn, and a run is ten or so turns: about
-# sixteen minutes each, nineteen hours for one seed of this matrix. That
-# is a fact about long-thinking models on a multi-turn benchmark, not
-# about the model's quality, and it is worth knowing before you queue one
-# up overnight.
+# z-ai/glm-5.2 is deliberately not in this list. Its numbers are in
+# docs/models.md, reconstructed from a run that lost 7.9% of its cells to
+# timeouts: it reasons at length every turn, and a run is ten or so
+# turns. Rerunning it at a timeout generous enough to avoid the drops
+# costs about sixteen minutes a run — nineteen hours for one seed of this
+# matrix — so it is not something this script should start on your
+# behalf. That is a fact about long-thinking models on a multi-turn
+# benchmark rather than a judgement about the model.
 MODELS="
 ultra-550b|nvidia/nemotron-3-ultra-550b-a55b
 lightning-30b|nvidia/nemotron-3.5-lightning-30b-a3b
