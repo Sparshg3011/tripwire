@@ -31,7 +31,7 @@ from pathlib import Path
 import anyio
 
 from tripwire_gym.agent import ClaudeAgent, OpenAICompatAgent, ScriptedAgent
-from tripwire_gym.runner import CONDITIONS, GYM, GymError, RunResult, run_matrix
+from tripwire_gym.runner import CONDITIONS, GYM, GymError, RunResult, policy_for, run_matrix
 from tripwire_gym.scenario import Scenario, ScenarioError, load_corpus
 from tripwire_gym.scoring import Summary, summarize
 
@@ -294,11 +294,15 @@ def main(argv: list[str] | None = None) -> None:
         _die(f"--runs {args.runs} measures nothing")
 
     conditions = [c.strip() for c in args.conditions.split(",") if c.strip()]
-    unknown = [c for c in conditions if c not in CONDITIONS]
     if not conditions:
         _die("--conditions is empty")
-    if unknown:
-        _die(f"unknown condition(s) {', '.join(unknown)}; expected from {', '.join(CONDITIONS)}")
+    # a condition is any policy file in --policy-dir, so an ablation runs
+    # without the runner needing a new concept
+    for c in conditions:
+        try:
+            policy_for(c, Path(args.policy_dir))
+        except GymError as e:
+            _die(str(e))
 
     try:
         scenarios = load_corpus(args.scenarios)
