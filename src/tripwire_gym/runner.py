@@ -40,6 +40,11 @@ from tripwire_gym.scenario import Scenario
 from tripwire_gym.scoring import Call, Outcome, score
 
 GYM = Path(__file__).resolve().parent.parent.parent / "gym"
+
+# A whole run: proxy start, several model round trips, tool calls. Big
+# reasoning models spend minutes thinking, and a cap that fires costs a
+# data point rather than a second — so this is generous on purpose.
+RUN_TIMEOUT = 900.0
 POLICY_TIERS = ("loose", "standard", "strict")
 CONDITIONS = ("undefended", "shadow", *POLICY_TIERS)
 
@@ -105,6 +110,29 @@ class RunResult:
     gate_answers: int = 0  # approvals the simulated human granted or refused
 
 
+def _describe_failure(e: BaseException) -> str:
+    """Say what actually went wrong.
+
+    Every run happens inside a task group, so anything the agent raises
+    arrives wrapped in an ExceptionGroup whose own message is
+    "unhandled errors in a TaskGroup" — which tells whoever reads the
+    error report nothing at all. Unwrap to the leaves and name them.
+    """
+    leaves: list[str] = []
+
+    def walk(exc: BaseException) -> None:
+        inner = getattr(exc, "exceptions", None)
+        if inner:
+            for sub in inner:
+                walk(sub)
+            return
+        text = str(exc)
+        leaves.append(f"{type(exc).__name__}: {text}" if text else type(exc).__name__)
+
+    walk(e)
+    return "; ".join(dict.fromkeys(leaves)) or type(e).__name__
+
+
 def _executed_calls(calls_path: Path) -> list[Call]:
     """What the toolbox was actually asked to do."""
     if not calls_path.exists():
@@ -151,6 +179,7 @@ async def run_once(
     seed: int = 0,
     policy_dir: Path | None = None,
     human: str = "none",
+    timeout: float = RUN_TIMEOUT,
 ) -> RunResult:
     """`human` decides who stands at the approval gate: "approve" or
     "deny" for the two extremes, "none" to run without a gate at all
@@ -204,7 +233,7 @@ async def run_once(
         answered = 0
         stderr_path = room / "proxy-stderr.log"
         try:
-            with anyio.fail_after(180):
+            with anyio.fail_after(timeout):
                 # one small local file, opened once at run start
                 with open(stderr_path, "w+") as errlog:  # noqa: ASYNC230
                     async with stdio_client(params, errlog=errlog) as (read, write):
@@ -221,7 +250,7 @@ async def run_once(
                             if approver is not None:
                                 answered = approver.answered
         except Exception as e:  # noqa: BLE001 — a crashed run is a data point
-            error = f"{type(e).__name__}: {e}"
+            error = _describe_failure(e)
 
         executed = _executed_calls(calls_path)
         calls = executed + _refused_calls(attempted, executed)
@@ -285,26 +314,73 @@ async def run_matrix(
     policy_dir: Path | None = None,
     on_result=None,
     human: str = "none",
+    concurrency: int = 1,
 ) -> list[RunResult]:
     """Every scenario, under every condition, N times.
 
-    Sequential on purpose. Runs share nothing, but a machine juggling
-    five proxies and five model conversations measures its own load as
-    much as the firewall, and this number ends up on a chart.
+    Sequential by default because the scripted agent is CPU-bound: its
+    runs are two subprocesses and no waiting, so stacking them up makes
+    the machine measure its own load as much as the firewall, and this
+    number ends up on a chart.
+
+    `concurrency` is for the real-model runs, which are the opposite
+    shape. Almost all of such a run is spent waiting on an API, so the
+    machine is idle anyway and a full N=5 matrix takes ten hours it did
+    not need to. Runs share nothing — each has its own temp dir, its own
+    proxy subprocess, its own mock, its own gate port — so overlapping
+    them changes when a run happens, not what it does.
+
+    Results come back in matrix order whatever `concurrency` is: slots
+    are claimed by index before anything starts rather than appended as
+    runs finish, because results.jsonl ordering is part of reproducing a
+    published number. `on_result` still fires exactly once per run, but
+    under concurrency it fires in completion order — it is progress, and
+    progress you have to wait to sort is not progress.
     """
-    results = []
-    for scenario in scenarios:
-        for condition in conditions:
-            for seed in range(runs):
-                result = await run_once(
-                    scenario,
-                    condition,
-                    agent_for(scenario, condition, seed),
-                    seed,
-                    policy_dir,
-                    human=human,
-                )
-                results.append(result)
-                if on_result is not None:
-                    on_result(result)
-    return results
+    if concurrency < 1:
+        raise GymError(f"concurrency {concurrency} runs nothing")
+
+    cells = [
+        (scenario, condition, seed)
+        for scenario in scenarios
+        for condition in conditions
+        for seed in range(runs)
+    ]
+
+    async def go(scenario: Scenario, condition: str, seed: int) -> RunResult:
+        return await run_once(
+            scenario,
+            condition,
+            agent_for(scenario, condition, seed),
+            seed,
+            policy_dir,
+            human=human,
+        )
+
+    if concurrency == 1:
+        results = []
+        for cell in cells:
+            result = await go(*cell)
+            results.append(result)
+            if on_result is not None:
+                on_result(result)
+        return results
+
+    slots: list[RunResult | None] = [None] * len(cells)
+    limiter = anyio.CapacityLimiter(concurrency)
+
+    async def fill(index: int, cell: tuple[Scenario, str, int]) -> None:
+        async with limiter:
+            result = await go(*cell)
+        slots[index] = result
+        # outside the limiter: a slow progress callback should not hold a
+        # slot a waiting run could be using
+        if on_result is not None:
+            on_result(result)
+
+    async with anyio.create_task_group() as tg:
+        for index, cell in enumerate(cells):
+            tg.start_soon(fill, index, cell)
+
+    # the group either filled every slot or raised on the way out
+    return [r for r in slots if r is not None]

@@ -1,0 +1,73 @@
+# Everything except the information-flow rules: actions, constraints,
+# limits and the two order-of-operations rules.
+#
+# The difference between this and standard is the whole taint-and-gate
+# layer, which is the one people ask about most.
+
+version: 1
+enforce: true
+
+defaults:
+  unknown_tools: block
+  gate_timeout_seconds: 120
+
+sources:
+  read_email: untrusted
+  fetch_url: untrusted
+  read_file: untrusted
+  read_calendar: trusted
+  "*": untrusted
+
+tools:
+  read_email:
+    action: allow
+  fetch_url:
+    action: allow
+    constraints:
+      url: { regex: "^https?://.*" }
+  read_file:
+    action: allow
+  read_calendar:
+    action: allow
+  list_directory:
+    action: allow
+
+  send_email:
+    action: allow
+    constraints:
+      to: { regex: "^[^@]+@mycompany\\.example$" }
+      body: { max_length: 10000 }
+    limits: { per_session: 3 }
+
+  http_post:
+    action: allow
+    constraints:
+      url: { regex: "^https://([a-z0-9-]+\\.)?mycompany\\.example(/.*)?" }
+    limits: { per_session: 5 }
+
+  write_file:
+    action: allow
+    constraints:
+      path: { regex: "^/workspace/.*" }
+
+  issue_refund:
+    action: allow
+    constraints:
+      amount: { type: number, min: 0, max: 100 }
+    limits:
+      sum_per_session: { field: amount, max: 500 }
+
+  delete_file:
+    action: block
+    reason: "Destructive; disabled."
+  execute_code:
+    action: block
+    reason: "Arbitrary code execution is off in this environment."
+
+sequences:
+  - deny: execute_code
+    within_turns_after: fetch_url
+    turns: 3
+  - deny: http_post
+    within_turns_after: read_email
+    turns: 2

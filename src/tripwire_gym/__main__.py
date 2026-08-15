@@ -236,6 +236,16 @@ def main(argv: list[str] | None = None) -> None:
         help=f"comma separated, from: {', '.join(CONDITIONS)}",
     )
     parser.add_argument("--runs", type=int, default=1, help="runs per scenario per condition")
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help=(
+            "runs in flight at once. 1 is sequential and is what the scripted "
+            "agent wants, because its runs are CPU-bound. Raise it for a real "
+            "model, where a run is mostly waiting on the API"
+        ),
+    )
     parser.add_argument("--out", default=str(GYM / "results"), help="where the artefacts go")
     parser.add_argument("--policy-dir", default=str(GYM / "policies"), help="policy tier yaml")
     parser.add_argument(
@@ -293,6 +303,9 @@ def main(argv: list[str] | None = None) -> None:
     if args.runs < 1:
         _die(f"--runs {args.runs} measures nothing")
 
+    if args.concurrency < 1:
+        _die(f"--concurrency {args.concurrency} runs nothing")
+
     conditions = [c.strip() for c in args.conditions.split(",") if c.strip()]
     if not conditions:
         _die("--conditions is empty")
@@ -334,11 +347,16 @@ def main(argv: list[str] | None = None) -> None:
             policy_dir,
             _progress,
             human=args.human,
+            concurrency=args.concurrency,
         )
 
+    # concurrency is named in the banner even at 1, because it belongs
+    # with the numbers: it changes nothing about what is measured, and
+    # everything about what else the machine was doing at the time
     print(
         f"{len(scenarios)} scenarios x {len(conditions)} conditions x {args.runs} "
-        f"runs = {len(scenarios) * len(conditions) * args.runs} runs, agent={args.agent}",
+        f"runs = {len(scenarios) * len(conditions) * args.runs} runs, "
+        f"agent={args.agent}, concurrency={args.concurrency}",
         file=sys.stderr,
         flush=True,
     )
