@@ -15,7 +15,9 @@ from __future__ import annotations
 
 import json
 import math
+import random
 import statistics
+from collections import Counter
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
@@ -110,6 +112,13 @@ def _run_result(row: dict) -> RunResult:
         executed=[_rebuild(Call, c) for c in row.get("executed", [])],
         error=row.get("error", ""),
         gate_answers=row.get("gate_answers", 0),
+        repetition=row.get("repetition", row.get("seed")),
+        api_seed=row.get("api_seed"),
+        wall_seconds=row.get("wall_seconds", 0.0),
+        model_calls=row.get("model_calls", 0),
+        prompt_tokens=row.get("prompt_tokens", 0),
+        completion_tokens=row.get("completion_tokens", 0),
+        model_seconds=row.get("model_seconds", 0.0),
     )
 
 
@@ -174,8 +183,81 @@ class Paired:
         return self.only_a + self.only_b
 
 
+@dataclass(frozen=True)
+class ClusteredDifference:
+    """Paired rate difference with scenarios, not reruns, as the sample unit."""
+
+    clusters: int
+    estimate: float
+    low: float
+    high: float
+
+
+def _percentile(values: list[float], probability: float) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        raise ValueError("a percentile over no values is undefined")
+    position = probability * (len(ordered) - 1)
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1 - weight) + ordered[upper] * weight
+
+
+def cluster_bootstrap_difference(
+    a: list[RunResult],
+    b: list[RunResult],
+    *,
+    attacked: bool,
+    outcome: str,
+    confidence: float = 0.95,
+    draws: int = 10_000,
+    random_seed: int = 17_229,
+) -> ClusteredDifference:
+    """Estimate condition ``b - a`` while resampling whole scenarios.
+
+    Five reruns of one attack are useful for model variance, but they are
+    not five independently authored attacks. Averaging within each scenario
+    and bootstrapping scenario IDs prevents reruns from manufacturing a
+    narrow confidence interval.
+    """
+    if not 0 < confidence < 1:
+        raise ValueError("confidence must be inside (0, 1)")
+    if draws < 1:
+        raise ValueError("draws must be positive")
+
+    def rates(rows: list[RunResult]) -> dict[str, float]:
+        grouped: dict[str, list[float]] = {}
+        for row in rows:
+            if row.error or row.outcome.errored or row.outcome.attacked != attacked:
+                continue
+            value = getattr(row.outcome, outcome)
+            grouped.setdefault(row.scenario_id, []).append(float(bool(value)))
+        return {scenario: statistics.fmean(values) for scenario, values in grouped.items()}
+
+    a_rates, b_rates = rates(a), rates(b)
+    shared = sorted(a_rates.keys() & b_rates.keys())
+    if not shared:
+        raise ValueError("conditions share no matching scenarios")
+    differences = [b_rates[scenario] - a_rates[scenario] for scenario in shared]
+    estimate = statistics.fmean(differences)
+    rng = random.Random(random_seed)
+    sampled = [
+        statistics.fmean(rng.choice(differences) for _ in shared) for _ in range(draws)
+    ]
+    alpha = (1 - confidence) / 2
+    return ClusteredDifference(
+        clusters=len(shared),
+        estimate=estimate,
+        low=_percentile(sampled, alpha),
+        high=_percentile(sampled, 1 - alpha),
+    )
+
+
 def attack_stops(rows: list[RunResult]) -> dict[tuple[str, int], bool]:
-    """Attack runs as (scenario, seed) -> did this condition stop it.
+    """Attack runs as (scenario, repetition) -> did this condition stop it.
 
     Keyed by the run rather than counted, because that key is what makes
     two conditions comparable pair by pair. Errored runs are dropped here
@@ -184,7 +266,7 @@ def attack_stops(rows: list[RunResult]) -> dict[tuple[str, int], bool]:
     return {
         (r.scenario_id, r.seed): not r.outcome.attack_succeeded
         for r in rows
-        if r.outcome.attacked and not r.outcome.errored
+        if r.outcome.attacked and not r.outcome.errored and not r.error
     }
 
 
@@ -249,6 +331,36 @@ def mcnemar_note(
         f"`{b_name}` stopped {result.only_b} run(s) `{a_name}` did not, and missed "
         f"{result.only_a} that `{a_name}` stopped, over {result.pairs} shared runs; "
         f"exact McNemar {_p_value(result.p_value)}, {verdict}."
+    )
+
+
+def _has_repeated_scenarios(rows: list[RunResult], attacked: bool) -> bool:
+    counts = Counter(
+        row.scenario_id
+        for row in rows
+        if not row.error and not row.outcome.errored and row.outcome.attacked == attacked
+    )
+    return any(count > 1 for count in counts.values())
+
+
+def clustered_note(
+    a: list[RunResult],
+    b: list[RunResult],
+    a_name: str,
+    b_name: str,
+) -> str:
+    effect = cluster_bootstrap_difference(
+        a,
+        b,
+        attacked=True,
+        outcome="attack_succeeded",
+        draws=5_000,
+    )
+    return (
+        f"`{b_name}` minus `{a_name}` attack-success difference: "
+        f"{100 * effect.estimate:+.1f} points (scenario-clustered 95% CI "
+        f"{100 * effect.low:+.1f} to {100 * effect.high:+.1f}; "
+        f"{effect.clusters} paired attack scenarios)."
     )
 
 
@@ -317,13 +429,17 @@ def _headline(ordered, summaries) -> list[str]:
     for bracket, summary in ((b, summaries[b]) for b in ordered):
         blocks.append(_bracket_heading(bracket))
         rows = [
-            "| condition | attacks stopped | benign completion | gate prompts | errored runs |",
-            "|---|---|---|---|---|",
+            (
+                "| condition | attacks stopped | utility under attack | benign completion "
+                "| gate prompts | errored runs |"
+            ),
+            "|---|---|---|---|---|---|",
         ]
         for s in summary:
             rows.append(
                 f"| `{s.condition}` "
                 f"| {_rate(s.attack_runs - s.attacks_succeeded, s.attack_runs)} "
+                f"| {_rate(s.attacked_completed, s.attack_runs)} "
                 f"| {_rate(s.benign_completed, s.benign_runs)} "
                 f"| {s.gate_prompts} "
                 f"| {s.errored_runs} |"
@@ -340,9 +456,9 @@ def _headline(ordered, summaries) -> list[str]:
         "`270/380` print the same percentage and are not the same evidence. "
         "The interval covers sampling error only — how much of the rate is an "
         "accident of *which* attacks somebody happened to write — and it is not "
-        "the spread across seeds, which answers a different question and is "
+        "the spread across repetitions, which answers a different question and is "
         "reported under [Reproducing this](#reproducing-this). When a cell runs "
-        "more than one seed its runs are not independent draws either, several "
+        "more than one repetition its runs are not independent draws either, several "
         "being reruns of one scenario, so read the interval as the narrower of "
         "the two uncertainties rather than the total."
     )
@@ -369,10 +485,10 @@ def _against_the_control(ordered, summaries) -> list[str]:
             f"Every condition against `{CONTROL}`, over the same attack runs. "
             "The comparison is paired — every scenario runs under every "
             "condition, so these are two measurements of one corpus rather than "
-            "two samples, and an unpaired test would discard that and overstate "
-            "the uncertainty. McNemar's test looks only at the runs where the "
-            "two conditions disagreed, which is the only place a difference "
-            "between them can live."
+            "two samples. With one run per scenario, exact McNemar looks at the "
+            "discordant pairs. With repeated model runs, a paired cluster "
+            "bootstrap resamples whole scenarios, so five reruns of one authored "
+            "attack cannot pretend to be five independent attacks."
         ),
     ]
     for bracket in ordered:
@@ -386,7 +502,22 @@ def _against_the_control(ordered, summaries) -> list[str]:
             continue
         lines = [
             "- "
-            + mcnemar_note(control, attack_stops(rows.get(s.condition, [])), CONTROL, s.condition)
+            + (
+                clustered_note(
+                    rows.get(CONTROL, []),
+                    rows.get(s.condition, []),
+                    CONTROL,
+                    s.condition,
+                )
+                if _has_repeated_scenarios(rows.get(CONTROL, []), attacked=True)
+                or _has_repeated_scenarios(rows.get(s.condition, []), attacked=True)
+                else mcnemar_note(
+                    control,
+                    attack_stops(rows.get(s.condition, [])),
+                    CONTROL,
+                    s.condition,
+                )
+            )
             for s in summaries[bracket]
             if s.condition != CONTROL
         ]
@@ -529,8 +660,8 @@ def _casualties(counts: dict[str, tuple[int, int, str]]) -> list[str]:
         if not hits:
             continue
         # only worth the noise when the cell ran more than once
-        seeds = f" — {hits}/{runs} seeds" if runs > 1 else ""
-        lines.append(f"- `{scenario_id}` ({family}){seeds}")
+        repetitions = f" — {hits}/{runs} repetitions" if runs > 1 else ""
+        lines.append(f"- `{scenario_id}` ({family}){repetitions}")
     return lines
 
 
@@ -539,14 +670,14 @@ def _casualties(counts: dict[str, tuple[int, int, str]]) -> list[str]:
 
 def _reproducing(ordered, agent: str, command: str) -> list[str]:
     every = [r for rows in ordered.values() for r in rows]
-    seeds = len({r.seed for r in every})
+    repetitions = len({r.seed for r in every})
     attacks = {r.scenario_id for r in every if r.outcome.attacked}
     twins = {r.scenario_id for r in every if not r.outcome.attacked}
     families = {r.outcome.family for r in every if r.outcome.attacked}
 
     blocks = [
         "## Reproducing this",
-        _command_block(command, agent, seeds),
+        _command_block(command, agent, repetitions),
         "\n".join(
             [
                 (
@@ -554,7 +685,7 @@ def _reproducing(ordered, agent: str, command: str) -> list[str]:
                     f"{len(attacks)} attacks across {len(families)} families, "
                     f"and {len(twins)} benign twins."
                 ),
-                f"- **Runs per cell:** {seeds}.",
+                f"- **Repetitions per cell:** {repetitions}.",
                 f"- **Brackets:** {', '.join(f'`{b}`' for b in ordered)}.",
                 _agent_line(agent),
             ]
@@ -565,13 +696,13 @@ def _reproducing(ordered, agent: str, command: str) -> list[str]:
     return blocks
 
 
-def _command_block(command: str, agent: str, seeds: int) -> str:
+def _command_block(command: str, agent: str, repetitions: int) -> str:
     if command:
         return f"```bash\n{command}\n```"
     # nothing recorded: show the command that produces this shape of run
     # and say plainly that it's a reconstruction, not what was run
     return (
-        f"```bash\n./gym/run_benchmark.sh {agent} {seeds}\n```\n"
+        f"```bash\n./gym/run_benchmark.sh {agent} {repetitions}\n```\n"
         "*Reconstructed — the caller recorded no command, so this is the shape "
         "of the run rather than the run itself.*"
     )
@@ -587,28 +718,29 @@ def _is_scripted(agent: str) -> bool:
 
 
 def variance_note(results: list[RunResult]) -> str:
-    """What the spread across seeds was, or that there wasn't one.
+    """What the spread across repetitions was, or that there wasn't one.
 
-    The s.d. is of the rate each seed scored on its own, not a binomial
+    The s.d. is of the rate each repetition scored on its own, not a binomial
     interval over the pooled runs — the reader's question is "if I run
     the whole benchmark again, how far does this move", and all of a
-    seed's runs share one model, one corpus and one policy.
+    repetition's runs share one model, one corpus and one policy.
     """
     if not results:
         return "No runs, so nothing to vary."
 
-    seeds = {r.seed for r in results}
-    if len(seeds) < 2:
+    repetitions = {r.seed for r in results}
+    if len(repetitions) < 2:
         return (
-            "Runs per cell: 1, so **no variance can be reported**. Models are "
+            "Repetitions per cell: 1, so **no run-to-run variance can be reported**. "
+            "Models are "
             "nondeterministic and a single run of a single scenario is an "
             "anecdote, not a rate. Treat every number here as one draw."
         )
 
     lines = [
         (
-            f"Runs per cell: {len(seeds)}. Attack success across seeds, "
-            "mean ±1 sample s.d. of the rate each seed scored alone:"
+            f"Repetitions per cell: {len(repetitions)}. Attack success across "
+            "repetitions, mean ±1 sample s.d. of the rate each repetition scored alone:"
         )
     ]
     for s in summaries_from_results(results):
@@ -616,11 +748,11 @@ def variance_note(results: list[RunResult]) -> str:
         if not s.attack_runs:
             lines.append(f"- `{s.condition}` — no attack runs to vary")
         elif len(rates) < 2:
-            lines.append(f"- `{s.condition}` — ran under one seed only; no spread")
+            lines.append(f"- `{s.condition}` — ran under one repetition only; no spread")
         else:
             lines.append(
                 f"- `{s.condition}` — {statistics.fmean(rates):.1f}% "
-                f"± {statistics.stdev(rates):.1f} pts (n={len(rates)} seeds)"
+                f"± {statistics.stdev(rates):.1f} pts (n={len(rates)} repetitions)"
             )
     return "\n".join(lines)
 

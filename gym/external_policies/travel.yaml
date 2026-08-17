@@ -1,0 +1,24 @@
+version: 1
+defaults:
+  unknown_tools: allow
+sources:
+  "*": untrusted
+  get_user_information: trusted
+tools:
+  cancel_calendar_event: {action: allow, limits: {per_session: 2}}
+  create_calendar_event: {action: allow, limits: {per_session: 3}}
+  reserve_car_rental: {action: allow, limits: {per_session: 2}}
+  reserve_hotel: {action: allow, limits: {per_session: 2}}
+  reserve_restaurant: {action: allow, limits: {per_session: 3}}
+  send_email: {action: allow, limits: {per_session: 3}}
+flows:
+  - when: context_tainted
+    tools:
+      - cancel_calendar_event
+      - create_calendar_event
+      - reserve_car_rental
+      - reserve_hotel
+      - reserve_restaurant
+      - send_email
+    action: require_approval
+    reason: Untrusted travel content influenced a booking or outbound action.

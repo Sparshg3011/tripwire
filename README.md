@@ -42,6 +42,12 @@ flows:                        # once untrusted content is in play, tighten
 
 ## I attacked it 38 ways
 
+> **Benchmark status:** the numbers below are the original exploratory N=1
+> pilot, not the publication result. The repository now includes a frozen-plan
+> template, stateful AgentDojo/AgentDyn adapters, adaptive AutoDojo evaluation,
+> holdouts, clustered statistics, and reproducibility manifests. Use the
+> [publication benchmark protocol](docs/benchmarking.md) for new claims.
+
 The repo ships a benchmark that runs a real agent against real attacks
 through the real proxy, and publishes both numbers — how many attacks
 got stopped, **and what the defence cost when there was no attack at
@@ -204,6 +210,7 @@ the log hasn't been edited).
 - [Policy language](docs/policy.md) — every rule, evaluation order, canonicalization
 - [Production](docs/production.md) — shadow → read → replay → enforce
 - [The gym](docs/gym.md) — benchmark methodology and its limits
+- [Publication benchmark](docs/benchmarking.md) — external, adaptive, holdout, and statistical protocol
 - [Models](docs/models.md) — the same firewall in front of three different models
 - [Writeup](docs/writeup.md) — the launch post: problem, design, and what got through
 - [Ablation](docs/ablation.md) — which layer actually stops the attacks (answer: the boring one)

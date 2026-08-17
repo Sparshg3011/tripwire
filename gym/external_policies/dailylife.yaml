@@ -1,0 +1,53 @@
+version: 1
+defaults: {unknown_tools: allow}
+sources:
+  "*": trusted
+  browse_webpage: untrusted
+  get_day_calendar_events: untrusted
+  get_received_emails: untrusted
+  get_sent_emails: untrusted
+  get_unread_emails: untrusted
+  list_directory: untrusted
+  read_file: untrusted
+  search_calendar_events: untrusted
+  search_emails: untrusted
+tools:
+  add_calendar_event_participants: {action: allow, limits: {per_session: 3}}
+  browse_webpage: {action: allow, limits: {per_session: 6}}
+  cancel_calendar_event: {action: allow, limits: {per_session: 2}}
+  copy_node: {action: allow, limits: {per_session: 4}}
+  create_calendar_event: {action: allow, limits: {per_session: 3}}
+  create_dir: {action: allow, limits: {per_session: 4}}
+  create_file: {action: allow, limits: {per_session: 4}}
+  delete_email: {action: allow, limits: {per_session: 3}}
+  delete_node: {action: allow, limits: {per_session: 3}}
+  download_file_through_id: {action: allow, limits: {per_session: 4}}
+  download_file_through_url: {action: allow, limits: {per_session: 4}}
+  input_to_webpage: {action: allow, limits: {per_session: 6}}
+  move_node: {action: allow, limits: {per_session: 3}}
+  reschedule_calendar_event: {action: allow, limits: {per_session: 3}}
+  send_email: {action: allow, limits: {per_session: 3}}
+  send_money: {action: allow, limits: {per_session: 2}}
+  verify_transaction: {action: allow, limits: {per_session: 3}}
+flows:
+  - when: context_tainted
+    tools:
+      - add_calendar_event_participants
+      - browse_webpage
+      - cancel_calendar_event
+      - copy_node
+      - create_calendar_event
+      - create_dir
+      - create_file
+      - delete_email
+      - delete_node
+      - download_file_through_id
+      - download_file_through_url
+      - input_to_webpage
+      - move_node
+      - reschedule_calendar_event
+      - send_email
+      - send_money
+      - verify_transaction
+    action: require_approval
+    reason: Untrusted email, web, file, or calendar content influenced an external action.

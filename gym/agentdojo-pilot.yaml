@@ -1,0 +1,27 @@
+schema_version: 1
+purpose: adapter_and_effect-size_pilot_not_publication_result
+benchmark: AgentDojo
+benchmark_version: v1.2.2
+selection:
+  method: independent_uniform_without_replacement_per_suite
+  seed_template: "17229:{suite}"
+  user_tasks_per_suite: 3
+  injection_tasks_per_suite: 2
+  expected_attack_pairs: 24
+suites:
+  workspace:
+    user_tasks: [user_task_13, user_task_19, user_task_27]
+    injection_tasks: [injection_task_11, injection_task_7]
+  banking:
+    user_tasks: [user_task_10, user_task_3, user_task_6]
+    injection_tasks: [injection_task_5, injection_task_8]
+  slack:
+    user_tasks: [user_task_1, user_task_13, user_task_14]
+    injection_tasks: [injection_task_1, injection_task_4]
+  travel:
+    user_tasks: [user_task_17, user_task_18, user_task_9]
+    injection_tasks: [injection_task_0, injection_task_1]
+conditions: [direct, tripwire-deny]
+model: nvidia/nemotron-3-super-120b-a12b
+temperature: 0
+thinking: disabled

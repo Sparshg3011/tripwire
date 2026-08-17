@@ -1,5 +1,10 @@
 # Which layer actually does the work
 
+> This is the older cumulative, order-dependent ablation. It shows whether each
+> growing partial stack is sufficient, but its “marginal” columns depend on the
+> order chosen. The publication ablation is full-minus-one and runs with
+> `./gym/run_ablation_loo.sh`; see [benchmarking.md](benchmarking.md).
+
 `standard` stacks five mechanisms and reports one number. This takes them
 away one at a time to find out what each is worth.
 

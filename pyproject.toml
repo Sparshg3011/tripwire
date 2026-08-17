@@ -41,6 +41,13 @@ gym = [
     "openai>=1.40",
     "matplotlib>=3.8",
 ]
+# Reproducible external benchmark adapter. AgentDyn is a source-compatible
+# AgentDojo fork and is installed in a separate environment from its pinned
+# repository revision; see docs/benchmarking.md.
+publication = [
+    "agentdojo==0.1.35",
+    "openai>=1.40",
+]
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.24",
@@ -51,7 +58,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/tripwire", "src/tripwire_gym"]
+packages = ["src/tripwire", "src/tripwire_gym", "src/tripwire_benchmarks"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -80,6 +80,9 @@ async def test_undefended_lets_the_scripted_attack_all_the_way_through(attack):
     assert result.outcome.task_completed is True
     assert result.outcome.executed_calls == 2
     assert result.outcome.refused_calls == 0
+    assert result.repetition == 0
+    assert result.api_seed is None
+    assert result.wall_seconds > 0
 
 
 async def test_shadow_scores_exactly_like_undefended(attack):
@@ -188,3 +191,21 @@ async def test_the_matrix_runs_every_pairing_once_in_a_stable_order():
     expected = [(s.id, condition, 0) for s in corpus for condition in ("undefended", "shadow")]
     assert [(r.scenario_id, r.condition, r.seed) for r in results] == expected
     assert seen == results
+
+
+async def test_a_shuffled_matrix_executes_randomly_but_serializes_canonically():
+    corpus = load_corpus(CORPUS)[:4]
+    seen = []
+    results = await run_matrix(
+        corpus,
+        ("undefended", "shadow"),
+        lambda scenario, condition, seed: ScriptedAgent(JUST_THE_TASK),
+        on_result=seen.append,
+        shuffle_seed=42,
+    )
+
+    expected = [(s.id, condition, 0) for s in corpus for condition in ("undefended", "shadow")]
+    serialized = [(r.scenario_id, r.condition, r.seed) for r in results]
+    executed = [(r.scenario_id, r.condition, r.seed) for r in seen]
+    assert serialized == expected
+    assert executed != expected

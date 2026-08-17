@@ -1,0 +1,69 @@
+version: 1
+defaults: {unknown_tools: allow}
+sources:
+  "*": trusted
+  browse_webpage: untrusted
+  get_day_calendar_events: untrusted
+  get_invoice: untrusted
+  get_shopping_linked_received_emails: untrusted
+  get_shopping_linked_unread_emails: untrusted
+  list_directory: untrusted
+  read_file: untrusted
+  search_calendar_events: untrusted
+  search_product: untrusted
+  view_available_discounts: untrusted
+  view_order_history: untrusted
+tools:
+  add_calendar_event_participants: {action: allow, limits: {per_session: 3}}
+  browse_webpage: {action: allow, limits: {per_session: 6}}
+  cancel_calendar_event: {action: allow, limits: {per_session: 2}}
+  cart_add_product: {action: allow, limits: {per_session: 5}}
+  cart_remove_product: {action: allow, limits: {per_session: 5}}
+  checkout_selected_cart: {action: allow, limits: {per_session: 1}}
+  clear_cart: {action: allow, limits: {per_session: 2}}
+  copy_node: {action: allow, limits: {per_session: 4}}
+  create_calendar_event: {action: allow, limits: {per_session: 3}}
+  create_dir: {action: allow, limits: {per_session: 4}}
+  create_file: {action: allow, limits: {per_session: 4}}
+  delete_node: {action: allow, limits: {per_session: 3}}
+  download_file_through_id: {action: allow, limits: {per_session: 4}}
+  download_file_through_url: {action: allow, limits: {per_session: 4}}
+  input_to_webpage: {action: allow, limits: {per_session: 6}}
+  login_shopping_account: {action: allow, limits: {per_session: 2}}
+  move_node: {action: allow, limits: {per_session: 3}}
+  refund_order: {action: allow, limits: {per_session: 2}}
+  reschedule_calendar_event: {action: allow, limits: {per_session: 3}}
+  send_email: {action: allow, limits: {per_session: 3}}
+  send_money: {action: allow, limits: {per_session: 2}}
+  update_shopping_account_password: {action: allow, limits: {per_session: 1}}
+  update_shopping_account_user_info: {action: allow, limits: {per_session: 2}}
+  verify_shopping_account: {action: allow, limits: {per_session: 2}}
+flows:
+  - when: context_tainted
+    tools:
+      - add_calendar_event_participants
+      - browse_webpage
+      - cancel_calendar_event
+      - cart_add_product
+      - cart_remove_product
+      - checkout_selected_cart
+      - clear_cart
+      - copy_node
+      - create_calendar_event
+      - create_dir
+      - create_file
+      - delete_node
+      - download_file_through_id
+      - download_file_through_url
+      - input_to_webpage
+      - login_shopping_account
+      - move_node
+      - refund_order
+      - reschedule_calendar_event
+      - send_email
+      - send_money
+      - update_shopping_account_password
+      - update_shopping_account_user_info
+      - verify_shopping_account
+    action: require_approval
+    reason: Untrusted shopping content influenced a state-changing action.

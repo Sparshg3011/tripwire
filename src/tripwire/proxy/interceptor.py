@@ -132,9 +132,15 @@ class Interceptor:
                 if not approved:
                     return _refused(f"{verdict.reason} {why}", verdict.rule_id)
 
-        self.audit.append("tool_call", {"tool": name, "args": args})
+        # Observation mode must be a genuine transport control. Evaluate
+        # canonical arguments so the audit still says what enforcement
+        # would have decided, but forward the caller's exact values. Before
+        # this split, shadow mode silently rewrote Unicode and host fields,
+        # so it was a weak defence rather than a pass-through control.
+        forward_args: Mapping[str, Any] = dict(arguments or {}) if verdict.shadow else args
+        self.audit.append("tool_call", {"tool": name, "args": forward_args})
         try:
-            result = await self._forward(name, args)
+            result = await self._forward(name, forward_args)
         except DuplicateInFlight as e:
             # An identical call is on the ledger with no recorded outcome:
             # a previous attempt died between intent and completion, so
@@ -174,6 +180,8 @@ class Interceptor:
             raise
 
         self.audit.append("tool_result", {"tool": name, "is_error": bool(result.isError)})
+        # Keep the counterfactual state in canonical form in shadow mode,
+        # while the upstream still received forward_args unchanged.
         self._remember(name, args, is_error=bool(result.isError))
         return result
 
