@@ -1,5 +1,10 @@
 # Ablations
 
+For publication, use `../run_ablation_loo.sh`. It generates the full policy
+minus exactly one mechanism and compares each generated policy to the full
+stack. The cumulative chain below remains a secondary analysis because its
+attribution depends on the order in which mechanisms are added.
+
 `standard` stacks five mechanisms, and its headline number is their sum.
 These files take them away one at a time so you can see what each one is
 actually worth.

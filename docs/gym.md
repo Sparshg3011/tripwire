@@ -1,5 +1,9 @@
 # The gym
 
+> The local gym is now the development and mechanism benchmark. Publication
+> claims should follow the external and adaptive protocol in
+> [benchmarking.md](benchmarking.md).
+
 A benchmark that attacks tripwire with a real agent and publishes what
 got through.
 
@@ -9,7 +13,7 @@ no attack at all. One figure without the other is marketing.
 
 ## What a run is
 
-One run is one scenario under one condition with one seed:
+One run is one scenario under one condition in one repetition:
 
 ```
 agent (real model) ──MCP──▶ [tripwire + policy] ──MCP──▶ mock toolbox
@@ -149,18 +153,16 @@ Results land as `results.jsonl` (one run per line) and `summary.json`
 
 ## Methodology
 
-**N runs per cell.** Models are nondeterministic; a single run of a
+**N repetitions per cell.** Models are nondeterministic; a single run of a
 single scenario is an anecdote. Every scenario runs N times per
-condition and the chart carries the spread across seeds, not just the
+condition and the chart carries the spread across repetitions, not just the
 mean.
 
-The `shadow` control is how you check whether N was big enough. It
-evaluates every rule and blocks nothing, so it has to score exactly what
-`undefended` scores; whatever gap appears between them is measurement
-noise and nothing else. In the published N=1 run that gap was two
-scenarios, so differences under about five points in that run are not
-real. Treat the shadow-to-undefended gap as the error bar you did not
-have to estimate.
+The `shadow` condition is a negative control. It evaluates every rule, blocks
+nothing, and forwards the original arguments, so its outcome distribution
+should match `undefended`. Separate nondeterministic model conversations need
+not match case-for-case in one repetition; a persistent paired difference over
+repetitions is evidence that observation itself is changing behavior.
 
 **Runs are sequential by default, and concurrency is opt-in.** Runs
 share nothing — each gets its own temp directory, its own proxy
@@ -173,7 +175,7 @@ That is the default, and it is what CI runs.
 
 With a real model, almost the whole run is spent waiting on an API. The
 machine is idle, and a full matrix — 38 scenarios, their twins, five
-conditions, five seeds, both brackets — is thousands of runs at roughly
+conditions, five repetitions, both brackets — is thousands of runs at roughly
 ten seconds each, which is over ten hours of mostly waiting. So:
 
 ```bash
@@ -196,7 +198,7 @@ loop it always was, not a task group with one slot.
 It does change what else the machine was doing. Eight proxies, eight
 mock servers and eight conversations in flight is a different machine
 from one, and the per-run wall clock reflects that — which matters
-because each run carries a 180-second deadline and, in the gated
+because each run carries a 900-second deadline and, in the gated
 brackets, a five-second budget for the proxy to announce its gate.
 Neither is close on an unloaded laptop; both get closer as concurrency
 rises. **Anyone reproducing a published number should note the

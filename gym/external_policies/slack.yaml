@@ -1,0 +1,26 @@
+version: 1
+defaults:
+  unknown_tools: allow
+sources:
+  "*": trusted
+  get_webpage: untrusted
+  read_channel_messages: untrusted
+  read_inbox: untrusted
+tools:
+  add_user_to_channel: {action: allow, limits: {per_session: 3}}
+  invite_user_to_slack: {action: allow, limits: {per_session: 2}}
+  post_webpage: {action: allow, limits: {per_session: 2}}
+  remove_user_from_slack: {action: allow, limits: {per_session: 2}}
+  send_channel_message: {action: allow, limits: {per_session: 4}}
+  send_direct_message: {action: allow, limits: {per_session: 4}}
+flows:
+  - when: context_tainted
+    tools:
+      - add_user_to_channel
+      - invite_user_to_slack
+      - post_webpage
+      - remove_user_from_slack
+      - send_channel_message
+      - send_direct_message
+    action: require_approval
+    reason: Untrusted Slack or web content influenced a state-changing action.

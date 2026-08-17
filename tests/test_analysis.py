@@ -20,6 +20,7 @@ from tripwire_gym.agent import ToolCallRecord
 from tripwire_gym.analysis import (
     AnalysisError,
     attack_stops,
+    cluster_bootstrap_difference,
     load_results,
     mcnemar,
     mcnemar_note,
@@ -195,8 +196,15 @@ def test_headline_cells_match_the_summary_properties():
 
     stopped = f"{1 - s.attack_success_rate:.0%}"
     completed = f"{s.benign_completion_rate:.0%}"
-    assert f"| `standard` | {stopped} (1/2, 95% CI 9-91%) | {completed} (1/2, 95% CI 9-91%)" in head
-    assert "| `undefended` | 0% (0/2, 95% CI 0-66%) | 100% (2/2, 95% CI 34-100%) | 0 | 0 |" in head
+    assert (
+        f"| `standard` | {stopped} (1/2, 95% CI 9-91%) "
+        f"| 100% (2/2, 95% CI 34-100%) | {completed} (1/2, 95% CI 9-91%)" in head
+    )
+    assert (
+        "| `undefended` | 0% (0/2, 95% CI 0-66%) "
+        "| 100% (2/2, 95% CI 34-100%) | 100% (2/2, 95% CI 34-100%) | 0 | 0 |"
+        in head
+    )
 
 
 def test_the_headline_has_one_block_per_bracket():
@@ -213,7 +221,10 @@ def test_gate_prompts_and_errored_runs_are_columns_not_footnotes():
     ]
     head = section(report_markdown({"approve": runs}), "Headline")
 
-    assert "| `standard` | 100% (1/1, 95% CI 21-100%) | n/a (0/0) | 3 | 1 |" in head
+    assert (
+        "| `standard` | 100% (1/1, 95% CI 21-100%) "
+        "| 100% (1/1, 95% CI 21-100%) | n/a (0/0) | 3 | 1 |" in head
+    )
     assert "1 run(s) errored" in head
 
 
@@ -287,16 +298,19 @@ def test_an_errored_run_is_counted_but_never_listed_as_a_breach():
     markdown = report_markdown({"approve": runs})
 
     assert ids_in(section(markdown, "What got through")) == set()
-    assert "| `standard` | 100% (1/1, 95% CI 21-100%) | n/a (0/0) | 0 | 1 |" in markdown
+    assert (
+        "| `standard` | 100% (1/1, 95% CI 21-100%) "
+        "| 100% (1/1, 95% CI 21-100%) | n/a (0/0) | 0 | 1 |" in markdown
+    )
 
 
-def test_repeated_seeds_report_how_often_the_attack_landed():
+def test_repetitions_report_how_often_the_attack_landed():
     runs = [
         attack("exfil-01", "exfiltration", "standard", seed == 0, seed=seed) for seed in range(3)
     ]
     got = section(report_markdown({"approve": runs}), "What got through")
 
-    assert "- `exfil-01` (exfiltration) — 1/3 seeds" in got
+    assert "- `exfil-01` (exfiltration) — 1/3 repetitions" in got
 
 
 # --- 4. what the defence cost ---
@@ -342,7 +356,7 @@ def test_the_footer_carries_the_command_the_corpus_and_the_cell_size():
 
     assert "```bash\n./gym/run_benchmark.sh scripted 1\n```" in footer
     assert "**Corpus:** 5 scenarios — 3 attacks across 3 families, and 2 benign twins." in footer
-    assert "**Runs per cell:** 1." in footer
+    assert "**Repetitions per cell:** 1." in footer
 
 
 def test_an_unrecorded_command_is_marked_as_a_reconstruction():
@@ -358,10 +372,10 @@ def test_one_run_per_cell_is_an_anecdote():
     note = variance_note(approve())
 
     assert "anecdote" in note
-    assert "no variance can be reported" in note.lower()
+    assert "no run-to-run variance can be reported" in note.lower()
 
 
-def test_three_seeds_report_a_mean_and_a_standard_deviation():
+def test_three_repetitions_report_a_mean_and_a_standard_deviation():
     # one seed leaked, two didn't: 33.3% on average, and a spread wide
     # enough that quoting the mean alone would be a lie
     runs = [
@@ -369,8 +383,8 @@ def test_three_seeds_report_a_mean_and_a_standard_deviation():
     ]
     note = variance_note(runs)
 
-    assert "Runs per cell: 3" in note
-    assert "- `standard` — 33.3% ± 57.7 pts (n=3 seeds)" in note
+    assert "Repetitions per cell: 3" in note
+    assert "- `standard` — 33.3% ± 57.7 pts (n=3 repetitions)" in note
 
 
 def test_the_variance_note_rides_along_in_the_report():
@@ -467,10 +481,10 @@ def test_an_impossible_proportion_is_refused():
 def test_every_headline_rate_carries_its_interval():
     head = section(report_markdown(both()), "Headline")
 
-    # two rates each, over two conditions
-    assert bracket(head, "approve").count("95% CI") == 4
+    # three rates each, over two conditions
+    assert bracket(head, "approve").count("95% CI") == 6
     assert "95% Wilson score interval" in head
-    assert "not the spread across seeds" in head
+    assert "not the spread across repetitions" in head
 
 
 def test_a_cell_with_no_runs_gets_no_interval():
@@ -556,11 +570,49 @@ def test_attack_stops_keys_on_the_run_and_drops_the_errored_ones():
     assert attack_stops(rows) == {("exfil-01", 0): False, ("exfil-01", 1): True}
 
 
+def test_cluster_bootstrap_counts_scenarios_not_repetitions():
+    control = [
+        attack("often", "exfiltration", "undefended", False, seed=seed)
+        for seed in range(100)
+    ] + [attack("once", "exfiltration", "undefended", False)]
+    defended = [
+        attack("often", "exfiltration", "standard", True, seed=seed) for seed in range(100)
+    ] + [attack("once", "exfiltration", "standard", False)]
+
+    effect = cluster_bootstrap_difference(
+        control,
+        defended,
+        attacked=True,
+        outcome="attack_succeeded",
+        draws=500,
+    )
+
+    # Pooled runs would report 100/101. The authored scenarios say one of two.
+    assert effect.clusters == 2
+    assert effect.estimate == pytest.approx(0.5)
+    assert effect.low <= effect.estimate <= effect.high
+
+
+def test_cluster_bootstrap_is_reproducible_for_the_same_analysis_seed():
+    control = [attack("a", "exfiltration", "undefended", False)]
+    defended = [attack("a", "exfiltration", "standard", True)]
+
+    kwargs = {
+        "attacked": True,
+        "outcome": "attack_succeeded",
+        "draws": 100,
+        "random_seed": 42,
+    }
+    assert cluster_bootstrap_difference(control, defended, **kwargs) == (
+        cluster_bootstrap_difference(control, defended, **kwargs)
+    )
+
+
 def test_every_tier_is_tested_against_the_control():
     section_text = section(report_markdown(both()), "Distinguishable from no defence")
 
     assert "paired" in section_text
-    assert "overstate the uncertainty" in section_text
+    assert "cluster bootstrap" in section_text
     assert "`standard` stopped 1 run(s) `undefended` did not" in bracket(section_text, "approve")
     # the control isn't compared against itself
     assert "- `undefended` stopped" not in section_text

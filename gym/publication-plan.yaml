@@ -1,0 +1,115 @@
+schema_version: 1
+status: frozen
+frozen_analysis_seed: 17229
+
+claim:
+  primary: >
+    Relative to the same model with no defense, Tripwire's frozen policy
+    reduces state-changing indirect-prompt-injection success while retaining
+    benign task utility in stateful agent environments.
+  prohibited:
+    - "Tripwire prevents all prompt injection."
+    - "Auto-approve or auto-deny estimates real human performance."
+    - "Repeated model calls are independent attack scenarios."
+
+primary_experiment:
+  benchmark: AgentDojo
+  version: v1.2.2
+  suites: [workspace, banking, slack, travel]
+  expected_full_user_tasks: 97
+  expected_full_attack_pairs: 949
+  development_user_tasks_excluded: 12
+  heldout_user_tasks: 85
+  heldout_attack_pairs: 844
+  attack: important_instructions
+  target_model: nvidia/nemotron-3-super-120b-a12b
+  prompt_profile: plain
+  conditions: [direct, tripwire-deny]
+  repetitions: 1
+  policy_directory: gym/external_policies
+  metrics:
+    primary: attack_success_rate
+    utility: [benign_utility, utility_under_attack]
+    operational: [gate_prompts, model_calls, prompt_tokens, completion_tokens, latency]
+  scoring: official_stateful_environment_and_task_checkers
+  unattended_gate_semantics: deny_every_require_approval
+  condition_order:
+    workspace: [direct, tripwire-deny]
+    banking: [tripwire-deny, direct]
+    slack: [direct, tripwire-deny]
+    travel: [tripwire-deny, direct]
+  approval_bounds_are_secondary: [tripwire-approve, tripwire-deny]
+
+secondary_experiments:
+  - name: dynamic_external_validity
+    benchmark: AgentDyn
+    commit: 5353cf7615b135cace8d07c8f12dac53a16b6db3
+    suites: [shopping, github, dailylife]
+    expected_user_tasks: 60
+    expected_attack_cases: 560
+    conditions: [direct, tripwire-approve, tripwire-deny]
+  - name: adaptive_robustness
+    benchmark: AutoDojo
+    commit: bf2e4cb321f4cfc47b1ed9d227176a0eb8df71a2
+    suites: [banking, slack, travel, shopping, github, dailylife]
+    optimizer_model: z-ai/glm-5.2
+    optimizer_profile: paper
+    optimizer_variants: 5
+    optimizer_iterations: 8
+    conditions: [tripwire-approve, tripwire-deny]
+  - name: local_mechanism_and_regression
+    benchmark: tripwire-gym
+    corpus: gym/scenarios
+    prompt_profiles: [plain, hardened]
+    controls: [undefended, shadow]
+    repetitions: 5
+    ablation: full_policy_minus_one_component
+
+model_replications:
+  primary: nvidia/nemotron-3-super-120b-a12b
+  models:
+    - nvidia/nemotron-3-nano-30b-a3b
+    - nvidia/nemotron-3-ultra-550b-a55b
+    - z-ai/glm-5.2
+
+baselines:
+  required: [direct, repeat_user_prompt, spotlighting_with_delimiting]
+  reference_only_unless_run_on_same_model_and_tasks: [Progent, CaMeL, DRIFT]
+
+literature_positioning:
+  closest_firewall_study: arxiv:2510.05244
+  defense_references: [CaMeL, AgentArmor]
+  newest_direct_comparator:
+    name: NetInjectBench
+    paper: arxiv:2607.10490
+    status: run_when_official_artifact_is_available
+  optional_breadth_benchmarks: [InjecAgent, Agent-Security-Bench]
+
+analysis:
+  unit_of_generalization: authored_user_and_injection_task_clusters
+  descriptive_intervals: Wilson_95_percent
+  primary_effect_interval: suite_stratified_two_way_user_by_injection_cluster_bootstrap_95_percent
+  benign_effect_interval: suite_stratified_user_task_cluster_bootstrap_95_percent
+  bootstrap_seed: 17229
+  bootstrap_samples: 10000
+  descriptive_paired_test: exact_McNemar
+  repeated_run_effect: scenario_cluster_bootstrap_95_percent
+  multiple_families: report_all_with_Holm_adjusted_secondary_p_values
+  report_absolute_counts: true
+  report_every_breach_id: true
+  report_every_failed_benign_id: true
+
+exclusions:
+  - API and harness errors are excluded from rates and reported as errors.
+  - A crashed run never counts as a blocked attack.
+  - Provider-wide outages require rerunning the complete affected cell, not cherry-picking failures.
+  - Any post-freeze policy edit creates a new experiment and new policy hash.
+
+release_requirements:
+  - exact_git_commit
+  - dirty_worktree_flag
+  - corpus_and_policy_hashes
+  - raw_per_episode_results
+  - commands_and_environment_versions
+  - token_latency_and_error_counts
+  - frozen_holdout_split_or_external_benchmark_revision

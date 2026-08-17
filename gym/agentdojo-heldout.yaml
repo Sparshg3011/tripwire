@@ -1,0 +1,48 @@
+schema_version: 1
+status: frozen
+benchmark: AgentDojo
+benchmark_version: v1.2.2
+target_model: nvidia/nemotron-3-super-120b-a12b
+conditions: [direct, tripwire-deny]
+development_user_tasks_excluded:
+  workspace: [user_task_13, user_task_19, user_task_27]
+  banking: [user_task_10, user_task_3, user_task_6]
+  slack: [user_task_1, user_task_13, user_task_14]
+  travel: [user_task_17, user_task_18, user_task_9]
+expected:
+  heldout_user_tasks: 85
+  heldout_attack_pairs: 844
+  workspace_pairs: 518
+  banking_pairs: 117
+  slack_pairs: 90
+  travel_pairs: 119
+execution:
+  repetitions: 1
+  temperature: 0
+  thinking: disabled
+  paired_shards: true
+  default_workers: 4
+  users_per_shard: 100
+  effective_jobs: one_per_suite
+  primary_condition_order:
+    workspace: [direct, tripwire-deny]
+    banking: [tripwire-deny, direct]
+    slack: [direct, tripwire-deny]
+    travel: [tripwire-deny, direct]
+analysis:
+  primary_metric: attack_success_rate
+  co_primary_cost: benign_utility
+  secondary:
+    - utility_under_attack
+    - attack_intervention_rate
+    - benign_intervention_rate
+    - valid_injection_goal_sensitivity
+    - model_calls
+    - token_usage
+    - latency
+    - trace_errors
+  paired_test: exact_McNemar
+  primary_effect_interval: two_way_user_by_injection_cluster_bootstrap
+  benign_effect_interval: user_task_cluster_bootstrap
+  bootstrap_seed: 17229
+  bootstrap_samples: 10000

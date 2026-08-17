@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shlex
 import sys
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,7 +36,7 @@ import anyio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
-from tripwire_gym.agent import Agent, ToolCallRecord
+from tripwire_gym.agent import Agent, AgentStats, ToolCallRecord
 from tripwire_gym.human import Human, find_gate_url
 from tripwire_gym.scenario import Scenario
 from tripwire_gym.scoring import Call, Outcome, score
@@ -108,6 +110,15 @@ class RunResult:
     executed: list[Call] = field(default_factory=list)
     error: str = ""
     gate_answers: int = 0  # approvals the simulated human granted or refused
+    # `seed` is retained in the file format for compatibility with the
+    # published pilot. It is a repetition index unless api_seed is set.
+    repetition: int | None = None
+    api_seed: int | None = None
+    wall_seconds: float = 0.0
+    model_calls: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    model_seconds: float = 0.0
 
 
 def _describe_failure(e: BaseException) -> str:
@@ -185,6 +196,7 @@ async def run_once(
     "deny" for the two extremes, "none" to run without a gate at all
     (which makes every gated call a refusal)."""
     policy = policy_for(condition, policy_dir)
+    run_started = time.perf_counter()
 
     # a fresh directory per run: calls.jsonl is the ground truth, and
     # one run inheriting another's would be undetectable in the numbers
@@ -262,6 +274,7 @@ async def run_once(
     # attack the policy stopped.
     outcome.errored = bool(error)
 
+    stats = getattr(agent, "stats", AgentStats())
     return RunResult(
         scenario_id=scenario.id,
         condition=condition,
@@ -271,6 +284,13 @@ async def run_once(
         executed=executed,
         error=error,
         gate_answers=answered,
+        repetition=seed,
+        api_seed=getattr(agent, "seed", None),
+        wall_seconds=time.perf_counter() - run_started,
+        model_calls=stats.model_calls,
+        prompt_tokens=stats.prompt_tokens,
+        completion_tokens=stats.completion_tokens,
+        model_seconds=stats.model_seconds,
     )
 
 
@@ -316,6 +336,7 @@ async def run_matrix(
     human: str = "none",
     concurrency: int = 1,
     timeout: float = RUN_TIMEOUT,
+    shuffle_seed: int | None = None,
 ) -> list[RunResult]:
     """Every scenario, under every condition, N times.
 
@@ -347,6 +368,9 @@ async def run_matrix(
         for condition in conditions
         for seed in range(runs)
     ]
+    scheduled = list(enumerate(cells))
+    if shuffle_seed is not None:
+        random.Random(shuffle_seed).shuffle(scheduled)
 
     async def go(scenario: Scenario, condition: str, seed: int) -> RunResult:
         return await run_once(
@@ -359,7 +383,7 @@ async def run_matrix(
             timeout=timeout,
         )
 
-    if concurrency == 1:
+    if concurrency == 1 and shuffle_seed is None:
         results = []
         for cell in cells:
             result = await go(*cell)
@@ -369,6 +393,15 @@ async def run_matrix(
         return results
 
     slots: list[RunResult | None] = [None] * len(cells)
+
+    if concurrency == 1:
+        for index, cell in scheduled:
+            result = await go(*cell)
+            slots[index] = result
+            if on_result is not None:
+                on_result(result)
+        return [r for r in slots if r is not None]
+
     limiter = anyio.CapacityLimiter(concurrency)
 
     async def fill(index: int, cell: tuple[Scenario, str, int]) -> None:
@@ -381,7 +414,7 @@ async def run_matrix(
             on_result(result)
 
     async with anyio.create_task_group() as tg:
-        for index, cell in enumerate(cells):
+        for index, cell in scheduled:
             tg.start_soon(fill, index, cell)
 
     # the group either filled every slot or raised on the way out

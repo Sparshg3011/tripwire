@@ -1,5 +1,9 @@
 # The same firewall, four models
 
+> Historical exploratory N=1 results. These rows are useful pilot evidence but
+> are not the new publication matrix. See [benchmarking.md](benchmarking.md) for
+> the frozen primary/replication model plan and current NVIDIA model IDs.
+
 Tripwire's rule engine never sees the model. So the question worth
 asking isn't whether it works on one model — it's whether its
 contribution survives changing the model underneath it.

@@ -30,7 +30,8 @@ from pathlib import Path
 
 import anyio
 
-from tripwire_gym.agent import ClaudeAgent, OpenAICompatAgent, ScriptedAgent
+from tripwire_gym.agent import SYSTEM_PROMPTS, ClaudeAgent, OpenAICompatAgent, ScriptedAgent
+from tripwire_gym.manifest import build_manifest, public_settings, write_manifest
 from tripwire_gym.runner import (
     CONDITIONS,
     GYM,
@@ -163,23 +164,37 @@ def _progress(result: RunResult) -> None:
     if result.error:
         notes.append(f"ERROR {result.error}")
     print(
-        f"{result.scenario_id:<26} {result.condition:<11} seed={result.seed}  {'; '.join(notes)}",
+        f"{result.scenario_id:<26} {result.condition:<11} repetition={result.seed}  "
+        f"{'; '.join(notes)}",
         file=sys.stderr,
         flush=True,
     )
 
 
-def _summary_row(s: Summary) -> dict:
+def _summary_row(s: Summary, rows: list[RunResult] | None = None) -> dict:
+    measured = [r for r in (rows or []) if not r.error]
     return {
         "condition": s.condition,
         "runs": s.runs,
         "attack_runs": s.attack_runs,
         "attacks_succeeded": s.attacks_succeeded,
         "attack_success_rate": s.attack_success_rate,
+        "attacked_completed": s.attacked_completed,
+        "attacked_completion_rate": s.attacked_completion_rate,
         "benign_runs": s.benign_runs,
         "benign_completed": s.benign_completed,
         "benign_completion_rate": s.benign_completion_rate,
         "gate_prompts": s.gate_prompts,
+        "errored_runs": s.errored_runs,
+        "mean_wall_seconds": (
+            sum(r.wall_seconds for r in measured) / len(measured) if measured else 0.0
+        ),
+        "mean_model_seconds": (
+            sum(r.model_seconds for r in measured) / len(measured) if measured else 0.0
+        ),
+        "model_calls": sum(r.model_calls for r in measured),
+        "prompt_tokens": sum(r.prompt_tokens for r in measured),
+        "completion_tokens": sum(r.completion_tokens for r in measured),
         "by_family": {f: {"succeeded": n, "total": t} for f, (n, t) in s.by_family.items()},
     }
 
@@ -190,12 +205,16 @@ def _rate(hits: int, total: int) -> str:
 
 def _table(summaries: list[Summary]) -> str:
     lines = [
-        f"{'condition':<12} {'attack success':>18} {'benign completion':>20} {'gate prompts':>13}"
+        (
+            f"{'condition':<12} {'attack success':>18} {'utility attacked':>18} "
+            f"{'benign completion':>20} {'gate prompts':>13}"
+        )
     ]
     for s in summaries:
         lines.append(
             f"{s.condition:<12} "
             f"{_rate(s.attacks_succeeded, s.attack_runs):>18} "
+            f"{_rate(s.attacked_completed, s.attack_runs):>18} "
             f"{_rate(s.benign_completed, s.benign_runs):>20} "
             f"{s.gate_prompts:>13}"
         )
@@ -220,7 +239,7 @@ PROVIDERS: dict[str, dict[str, str | bool]] = {
         "key_var": "NVIDIA_API_KEY",
         "needs_key": True,
         "signup": "https://build.nvidia.com",
-        "example": "nvidia/nemotron-3-ultra-550b-a55b",
+        "example": "nvidia/nemotron-3-super-120b-a12b",
     },
     "ollama": {
         # fully local, no key, no cost — the cheapest way to get a real
@@ -238,6 +257,12 @@ def main(argv: list[str] | None = None) -> None:
         prog="python -m tripwire_gym", description="run the tripwire benchmark"
     )
     parser.add_argument("--scenarios", default=str(GYM / "scenarios"), help="corpus directory")
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        default=[],
+        help="run only this scenario id (repeatable; intended for smoke tests)",
+    )
     parser.add_argument(
         "--conditions",
         default=",".join(CONDITIONS),
@@ -269,6 +294,45 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--model", help="model id (required for openai-compatible agents)")
     parser.add_argument(
         "--base-url", help="OpenAI-compatible endpoint; overrides the preset for --agent"
+    )
+    parser.add_argument(
+        "--prompt-profile",
+        choices=sorted(SYSTEM_PROMPTS),
+        default="hardened",
+        help=(
+            "agent system prompt. plain is a true no-prompt-defense control; "
+            "hardened warns the model about untrusted tool output"
+        ),
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="sampling temperature, recorded in manifest.json (default: 0)",
+    )
+    parser.add_argument(
+        "--api-seed",
+        action="store_true",
+        help=(
+            "send the repetition index as the provider's seed parameter. Off by default "
+            "because not every OpenAI-compatible endpoint supports it"
+        ),
+    )
+    parser.add_argument(
+        "--shuffle-seed",
+        type=int,
+        help="randomize execution order reproducibly while keeping results.jsonl in matrix order",
+    )
+    parser.add_argument(
+        "--disable-thinking",
+        action="store_true",
+        help=(
+            "send NVIDIA/vLLM chat_template_kwargs.enable_thinking=false; recommended "
+            "for Nemotron tool calling"
+        ),
+    )
+    parser.add_argument(
+        "--max-tokens", type=int, default=2048, help="maximum tokens per model response"
     )
     parser.add_argument(
         "--timeout",
@@ -339,6 +403,13 @@ def main(argv: list[str] | None = None) -> None:
         scenarios = load_corpus(args.scenarios)
     except (ScenarioError, OSError) as e:
         _die(str(e))
+    if args.scenario:
+        requested = set(args.scenario)
+        known = {scenario.id for scenario in scenarios}
+        missing = sorted(requested - known)
+        if missing:
+            _die("unknown --scenario id(s): " + ", ".join(missing))
+        scenarios = [scenario for scenario in scenarios if scenario.id in requested]
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -348,12 +419,25 @@ def main(argv: list[str] | None = None) -> None:
         if args.agent == "scripted":
             return ScriptedAgent(scripted_calls(scenario))
         if args.agent == "claude":
-            return ClaudeAgent(model=args.model) if args.model else ClaudeAgent()
+            options = {
+                "system_prompt": SYSTEM_PROMPTS[args.prompt_profile],
+                "temperature": args.temperature,
+            }
+            return ClaudeAgent(model=args.model, **options) if args.model else ClaudeAgent(**options)
         preset = PROVIDERS.get(args.agent, {})
         return OpenAICompatAgent(
             model=args.model,
             base_url=args.base_url or preset.get("base_url"),
             api_key=os.environ.get(preset.get("key_var", "OPENAI_API_KEY")),
+            temperature=args.temperature,
+            system_prompt=SYSTEM_PROMPTS[args.prompt_profile],
+            seed=seed if args.api_seed else None,
+            max_tokens=args.max_tokens,
+            extra_body=(
+                {"chat_template_kwargs": {"enable_thinking": False}}
+                if args.disable_thinking
+                else None
+            ),
         )
 
     async def go() -> list[RunResult]:
@@ -367,6 +451,7 @@ def main(argv: list[str] | None = None) -> None:
             human=args.human,
             concurrency=args.concurrency,
             timeout=args.timeout,
+            shuffle_seed=args.shuffle_seed,
         )
 
     # concurrency is named in the banner even at 1, because it belongs
@@ -394,11 +479,36 @@ def main(argv: list[str] | None = None) -> None:
     summaries = [summarize(c, [r.outcome for r in results if r.condition == c]) for c in conditions]
     summary_path = out / "summary.json"
     summary_path.write_text(
-        json.dumps({s.condition: _summary_row(s) for s in summaries}, indent=2) + "\n"
+        json.dumps(
+            {
+                s.condition: _summary_row(
+                    s, [r for r in results if r.condition == s.condition]
+                )
+                for s in summaries
+            },
+            indent=2,
+        )
+        + "\n"
     )
 
+    manifest = build_manifest(
+        repo=GYM.parent,
+        scenarios=args.scenarios,
+        policy_dir=args.policy_dir,
+        conditions=conditions,
+        settings=public_settings(args),
+        results=results,
+        results_path=results_path,
+        scenario_ids={scenario.id for scenario in scenarios},
+    )
+    manifest_path = write_manifest(manifest, out / "manifest.json")
+
     print(_table(summaries))
-    print(f"\nwrote {results_path} and {summary_path}", file=sys.stderr)
+    print(
+        f"\nwrote {results_path}, {summary_path}, and {manifest_path} "
+        f"(run_id={manifest['run_id']})",
+        file=sys.stderr,
+    )
 
     broken = [r for r in results if r.error]
     if broken:

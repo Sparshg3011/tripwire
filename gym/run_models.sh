@@ -2,7 +2,7 @@
 # The same corpus behind the same policy, one model after another.
 #
 #   ./gym/run_models.sh
-#   ./gym/run_models.sh 3            # three seeds per cell
+#   ./gym/run_models.sh 3            # three repetitions per cell
 #
 # Only `undefended` and `standard` run here. The question this answers is
 # how much the firewall adds on top of whatever the model already refuses,
@@ -24,32 +24,33 @@ if [ -z "${NVIDIA_API_KEY:-}" ]; then
   exit 2
 fi
 
-# Two sizes and two labs. Size varies within nvidia, so the drop between
-# those two rows is capability alone; the meta row checks that nothing
-# here is an artefact of one lab's training.
-#
-# z-ai/glm-5.2 is deliberately not in this list. Its numbers are in
-# docs/models.md, reconstructed from a run that lost 7.9% of its cells to
-# timeouts: it reasons at length every turn, and a run is ten or so
-# turns. Rerunning it at a timeout generous enough to avoid the drops
-# costs about sixteen minutes a run — nineteen hours for one seed of this
-# matrix — so it is not something this script should start on your
-# behalf. That is a fact about long-thinking models on a multi-turn
-# benchmark rather than a judgement about the model.
+# Three current Nemotron sizes plus a second model family. The third field
+# records whether the provider's thinking template should be disabled for
+# tool calling.
 MODELS="
-ultra-550b|nvidia/nemotron-3-ultra-550b-a55b
-lightning-30b|nvidia/nemotron-3.5-lightning-30b-a3b
-muse-30b|meta/muse-glimmer-30b
+nano-30b|nvidia/nemotron-3-nano-30b-a3b|disable
+super-120b|nvidia/nemotron-3-super-120b-a12b|disable
+ultra-550b|nvidia/nemotron-3-ultra-550b-a55b|disable
+glm-5.2|z-ai/glm-5.2|keep
 "
 
-echo "$MODELS" | while IFS='|' read -r SHORT MODEL; do
+echo "$MODELS" | while IFS='|' read -r SHORT MODEL THINKING; do
   [ -z "$SHORT" ] && continue
   for BRACKET in approve deny; do
     echo "==> $SHORT ($MODEL) human=$BRACKET"
-    $PY -m tripwire_gym --agent nvidia --model "$MODEL" \
-      --conditions undefended,standard --runs "$RUNS" \
-      --human "$BRACKET" --concurrency "$CONCURRENCY" \
-      --out "$OUT/$SHORT/$BRACKET"
+    if [ "$THINKING" = "disable" ]; then
+      $PY -m tripwire_gym --agent nvidia --model "$MODEL" \
+        --conditions undefended,standard --runs "$RUNS" \
+        --human "$BRACKET" --concurrency "$CONCURRENCY" \
+        --prompt-profile plain --temperature 0 --disable-thinking \
+        --shuffle-seed 17229 --out "$OUT/$SHORT/$BRACKET"
+    else
+      $PY -m tripwire_gym --agent nvidia --model "$MODEL" \
+        --conditions undefended,standard --runs "$RUNS" \
+        --human "$BRACKET" --concurrency "$CONCURRENCY" \
+        --prompt-profile plain --temperature 0 --shuffle-seed 17229 \
+        --out "$OUT/$SHORT/$BRACKET"
+    fi
   done
 done
 

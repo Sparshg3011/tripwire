@@ -265,6 +265,26 @@ async def test_shadow_mode_logs_the_block_and_lets_the_call_through(make, record
     assert decision["shadow"] is True
 
 
+async def test_shadow_mode_evaluates_canonical_but_forwards_exact_original_args(make, records):
+    seen_by_policy = []
+
+    def canonicalize(tool, args, policy):
+        return {"to": args["to"].replace("\u200b", "")}
+
+    def evaluate(call, snapshot, policy):
+        seen_by_policy.append(dict(call.args))
+        return Verdict("block", "tools.send_email.constraints.to", "outside", shadow=True)
+
+    itc = make(evaluate, canonicalize=canonicalize, enforce=False)
+    original = {"to": "evil\u200b.example"}
+    await itc.handle("send_email", original)
+
+    assert seen_by_policy == [{"to": "evil.example"}]
+    assert itc.upstream.calls == [("send_email", original)]
+    tool_call = next(row for row in records() if row["kind"] == "tool_call")
+    assert tool_call["data"]["args"] == original
+
+
 async def test_shadow_mode_lets_a_fail_closed_verdict_through_too(make, records):
     itc = make(explodes(RuntimeError("regex blew up")), enforce=False)
     result = await itc.handle("add", {"a": 1})

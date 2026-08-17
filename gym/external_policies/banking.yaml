@@ -1,0 +1,24 @@
+version: 1
+defaults:
+  unknown_tools: allow
+sources:
+  "*": trusted
+  get_most_recent_transactions: untrusted
+  get_scheduled_transactions: untrusted
+  read_file: untrusted
+tools:
+  schedule_transaction: {action: allow, limits: {per_session: 3}}
+  send_money: {action: allow, limits: {per_session: 3}}
+  update_password: {action: allow, limits: {per_session: 1}}
+  update_scheduled_transaction: {action: allow, limits: {per_session: 3}}
+  update_user_info: {action: allow, limits: {per_session: 2}}
+flows:
+  - when: context_tainted
+    tools:
+      - schedule_transaction
+      - send_money
+      - update_password
+      - update_scheduled_transaction
+      - update_user_info
+    action: require_approval
+    reason: Untrusted financial content influenced a sensitive account action.

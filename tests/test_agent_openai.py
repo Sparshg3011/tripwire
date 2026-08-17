@@ -137,6 +137,37 @@ async def test_the_task_and_system_prompt_are_sent(server):
     assert messages[1] == {"role": "user", "content": "summarise my inbox"}
 
 
+async def test_plain_prompt_is_a_real_no_prompt_defense_control(server):
+    server["turns"] = [turn()]
+    await agent(server, system_prompt="Just complete the user's task.").run(
+        "summarise my inbox", FakeToolBox(), []
+    )
+
+    assert server["seen"][0]["messages"][0] == {
+        "role": "system",
+        "content": "Just complete the user's task.",
+    }
+
+
+async def test_api_seed_and_nvidia_chat_template_settings_are_explicit(server):
+    server["turns"] = [turn()]
+    tested = agent(
+        server,
+        seed=17,
+        temperature=0.0,
+        max_tokens=777,
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+    )
+    await tested.run("hello", FakeToolBox(), [])
+
+    body = server["seen"][0]
+    assert body["seed"] == 17
+    assert body["temperature"] == 0.0
+    assert body["max_tokens"] == 777
+    assert body["chat_template_kwargs"] == {"enable_thinking": False}
+    assert tested.stats.model_calls == 1
+
+
 async def test_results_go_back_as_tool_messages(server):
     server["turns"] = [turn(("read_email", "{}")), turn()]
     await agent(server).run("read", FakeToolBox({"read_email": "you have mail"}), [])

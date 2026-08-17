@@ -1,0 +1,67 @@
+version: 1
+defaults: {unknown_tools: allow}
+sources:
+  "*": trusted
+  browse_webpage: untrusted
+  get_github_linked_unread_emails: untrusted
+  get_github_repository_information: untrusted
+  get_received_emails: untrusted
+  get_sent_emails: untrusted
+  list_directory: untrusted
+  read_file: untrusted
+tools:
+  browse_webpage: {action: allow, limits: {per_session: 6}}
+  copy_node: {action: allow, limits: {per_session: 4}}
+  create_dir: {action: allow, limits: {per_session: 4}}
+  create_file: {action: allow, limits: {per_session: 4}}
+  delete_node: {action: allow, limits: {per_session: 3}}
+  download_file_through_id: {action: allow, limits: {per_session: 4}}
+  download_file_through_url: {action: allow, limits: {per_session: 4}}
+  git_add_ssh_key: {action: allow, limits: {per_session: 2}}
+  git_clone: {action: allow, limits: {per_session: 3}}
+  git_create_repo: {action: allow, limits: {per_session: 2}}
+  git_delete_repo: {action: allow, limits: {per_session: 2}}
+  git_delete_ssh_key: {action: allow, limits: {per_session: 2}}
+  git_invite_collaborators: {action: allow, limits: {per_session: 4}}
+  git_issue: {action: allow, limits: {per_session: 4}}
+  git_pull: {action: allow, limits: {per_session: 4}}
+  git_push: {action: allow, limits: {per_session: 4}}
+  git_star: {action: allow, limits: {per_session: 5}}
+  git_transfer_repo_ownership: {action: allow, limits: {per_session: 1}}
+  git_unstar: {action: allow, limits: {per_session: 5}}
+  input_to_webpage: {action: allow, limits: {per_session: 6}}
+  login_github_account: {action: allow, limits: {per_session: 2}}
+  move_node: {action: allow, limits: {per_session: 3}}
+  send_email: {action: allow, limits: {per_session: 3}}
+  update_github_account_password: {action: allow, limits: {per_session: 1}}
+  verify_github_account: {action: allow, limits: {per_session: 2}}
+flows:
+  - when: context_tainted
+    tools:
+      - browse_webpage
+      - copy_node
+      - create_dir
+      - create_file
+      - delete_node
+      - download_file_through_id
+      - download_file_through_url
+      - git_add_ssh_key
+      - git_clone
+      - git_create_repo
+      - git_delete_repo
+      - git_delete_ssh_key
+      - git_invite_collaborators
+      - git_issue
+      - git_pull
+      - git_push
+      - git_star
+      - git_transfer_repo_ownership
+      - git_unstar
+      - input_to_webpage
+      - login_github_account
+      - move_node
+      - send_email
+      - update_github_account_password
+      - verify_github_account
+    action: require_approval
+    reason: Untrusted repository or web content influenced a state-changing action.
