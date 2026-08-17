@@ -5,7 +5,7 @@ set -euo pipefail
 
 PY="${PY:-.venv/bin/python}"
 OUT="${1:-gym/results/agentdojo-heldout}"
-WORKERS="${WORKERS:-4}"
+WORKERS="${WORKERS:-1}"
 SHARD_SIZE="${SHARD_SIZE:-100}"
 
 if [ -z "${NVIDIA_API_KEY:-}" ]; then

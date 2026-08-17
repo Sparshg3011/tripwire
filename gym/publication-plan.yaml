@@ -1,4 +1,5 @@
 schema_version: 1
+protocol_revision: 2
 status: frozen
 frozen_analysis_seed: 17229
 
@@ -39,6 +40,12 @@ primary_experiment:
     slack: [direct, tripwire-deny]
     travel: [tripwire-deny, direct]
   approval_bounds_are_secondary: [tripwire-approve, tripwire-deny]
+  free_endpoint_transport:
+    workers: 1
+    min_call_interval_seconds: 2
+    rate_limit_retries: 20
+    retry_base_seconds: 10
+    retry_cap_seconds: 60
 
 secondary_experiments:
   - name: dynamic_external_validity

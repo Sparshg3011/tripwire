@@ -1,4 +1,5 @@
 schema_version: 1
+protocol_revision: 2
 status: frozen
 benchmark: AgentDojo
 benchmark_version: v1.2.2
@@ -21,9 +22,15 @@ execution:
   temperature: 0
   thinking: disabled
   paired_shards: true
-  default_workers: 4
+  default_workers: 1
   users_per_shard: 100
   effective_jobs: one_per_suite
+  free_endpoint_transport:
+    workers: 1
+    min_call_interval_seconds: 2
+    rate_limit_retries: 20
+    retry_base_seconds: 10
+    retry_cap_seconds: 60
   primary_condition_order:
     workspace: [direct, tripwire-deny]
     banking: [tripwire-deny, direct]
@@ -46,3 +53,9 @@ analysis:
   benign_effect_interval: user_task_cluster_bootstrap
   bootstrap_seed: 17229
   bootstrap_samples: 10000
+deviations_before_scored_run:
+  - >
+    A transport shakedown at revision 1 received HTTP 429 responses with four
+    workers and then one worker. No aggregate held-out result was produced or
+    inspected. Revision 2 adds deterministic rate-limit backoff and runs one
+    worker; cases, policies, model, prompts, scoring, and analysis are unchanged.

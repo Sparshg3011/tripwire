@@ -32,6 +32,10 @@ DEVELOPMENT_USERS = {
     "travel": {"user_task_17", "user_task_18", "user_task_9"},
 }
 EXPECTED_HELDOUT_CASES = 844
+MIN_CALL_INTERVAL_SECONDS = 2.0
+RATE_LIMIT_RETRIES = 20
+RETRY_BASE_SECONDS = 10.0
+RETRY_CAP_SECONDS = 60.0
 PRIMARY_CONDITION_ORDER = {
     "workspace": ["direct", "tripwire-deny"],
     "banking": ["tripwire-deny", "direct"],
@@ -44,7 +48,7 @@ class HeldoutError(RuntimeError):
     pass
 
 
-def require_frozen_protocol(*, model: str, conditions: list[str]) -> None:
+def require_frozen_protocol(*, model: str, conditions: list[str], workers: int) -> None:
     protocol_path = Path(__file__).resolve().parents[2] / "gym" / "agentdojo-heldout.yaml"
     protocol = yaml.safe_load(protocol_path.read_text(encoding="utf-8"))
     expected = protocol.get("expected", {})
@@ -63,6 +67,15 @@ def require_frozen_protocol(*, model: str, conditions: list[str]) -> None:
         PRIMARY_CONDITION_ORDER
     ):
         mismatches.append("condition order changed")
+    transport = protocol.get("execution", {}).get("free_endpoint_transport", {})
+    if transport != {
+        "workers": workers,
+        "min_call_interval_seconds": MIN_CALL_INTERVAL_SECONDS,
+        "rate_limit_retries": RATE_LIMIT_RETRIES,
+        "retry_base_seconds": RETRY_BASE_SECONDS,
+        "retry_cap_seconds": RETRY_CAP_SECONDS,
+    }:
+        mismatches.append("free-endpoint transport changed")
     if mismatches:
         raise HeldoutError("protocol guard failed: " + ", ".join(mismatches))
 
@@ -163,6 +176,14 @@ def _command(
         "--temperature",
         "0",
         "--disable-thinking",
+        "--min-call-interval",
+        str(MIN_CALL_INTERVAL_SECONDS),
+        "--rate-limit-retries",
+        str(RATE_LIMIT_RETRIES),
+        "--retry-base-seconds",
+        str(RETRY_BASE_SECONDS),
+        "--retry-cap-seconds",
+        str(RETRY_CAP_SECONDS),
         "--out",
         str(destination),
     ]
@@ -288,7 +309,9 @@ def run(args: argparse.Namespace) -> None:
     allowed = {"direct", "tripwire-approve", "tripwire-deny"}
     if not conditions or not set(conditions) <= allowed:
         raise SystemExit(f"conditions must be comma-separated values from {sorted(allowed)}")
-    require_frozen_protocol(model=args.model, conditions=conditions)
+    require_frozen_protocol(
+        model=args.model, conditions=conditions, workers=args.workers
+    )
     plan = build_plan(args.shard_size)
     policies = {
         suite: hashlib.sha256(
@@ -305,6 +328,10 @@ def run(args: argparse.Namespace) -> None:
         "temperature": 0,
         "thinking": "disabled",
         "repetitions": 1,
+        "min_call_interval_seconds": MIN_CALL_INTERVAL_SECONDS,
+        "rate_limit_retries": RATE_LIMIT_RETRIES,
+        "retry_base_seconds": RETRY_BASE_SECONDS,
+        "retry_cap_seconds": RETRY_CAP_SECONDS,
         "primary_condition_order": PRIMARY_CONDITION_ORDER,
         "policy_sha256": policies,
     }
@@ -329,7 +356,8 @@ def run(args: argparse.Namespace) -> None:
         for suite, suite_plan in plan["suites"].items()
         for index, users in enumerate(suite_plan["shards"])
     ]
-    with ThreadPoolExecutor(max_workers=args.workers) as executor:
+    executor = ThreadPoolExecutor(max_workers=args.workers)
+    try:
         futures = {
             executor.submit(
                 _run_shard,
@@ -344,6 +372,13 @@ def run(args: argparse.Namespace) -> None:
         }
         for future in as_completed(futures):
             print(future.result(), flush=True)
+    except BaseException:
+        for future in futures:
+            future.cancel()
+        executor.shutdown(wait=True, cancel_futures=True)
+        raise
+    else:
+        executor.shutdown(wait=True)
 
     write_outputs(root, root / "summary")
     validate_results(root, plan, conditions=conditions, model=args.model)
