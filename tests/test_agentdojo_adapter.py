@@ -13,6 +13,7 @@ from tripwire_benchmarks.agentdojo import (
     _read_enforcement_receipts,
     _read_trace_errors,
     _read_trace_usage,
+    _retry_delay,
     _source_state,
     make_guarded_runtime,
 )
@@ -172,9 +173,12 @@ def test_model_usage_is_recovered_from_resumed_traces(tmp_path):
             {
                 "model_usage": {
                     "model_calls": 2,
+                    "provider_attempts": 3,
+                    "rate_limit_retries": 1,
                     "prompt_tokens": 100,
                     "completion_tokens": 10,
                     "model_seconds": 1.25,
+                    "rate_limit_wait_seconds": 10.0,
                 }
             }
         )
@@ -184,9 +188,12 @@ def test_model_usage_is_recovered_from_resumed_traces(tmp_path):
             {
                 "model_usage": {
                     "model_calls": 3,
+                    "provider_attempts": 3,
+                    "rate_limit_retries": 0,
                     "prompt_tokens": 200,
                     "completion_tokens": 20,
                     "model_seconds": 2.5,
+                    "rate_limit_wait_seconds": 0.0,
                 }
             }
         )
@@ -196,10 +203,30 @@ def test_model_usage_is_recovered_from_resumed_traces(tmp_path):
 
     assert usage == {
         "model_calls": 5,
+        "provider_attempts": 6,
+        "rate_limit_retries": 1,
         "prompt_tokens": 300,
         "completion_tokens": 30,
         "model_seconds": 3.75,
+        "rate_limit_wait_seconds": 10.0,
     }
+
+
+def test_rate_limit_delay_is_bounded_and_respects_provider_header():
+    assert _retry_delay(attempt=0, base_seconds=10, cap_seconds=60) == 10
+    assert _retry_delay(attempt=3, base_seconds=10, cap_seconds=60) == 60
+    assert _retry_delay(
+        attempt=0,
+        base_seconds=10,
+        cap_seconds=60,
+        headers={"retry-after": "35"},
+    ) == 35
+    assert _retry_delay(
+        attempt=0,
+        base_seconds=10,
+        cap_seconds=60,
+        headers={"retry-after-ms": "25000"},
+    ) == 25
 
 
 def test_trace_errors_are_never_silently_scored(tmp_path):

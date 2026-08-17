@@ -106,9 +106,16 @@ def collect(root: str | Path) -> list[dict[str, Any]]:
                     for run in runs
                 ),
                 "model_calls": sum(run.get("model_calls", 0) for run in runs),
+                "provider_attempts": sum(run.get("provider_attempts", 0) for run in runs),
+                "rate_limit_retries": sum(
+                    run.get("rate_limit_retries", 0) for run in runs
+                ),
                 "prompt_tokens": sum(run.get("prompt_tokens", 0) for run in runs),
                 "completion_tokens": sum(run.get("completion_tokens", 0) for run in runs),
                 "model_seconds": sum(run.get("model_seconds", 0.0) for run in runs),
+                "rate_limit_wait_seconds": sum(
+                    run.get("rate_limit_wait_seconds", 0.0) for run in runs
+                ),
                 "trace_errors": sum(len(run.get("trace_errors", [])) for run in runs),
             }
         )
@@ -147,9 +154,12 @@ def collect_overall(root: str | Path) -> list[dict[str, Any]]:
             "attacked_gate_prompts",
             "benign_gate_prompts",
             "model_calls",
+            "provider_attempts",
+            "rate_limit_retries",
             "prompt_tokens",
             "completion_tokens",
             "model_seconds",
+            "rate_limit_wait_seconds",
             "trace_errors",
         ):
             row[field] = sum(item[field] for item in rows)
@@ -447,9 +457,12 @@ def write_outputs(root: str | Path, out: str | Path) -> None:
             "attacked_gate_prompts": row["attacked_gate_prompts"],
             "benign_gate_prompts": row["benign_gate_prompts"],
             "model_calls": row["model_calls"],
+            "provider_attempts": row["provider_attempts"],
+            "rate_limit_retries": row["rate_limit_retries"],
             "prompt_tokens": row["prompt_tokens"],
             "completion_tokens": row["completion_tokens"],
             "model_seconds": row["model_seconds"],
+            "rate_limit_wait_seconds": row["rate_limit_wait_seconds"],
             "trace_errors": row["trace_errors"],
         }
         for row in [*overall, *rows]

@@ -259,9 +259,18 @@ are retained as descriptive summaries, not used to overstate independence.
 
 Each suite job is resumable: completed official traces are loaded rather than
 called again, and per-trace usage/enforcement receipts preserve token, model
-time, and gate counts across a resumed run. A final completeness receipt proves
+time, provider attempts, rate-limit waits, and gate counts across a resumed run.
+A final completeness receipt proves
 that all 844 attack pairs and both sets of 85 benign tasks are present with no
 trace errors before the run is treated as complete.
+
+The hosted free NVIDIA endpoint is run with one worker, a two-second minimum
+request interval, and deterministic 429 backoff (10 seconds doubling to a
+60-second cap, at most 20 retries). A pre-score transport shakedown established
+that four workers—and briefly one worker without explicit backoff—hit HTTP 429.
+No aggregate held-out outcome was produced or inspected. This revision and its
+unchanged scientific fields are recorded in the frozen YAML before the scored
+run.
 
 For an unsharded replication or targeted diagnostic, the lower-level command
 remains available:

@@ -331,8 +331,8 @@ def _openai_messages(messages: Sequence[dict]) -> list[dict[str, Any]]:
     return converted
 
 
-def _record_trace_usage(*, seconds: float, prompt_tokens: int, completion_tokens: int) -> None:
-    """Persist per-episode usage so interrupted external runs resume honestly."""
+def _update_trace_usage(**increments: float) -> None:
+    """Update the current trace's durable provider-usage receipt."""
     try:
         from agentdojo.logging import Logger
 
@@ -340,26 +340,54 @@ def _record_trace_usage(*, seconds: float, prompt_tokens: int, completion_tokens
         if not hasattr(logger, "set_contextarg"):
             return
         previous = getattr(logger, "context", {}).get("model_usage", {})
-        logger.set_contextarg(
-            "model_usage",
-            {
-                "model_calls": int(previous.get("model_calls", 0)) + 1,
-                "prompt_tokens": int(previous.get("prompt_tokens", 0)) + prompt_tokens,
-                "completion_tokens": int(previous.get("completion_tokens", 0))
-                + completion_tokens,
-                "model_seconds": float(previous.get("model_seconds", 0.0)) + seconds,
-            },
-        )
+        fields = {
+            "model_calls": int,
+            "provider_attempts": int,
+            "rate_limit_retries": int,
+            "prompt_tokens": int,
+            "completion_tokens": int,
+            "model_seconds": float,
+            "rate_limit_wait_seconds": float,
+        }
+        updated = {
+            field: converter(previous.get(field, 0))
+            + converter(increments.get(field, 0))
+            for field, converter in fields.items()
+        }
+        logger.set_contextarg("model_usage", updated)
     except Exception:  # noqa: BLE001 - accounting must never alter benchmark behavior
         return
+
+
+def _record_trace_usage(*, seconds: float, prompt_tokens: int, completion_tokens: int) -> None:
+    """Persist per-episode usage so interrupted external runs resume honestly."""
+    _update_trace_usage(
+        model_calls=1,
+        provider_attempts=1,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        model_seconds=seconds,
+    )
+
+
+def _record_rate_limit_retry(*, request_seconds: float, wait_seconds: float) -> None:
+    _update_trace_usage(
+        provider_attempts=1,
+        rate_limit_retries=1,
+        model_seconds=request_seconds,
+        rate_limit_wait_seconds=wait_seconds,
+    )
 
 
 def _read_trace_usage(*trace_dirs: Path) -> dict[str, int | float]:
     total: dict[str, int | float] = {
         "model_calls": 0,
+        "provider_attempts": 0,
+        "rate_limit_retries": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "model_seconds": 0.0,
+        "rate_limit_wait_seconds": 0.0,
     }
     for trace_dir in trace_dirs:
         for path in sorted(trace_dir.rglob("*.json")):
@@ -369,12 +397,38 @@ def _read_trace_usage(*trace_dirs: Path) -> dict[str, int | float]:
                 continue
             if not isinstance(usage, dict):
                 continue
-            for field in ("model_calls", "prompt_tokens", "completion_tokens"):
+            for field in (
+                "model_calls",
+                "provider_attempts",
+                "rate_limit_retries",
+                "prompt_tokens",
+                "completion_tokens",
+            ):
                 total[field] = int(total[field]) + int(usage.get(field, 0))
-            total["model_seconds"] = float(total["model_seconds"]) + float(
-                usage.get("model_seconds", 0.0)
-            )
+            for field in ("model_seconds", "rate_limit_wait_seconds"):
+                total[field] = float(total[field]) + float(usage.get(field, 0.0))
     return total
+
+
+def _retry_delay(
+    *,
+    attempt: int,
+    base_seconds: float,
+    cap_seconds: float,
+    headers: Mapping[str, str] | None = None,
+) -> float:
+    delay = min(cap_seconds, base_seconds * (2**attempt))
+    if headers:
+        raw_seconds = headers.get("retry-after")
+        raw_milliseconds = headers.get("retry-after-ms")
+        try:
+            if raw_seconds is not None:
+                delay = max(delay, float(raw_seconds))
+            elif raw_milliseconds is not None:
+                delay = max(delay, float(raw_milliseconds) / 1000)
+        except ValueError:
+            pass
+    return min(cap_seconds, delay)
 
 
 def _read_trace_errors(*trace_dirs: Path) -> list[dict[str, str]]:
@@ -413,6 +467,10 @@ class OpenAICompatibleLLM:
         seed: int | None = None,
         disable_thinking: bool = False,
         timeout: float = 300.0,
+        min_call_interval: float = 2.0,
+        rate_limit_retries: int = 20,
+        retry_base_seconds: float = 10.0,
+        retry_cap_seconds: float = 60.0,
     ):
         try:
             from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
@@ -430,7 +488,7 @@ class OpenAICompatibleLLM:
             base_url=base_url,
             api_key=api_key,
             timeout=timeout,
-            max_retries=8,
+            max_retries=0,
         )
         self.model = model
         self.name = model
@@ -442,6 +500,14 @@ class OpenAICompatibleLLM:
         self.prompt_tokens = 0
         self.completion_tokens = 0
         self.model_seconds = 0.0
+        self.provider_attempts = 0
+        self.rate_limit_retry_count = 0
+        self.rate_limit_wait_seconds = 0.0
+        self.min_call_interval = min_call_interval
+        self.rate_limit_retries = rate_limit_retries
+        self.retry_base_seconds = retry_base_seconds
+        self.retry_cap_seconds = retry_cap_seconds
+        self._last_request_started: float | None = None
 
     def query(self, query, runtime, env, messages=(), extra_args=None):
         from agentdojo.functions_runtime import FunctionCall
@@ -472,11 +538,50 @@ class OpenAICompatibleLLM:
             request["extra_body"] = {
                 "chat_template_kwargs": {"enable_thinking": False}
             }
-        started = time.perf_counter()
-        completion = self.client.chat.completions.create(**request)
-        elapsed = time.perf_counter() - started
+        from openai import RateLimitError
+
+        for attempt in range(self.rate_limit_retries + 1):
+            if self._last_request_started is not None:
+                interval_wait = self.min_call_interval - (
+                    time.monotonic() - self._last_request_started
+                )
+                if interval_wait > 0:
+                    time.sleep(interval_wait)
+            self._last_request_started = time.monotonic()
+            started = time.perf_counter()
+            try:
+                completion = self.client.chat.completions.create(**request)
+            except RateLimitError as exc:
+                request_seconds = time.perf_counter() - started
+                self.provider_attempts += 1
+                if attempt >= self.rate_limit_retries:
+                    raise
+                response = getattr(exc, "response", None)
+                headers = getattr(response, "headers", None)
+                delay = _retry_delay(
+                    attempt=attempt,
+                    base_seconds=self.retry_base_seconds,
+                    cap_seconds=self.retry_cap_seconds,
+                    headers=headers,
+                )
+                self.rate_limit_retry_count += 1
+                self.rate_limit_wait_seconds += delay
+                self.model_seconds += request_seconds
+                _record_rate_limit_retry(
+                    request_seconds=request_seconds, wait_seconds=delay
+                )
+                warnings.warn(
+                    f"NVIDIA rate limit; retry {attempt + 1}/"
+                    f"{self.rate_limit_retries} after {delay:.1f}s",
+                    stacklevel=2,
+                )
+                time.sleep(delay)
+                continue
+            elapsed = time.perf_counter() - started
+            break
         self.model_seconds += elapsed
         self.model_calls += 1
+        self.provider_attempts += 1
         usage = completion.usage
         prompt_tokens = 0
         completion_tokens = 0
@@ -617,6 +722,10 @@ def run_once(args, repetition: int) -> dict[str, Any]:
         seed=repetition if args.api_seed else None,
         disable_thinking=args.disable_thinking,
         timeout=args.timeout,
+        min_call_interval=args.min_call_interval,
+        rate_limit_retries=args.rate_limit_retries,
+        retry_base_seconds=args.retry_base_seconds,
+        retry_cap_seconds=args.retry_cap_seconds,
     )
     prompt_defense = None
     protected = suite
@@ -685,9 +794,12 @@ def run_once(args, repetition: int) -> dict[str, Any]:
         ],
         "trace_errors": trace_errors,
         "model_calls": trace_usage["model_calls"],
+        "provider_attempts": trace_usage["provider_attempts"],
+        "rate_limit_retries": trace_usage["rate_limit_retries"],
         "prompt_tokens": trace_usage["prompt_tokens"],
         "completion_tokens": trace_usage["completion_tokens"],
         "model_seconds": trace_usage["model_seconds"],
+        "rate_limit_wait_seconds": trace_usage["rate_limit_wait_seconds"],
         "enforcement": enforcement,
     }
 
@@ -719,6 +831,10 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--max-tokens", type=int, default=2048)
     parser.add_argument("--timeout", type=float, default=300.0)
+    parser.add_argument("--min-call-interval", type=float, default=2.0)
+    parser.add_argument("--rate-limit-retries", type=int, default=20)
+    parser.add_argument("--retry-base-seconds", type=float, default=10.0)
+    parser.add_argument("--retry-cap-seconds", type=float, default=60.0)
     parser.add_argument("--api-seed", action="store_true")
     parser.add_argument("--disable-thinking", action="store_true")
     parser.add_argument("--force-rerun", action="store_true")
@@ -730,6 +846,10 @@ def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     if args.repetitions < 1:
         raise SystemExit("--repetitions must be positive")
+    if args.min_call_interval < 0 or args.rate_limit_retries < 0:
+        raise SystemExit("retry counts and call intervals must be non-negative")
+    if args.retry_base_seconds <= 0 or args.retry_cap_seconds <= 0:
+        raise SystemExit("retry delays must be positive")
     if not os.environ.get(args.api_key_var):
         raise SystemExit(f"{args.api_key_var} is not set")
     destination = Path(args.out)
@@ -773,6 +893,10 @@ def main(argv: list[str] | None = None) -> None:
             "api_seed": args.api_seed,
             "disable_thinking": args.disable_thinking,
             "repetitions": args.repetitions,
+            "min_call_interval": args.min_call_interval,
+            "rate_limit_retries": args.rate_limit_retries,
+            "retry_base_seconds": args.retry_base_seconds,
+            "retry_cap_seconds": args.retry_cap_seconds,
         },
         "runs": runs,
         "summary": {
@@ -784,9 +908,14 @@ def main(argv: list[str] | None = None) -> None:
             ),
             "benign_utility": statistics.fmean(run["benign_utility"] for run in runs),
             "model_calls": sum(run["model_calls"] for run in runs),
+            "provider_attempts": sum(run["provider_attempts"] for run in runs),
+            "rate_limit_retries": sum(run["rate_limit_retries"] for run in runs),
             "prompt_tokens": sum(run["prompt_tokens"] for run in runs),
             "completion_tokens": sum(run["completion_tokens"] for run in runs),
             "model_seconds": sum(run["model_seconds"] for run in runs),
+            "rate_limit_wait_seconds": sum(
+                run["rate_limit_wait_seconds"] for run in runs
+            ),
             "trace_errors": sum(len(run["trace_errors"]) for run in runs),
             "attacked_gate_prompts": sum(
                 run["enforcement"]["attacked"]["gate_prompts"] for run in runs

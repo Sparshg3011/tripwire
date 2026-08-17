@@ -44,6 +44,7 @@ def test_committed_heldout_protocol_matches_runner_contract():
     require_frozen_protocol(
         model="nvidia/nemotron-3-super-120b-a12b",
         conditions=["direct", "tripwire-deny"],
+        workers=1,
     )
 
 
