@@ -16,6 +16,7 @@ from tripwire_benchmarks.agentdojo import (
     _retry_delay,
     _source_state,
     make_guarded_runtime,
+    make_pipeline,
 )
 
 ROOT = Path(__file__).parent.parent
@@ -135,6 +136,33 @@ def test_custom_nvidia_pipeline_name_is_attack_and_trace_compatible():
     assert "/" not in name
     assert "nvidia_nemotron-3-super-120b-a12b" in name
     assert get_model_name_from_pipeline(SimpleNamespace(name=name)) == "Local model"
+
+
+def test_transformers_detector_matches_agentdojo_configuration(monkeypatch):
+    from agentdojo.agent_pipeline import pi_detector
+    from agentdojo.agent_pipeline.tool_execution import ToolsExecutionLoop, ToolsExecutor
+
+    captured = {}
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(pi_detector, "TransformersBasedPIDetector", FakeDetector)
+    llm = SimpleNamespace(model="nvidia/test")
+
+    pipeline = make_pipeline(llm, "transformers_pi_detector")
+
+    loop = next(element for element in pipeline.elements if isinstance(element, ToolsExecutionLoop))
+    assert isinstance(loop.elements[0], ToolsExecutor)
+    assert isinstance(loop.elements[1], FakeDetector)
+    assert loop.elements[2] is llm
+    assert captured == {
+        "model_name": "protectai/deberta-v3-base-prompt-injection-v2",
+        "safe_label": "SAFE",
+        "threshold": 0.5,
+        "mode": "message",
+    }
 
 
 def test_enforcement_receipts_survive_trace_resume(tmp_path):

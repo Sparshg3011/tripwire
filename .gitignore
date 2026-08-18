@@ -9,6 +9,7 @@ build/
 .hypothesis/
 .mypy_cache/
 .ruff_cache/
+.cache/
 .coverage
 htmlcov/
 .DS_Store

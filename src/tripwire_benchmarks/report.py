@@ -191,7 +191,13 @@ def paired_effects(root: str | Path) -> list[dict[str, Any]]:
     bases = {(model, suite, attack) for model, suite, attack, condition in cells if condition == "direct"}
     for model, suite, attack in sorted(bases):
         direct = cells[(model, suite, attack, "direct")]
-        for condition in ("tripwire-approve", "tripwire-deny"):
+        conditions = sorted(
+            condition
+            for cell_model, cell_suite, cell_attack, condition in cells
+            if (cell_model, cell_suite, cell_attack) == (model, suite, attack)
+            and condition != "direct"
+        )
+        for condition in conditions:
             defended = cells.get((model, suite, attack, condition))
             if defended is None:
                 continue
@@ -278,7 +284,7 @@ def _paired_cluster_intervals(
     comparisons = {
         (model, attack, condition)
         for model, _suite, attack, condition in attack_cells
-        if condition in {"tripwire-approve", "tripwire-deny"}
+        if condition != "direct"
     }
     intervals: dict[tuple[str, str, str], dict[str, Any]] = {}
     for model, attack, condition in sorted(comparisons):

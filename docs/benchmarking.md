@@ -228,6 +228,25 @@ Run the model replications only after the primary model and analysis are frozen:
 
 ## Stage 3: primary AgentDojo experiment
 
+Before spending calls on secondary baselines, screen them on the already
+declared 12-user development pilot. Direct and strict Tripwire results are
+reused; only the two prompt defenses and AgentDojo's official local ProtectAI
+detector make new target-model calls:
+
+```bash
+set -a
+source .env
+set +a
+./gym/run_agentdojo_screening.sh gym/results/agentdojo-screening
+```
+
+The frozen screening rule is in
+[`gym/agentdojo-screening.yaml`](../gym/agentdojo-screening.yaml). This stage
+does not consume any of the 85 held-out user tasks and is not reported as a
+publication headline. The completed screening decision and its compute notes
+are reported in
+[`docs/agentdojo-screening-results.md`](agentdojo-screening-results.md).
+
 The seeded 24-pair development pilot and its limitations are reported in
 [`docs/agentdojo-pilot-results.md`](agentdojo-pilot-results.md). Its 12 user
 tasks are excluded from the primary test set. This leaves 85 untouched user
