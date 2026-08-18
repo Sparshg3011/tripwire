@@ -45,7 +45,7 @@ gym = [
 # AgentDojo fork and is installed in a separate environment from its pinned
 # repository revision; see docs/benchmarking.md.
 publication = [
-    "agentdojo==0.1.35",
+    "agentdojo[transformers]==0.1.35",
     "openai>=1.40",
 ]
 dev = [

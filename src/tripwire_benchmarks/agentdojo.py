@@ -623,10 +623,15 @@ def make_pipeline(llm: OpenAICompatibleLLM, defense: str | None):
     from agentdojo.agent_pipeline.basic_elements import InitQuery, SystemMessage
     from agentdojo.agent_pipeline.tool_execution import ToolsExecutionLoop, ToolsExecutor
 
-    if defense not in {None, "repeat_user_prompt", "spotlighting_with_delimiting"}:
+    if defense not in {
+        None,
+        "repeat_user_prompt",
+        "spotlighting_with_delimiting",
+        "transformers_pi_detector",
+    }:
         raise AdapterError(
-            "this NVIDIA adapter supports none, repeat_user_prompt, and "
-            "spotlighting_with_delimiting"
+            "this NVIDIA adapter supports none, repeat_user_prompt, "
+            "spotlighting_with_delimiting, and transformers_pi_detector"
         )
     system = load_system_message(None)
     formatter = None
@@ -644,6 +649,18 @@ def make_pipeline(llm: OpenAICompatibleLLM, defense: str | None):
 
     executor = ToolsExecutor(formatter) if formatter is not None else ToolsExecutor()
     loop_elements.append(executor)
+    if defense == "transformers_pi_detector":
+        from agentdojo.agent_pipeline.pi_detector import TransformersBasedPIDetector
+
+        # Match AgentDojo v1.2.2's official defense configuration exactly.
+        loop_elements.append(
+            TransformersBasedPIDetector(
+                model_name="protectai/deberta-v3-base-prompt-injection-v2",
+                safe_label="SAFE",
+                threshold=0.5,
+                mode="message",
+            )
+        )
     if defense == "repeat_user_prompt":
         loop_elements.append(InitQuery())
     loop_elements.append(llm)
@@ -817,6 +834,7 @@ def parse_args(argv: list[str] | None = None):
             "direct",
             "repeat_user_prompt",
             "spotlighting_with_delimiting",
+            "transformers_pi_detector",
             "tripwire-approve",
             "tripwire-deny",
         ],

@@ -79,6 +79,23 @@ def test_external_report_aggregates_and_pairs_exact_cases(tmp_path):
     assert effects[0]["defended_only_successes"] == 0
 
 
+def test_external_report_pairs_non_tripwire_defenses(tmp_path):
+    _write(tmp_path / "direct", "direct", [True, True, False])
+    _write(
+        tmp_path / "detector",
+        "transformers_pi_detector",
+        [False, True, False],
+    )
+
+    effect = paired_effects(tmp_path)[0]
+    overall_effect = paired_effects_overall(tmp_path, bootstrap_samples=100)[0]
+
+    assert effect["condition"] == "transformers_pi_detector"
+    assert effect["asr_difference"] == -1 / 3
+    assert overall_effect["condition"] == "transformers_pi_detector"
+    assert overall_effect["pairs"] == 3
+
+
 def test_external_report_writes_all_formats(tmp_path):
     _write(tmp_path / "direct", "direct", [True, False])
     out = tmp_path / "out"
