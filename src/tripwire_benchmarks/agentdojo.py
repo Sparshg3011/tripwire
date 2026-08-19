@@ -177,12 +177,8 @@ def _read_enforcement_receipts(
                 event["case_id"] = case_id
             receipts.append(receipt)
     events = [event for receipt in receipts for event in receipt.get("events", [])]
-    gated_cases = {
-        event["case_id"] for event in events if event.get("decision") == "gate"
-    }
-    blocked_cases = {
-        event["case_id"] for event in events if not event.get("executed", False)
-    }
+    gated_cases = {event["case_id"] for event in events if event.get("decision") == "gate"}
+    blocked_cases = {event["case_id"] for event in events if not event.get("executed", False)}
     return {
         "tasks": len(receipts),
         "tool_calls": len(events),
@@ -344,14 +340,15 @@ def _update_trace_usage(**increments: float) -> None:
             "model_calls": int,
             "provider_attempts": int,
             "rate_limit_retries": int,
+            "transient_error_retries": int,
             "prompt_tokens": int,
             "completion_tokens": int,
             "model_seconds": float,
             "rate_limit_wait_seconds": float,
+            "transient_error_wait_seconds": float,
         }
         updated = {
-            field: converter(previous.get(field, 0))
-            + converter(increments.get(field, 0))
+            field: converter(previous.get(field, 0)) + converter(increments.get(field, 0))
             for field, converter in fields.items()
         }
         logger.set_contextarg("model_usage", updated)
@@ -370,13 +367,24 @@ def _record_trace_usage(*, seconds: float, prompt_tokens: int, completion_tokens
     )
 
 
-def _record_rate_limit_retry(*, request_seconds: float, wait_seconds: float) -> None:
-    _update_trace_usage(
-        provider_attempts=1,
-        rate_limit_retries=1,
-        model_seconds=request_seconds,
-        rate_limit_wait_seconds=wait_seconds,
-    )
+def _record_provider_retry(*, request_seconds: float, wait_seconds: float, error_kind: str) -> None:
+    increments = {
+        "provider_attempts": 1,
+        "model_seconds": request_seconds,
+    }
+    if error_kind == "rate_limit":
+        increments.update(
+            rate_limit_retries=1,
+            rate_limit_wait_seconds=wait_seconds,
+        )
+    elif error_kind == "transient":
+        increments.update(
+            transient_error_retries=1,
+            transient_error_wait_seconds=wait_seconds,
+        )
+    else:  # pragma: no cover - internal programming error
+        raise ValueError(f"unknown provider retry kind: {error_kind}")
+    _update_trace_usage(**increments)
 
 
 def _read_trace_usage(*trace_dirs: Path) -> dict[str, int | float]:
@@ -384,10 +392,12 @@ def _read_trace_usage(*trace_dirs: Path) -> dict[str, int | float]:
         "model_calls": 0,
         "provider_attempts": 0,
         "rate_limit_retries": 0,
+        "transient_error_retries": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
         "model_seconds": 0.0,
         "rate_limit_wait_seconds": 0.0,
+        "transient_error_wait_seconds": 0.0,
     }
     for trace_dir in trace_dirs:
         for path in sorted(trace_dir.rglob("*.json")):
@@ -401,11 +411,16 @@ def _read_trace_usage(*trace_dirs: Path) -> dict[str, int | float]:
                 "model_calls",
                 "provider_attempts",
                 "rate_limit_retries",
+                "transient_error_retries",
                 "prompt_tokens",
                 "completion_tokens",
             ):
                 total[field] = int(total[field]) + int(usage.get(field, 0))
-            for field in ("model_seconds", "rate_limit_wait_seconds"):
+            for field in (
+                "model_seconds",
+                "rate_limit_wait_seconds",
+                "transient_error_wait_seconds",
+            ):
                 total[field] = float(total[field]) + float(usage.get(field, 0.0))
     return total
 
@@ -503,6 +518,8 @@ class OpenAICompatibleLLM:
         self.provider_attempts = 0
         self.rate_limit_retry_count = 0
         self.rate_limit_wait_seconds = 0.0
+        self.transient_error_retry_count = 0
+        self.transient_error_wait_seconds = 0.0
         self.min_call_interval = min_call_interval
         self.rate_limit_retries = rate_limit_retries
         self.retry_base_seconds = retry_base_seconds
@@ -535,10 +552,8 @@ class OpenAICompatibleLLM:
         if self.seed is not None:
             request["seed"] = self.seed
         if self.disable_thinking:
-            request["extra_body"] = {
-                "chat_template_kwargs": {"enable_thinking": False}
-            }
-        from openai import RateLimitError
+            request["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+        from openai import APIConnectionError, InternalServerError, RateLimitError
 
         for attempt in range(self.rate_limit_retries + 1):
             if self._last_request_started is not None:
@@ -551,7 +566,7 @@ class OpenAICompatibleLLM:
             started = time.perf_counter()
             try:
                 completion = self.client.chat.completions.create(**request)
-            except RateLimitError as exc:
+            except (RateLimitError, APIConnectionError, InternalServerError) as exc:
                 request_seconds = time.perf_counter() - started
                 self.provider_attempts += 1
                 if attempt >= self.rate_limit_retries:
@@ -564,14 +579,23 @@ class OpenAICompatibleLLM:
                     cap_seconds=self.retry_cap_seconds,
                     headers=headers,
                 )
-                self.rate_limit_retry_count += 1
-                self.rate_limit_wait_seconds += delay
+                is_rate_limit = isinstance(exc, RateLimitError)
+                error_kind = "rate_limit" if is_rate_limit else "transient"
+                if is_rate_limit:
+                    self.rate_limit_retry_count += 1
+                    self.rate_limit_wait_seconds += delay
+                else:
+                    self.transient_error_retry_count += 1
+                    self.transient_error_wait_seconds += delay
                 self.model_seconds += request_seconds
-                _record_rate_limit_retry(
-                    request_seconds=request_seconds, wait_seconds=delay
+                _record_provider_retry(
+                    request_seconds=request_seconds,
+                    wait_seconds=delay,
+                    error_kind=error_kind,
                 )
+                failure = "rate limit" if is_rate_limit else type(exc).__name__
                 warnings.warn(
-                    f"NVIDIA rate limit; retry {attempt + 1}/"
+                    f"NVIDIA {failure}; retry {attempt + 1}/"
                     f"{self.rate_limit_retries} after {delay:.1f}s",
                     stacklevel=2,
                 )
@@ -681,8 +705,7 @@ def _pipeline_name(model: str, defense: str | None) -> str:
     and trace writing on the same directory.
     """
     safe_model = "".join(
-        character if character.isalnum() or character in "._-" else "_"
-        for character in model
+        character if character.isalnum() or character in "._-" else "_" for character in model
     )
     return f"local-{safe_model}-{defense or 'none'}"
 
@@ -813,10 +836,12 @@ def run_once(args, repetition: int) -> dict[str, Any]:
         "model_calls": trace_usage["model_calls"],
         "provider_attempts": trace_usage["provider_attempts"],
         "rate_limit_retries": trace_usage["rate_limit_retries"],
+        "transient_error_retries": trace_usage["transient_error_retries"],
         "prompt_tokens": trace_usage["prompt_tokens"],
         "completion_tokens": trace_usage["completion_tokens"],
         "model_seconds": trace_usage["model_seconds"],
         "rate_limit_wait_seconds": trace_usage["rate_limit_wait_seconds"],
+        "transient_error_wait_seconds": trace_usage["transient_error_wait_seconds"],
         "enforcement": enforcement,
     }
 
@@ -918,21 +943,19 @@ def main(argv: list[str] | None = None) -> None:
         },
         "runs": runs,
         "summary": {
-            "attack_success_rate": statistics.fmean(
-                run["attack_success_rate"] for run in runs
-            ),
-            "utility_under_attack": statistics.fmean(
-                run["utility_under_attack"] for run in runs
-            ),
+            "attack_success_rate": statistics.fmean(run["attack_success_rate"] for run in runs),
+            "utility_under_attack": statistics.fmean(run["utility_under_attack"] for run in runs),
             "benign_utility": statistics.fmean(run["benign_utility"] for run in runs),
             "model_calls": sum(run["model_calls"] for run in runs),
             "provider_attempts": sum(run["provider_attempts"] for run in runs),
             "rate_limit_retries": sum(run["rate_limit_retries"] for run in runs),
+            "transient_error_retries": sum(run["transient_error_retries"] for run in runs),
             "prompt_tokens": sum(run["prompt_tokens"] for run in runs),
             "completion_tokens": sum(run["completion_tokens"] for run in runs),
             "model_seconds": sum(run["model_seconds"] for run in runs),
-            "rate_limit_wait_seconds": sum(
-                run["rate_limit_wait_seconds"] for run in runs
+            "rate_limit_wait_seconds": sum(run["rate_limit_wait_seconds"] for run in runs),
+            "transient_error_wait_seconds": sum(
+                run["transient_error_wait_seconds"] for run in runs
             ),
             "trace_errors": sum(len(run["trace_errors"]) for run in runs),
             "attacked_gate_prompts": sum(
@@ -944,9 +967,7 @@ def main(argv: list[str] | None = None) -> None:
             "benign_gate_prompts": sum(
                 run["enforcement"]["benign"]["gate_prompts"] for run in runs
             ),
-            "benign_gated_cases": sum(
-                run["enforcement"]["benign"]["gated_cases"] for run in runs
-            ),
+            "benign_gated_cases": sum(run["enforcement"]["benign"]["gated_cases"] for run in runs),
         },
     }
     result_path = destination / "results.json"

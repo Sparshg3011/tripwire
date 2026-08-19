@@ -1,5 +1,5 @@
 schema_version: 1
-protocol_revision: 2
+protocol_revision: 3
 status: frozen
 benchmark: AgentDojo
 benchmark_version: v1.2.2
@@ -31,6 +31,11 @@ execution:
     rate_limit_retries: 20
     retry_base_seconds: 10
     retry_cap_seconds: 60
+  transport_resume:
+    retryable_provider_failures: [HTTP_429, timeout, connection_error, HTTP_5xx]
+    reuse_successful_checkpointed_traces: true
+    require_clean_source_states: true
+    write_provenance_receipt: true
   primary_condition_order:
     workspace: [direct, tripwire-deny]
     banking: [tripwire-deny, direct]
@@ -59,3 +64,11 @@ deviations_before_scored_run:
     workers and then one worker. No aggregate held-out result was produced or
     inspected. Revision 2 adds deterministic rate-limit backoff and runs one
     worker; cases, policies, model, prompts, scoring, and analysis are unchanged.
+  - >
+    The revision 2 run stopped after 200 successful trace checkpoints when the
+    provider returned HTTP 502 for one job and a read timeout for another. No
+    aggregate condition result was produced or inspected. Revision 3 extends
+    the same bounded retry budget to timeouts, connection failures, and HTTP
+    5xx responses, reuses only successful checkpointed traces, and writes an
+    explicit transport-resume receipt. Cases, policies, model, prompts,
+    scoring, condition order, and analysis are unchanged.

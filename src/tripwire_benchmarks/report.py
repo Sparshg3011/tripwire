@@ -69,12 +69,10 @@ def collect(root: str | Path) -> list[dict[str, Any]]:
         benign = [bool(item["value"]) for run in runs for item in run["benign_results"]]
         enforcement_observed = any("enforcement" in run for run in runs)
         attacked_gated_cases = sum(
-            run.get("enforcement", {}).get("attacked", {}).get("gated_cases", 0)
-            for run in runs
+            run.get("enforcement", {}).get("attacked", {}).get("gated_cases", 0) for run in runs
         )
         benign_gated_cases = sum(
-            run.get("enforcement", {}).get("benign", {}).get("gated_cases", 0)
-            for run in runs
+            run.get("enforcement", {}).get("benign", {}).get("gated_cases", 0) for run in runs
         )
         rows.append(
             {
@@ -94,27 +92,27 @@ def collect(root: str | Path) -> list[dict[str, Any]]:
                     benign_gated_cases, len(benign) if enforcement_observed else 0
                 ),
                 "attacked_gate_prompts": sum(
-                    run.get("enforcement", {})
-                    .get("attacked", {})
-                    .get("gate_prompts", 0)
+                    run.get("enforcement", {}).get("attacked", {}).get("gate_prompts", 0)
                     for run in runs
                 ),
                 "benign_gate_prompts": sum(
-                    run.get("enforcement", {})
-                    .get("benign", {})
-                    .get("gate_prompts", 0)
+                    run.get("enforcement", {}).get("benign", {}).get("gate_prompts", 0)
                     for run in runs
                 ),
                 "model_calls": sum(run.get("model_calls", 0) for run in runs),
                 "provider_attempts": sum(run.get("provider_attempts", 0) for run in runs),
-                "rate_limit_retries": sum(
-                    run.get("rate_limit_retries", 0) for run in runs
+                "rate_limit_retries": sum(run.get("rate_limit_retries", 0) for run in runs),
+                "transient_error_retries": sum(
+                    run.get("transient_error_retries", 0) for run in runs
                 ),
                 "prompt_tokens": sum(run.get("prompt_tokens", 0) for run in runs),
                 "completion_tokens": sum(run.get("completion_tokens", 0) for run in runs),
                 "model_seconds": sum(run.get("model_seconds", 0.0) for run in runs),
                 "rate_limit_wait_seconds": sum(
                     run.get("rate_limit_wait_seconds", 0.0) for run in runs
+                ),
+                "transient_error_wait_seconds": sum(
+                    run.get("transient_error_wait_seconds", 0.0) for run in runs
                 ),
                 "trace_errors": sum(len(run.get("trace_errors", [])) for run in runs),
             }
@@ -156,10 +154,12 @@ def collect_overall(root: str | Path) -> list[dict[str, Any]]:
             "model_calls",
             "provider_attempts",
             "rate_limit_retries",
+            "transient_error_retries",
             "prompt_tokens",
             "completion_tokens",
             "model_seconds",
             "rate_limit_wait_seconds",
+            "transient_error_wait_seconds",
             "trace_errors",
         ):
             row[field] = sum(item[field] for item in rows)
@@ -188,7 +188,9 @@ def paired_effects(root: str | Path) -> list[dict[str, Any]]:
         ).update(values)
 
     effects = []
-    bases = {(model, suite, attack) for model, suite, attack, condition in cells if condition == "direct"}
+    bases = {
+        (model, suite, attack) for model, suite, attack, condition in cells if condition == "direct"
+    }
     for model, suite, attack in sorted(bases):
         direct = cells[(model, suite, attack, "direct")]
         conditions = sorted(
@@ -256,12 +258,10 @@ def _paired_cluster_intervals(
     samples: int,
     seed: int,
 ) -> dict[tuple[str, str, str], dict[str, Any]]:
-    attack_cells: dict[
-        tuple[str, str, str, str], dict[tuple[int, str, str], bool]
-    ] = defaultdict(dict)
-    benign_cells: dict[
-        tuple[str, str, str, str], dict[tuple[int, str], bool]
-    ] = defaultdict(dict)
+    attack_cells: dict[tuple[str, str, str, str], dict[tuple[int, str, str], bool]] = defaultdict(
+        dict
+    )
+    benign_cells: dict[tuple[str, str, str, str], dict[tuple[int, str], bool]] = defaultdict(dict)
     for path in sorted(Path(root).rglob("results.json")):
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -273,13 +273,11 @@ def _paired_cluster_intervals(
         for run in data["runs"]:
             repetition = int(run["repetition"])
             for item in run["attack_results"]:
-                attack_cells[key][
-                    (repetition, item["user_task"], item["injection_task"])
-                ] = bool(item["value"])
-            for item in run["benign_results"]:
-                benign_cells[key][(repetition, item["user_task"])] = bool(
+                attack_cells[key][(repetition, item["user_task"], item["injection_task"])] = bool(
                     item["value"]
                 )
+            for item in run["benign_results"]:
+                benign_cells[key][(repetition, item["user_task"])] = bool(item["value"])
 
     comparisons = {
         (model, attack, condition)
@@ -301,15 +299,16 @@ def _paired_cluster_intervals(
                     - float(direct_attack[(repetition, user, injection)])
                 )
             attack_grid = {
-                pair: sum(values) / len(values)
-                for pair, values in repeated_differences.items()
+                pair: sum(values) / len(values) for pair, values in repeated_differences.items()
             }
             users = sorted({user for user, _injection in attack_grid})
             injections = sorted({injection for _user, injection in attack_grid})
-            if users and injections and all(
-                (user, injection) in attack_grid
-                for user in users
-                for injection in injections
+            if (
+                users
+                and injections
+                and all(
+                    (user, injection) in attack_grid for user in users for injection in injections
+                )
             ):
                 attack_grids.append((users, injections, attack_grid))
 
@@ -323,8 +322,7 @@ def _paired_cluster_intervals(
                     - float(direct_benign[(repetition, user)])
                 )
             benign_grid = {
-                user: sum(values) / len(values)
-                for user, values in benign_repeated.items()
+                user: sum(values) / len(values) for user, values in benign_repeated.items()
             }
             if benign_grid:
                 benign_grids.append((sorted(benign_grid), benign_grid))
@@ -362,9 +360,7 @@ def _paired_cluster_intervals(
             "asr_crossed_cluster_ci_low": _percentile(attack_draws, 0.025),
             "asr_crossed_cluster_ci_high": _percentile(attack_draws, 0.975),
             "asr_user_clusters": sum(len(users) for users, _, _ in attack_grids),
-            "asr_injection_clusters": sum(
-                len(injections) for _, injections, _ in attack_grids
-            ),
+            "asr_injection_clusters": sum(len(injections) for _, injections, _ in attack_grids),
             "benign_user_cluster_ci_low": _percentile(benign_draws, 0.025),
             "benign_user_cluster_ci_high": _percentile(benign_draws, 0.975),
             "benign_user_clusters": sum(len(users) for users, _ in benign_grids),
@@ -386,28 +382,24 @@ def paired_effects_overall(
 ) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for effect in paired_effects(root):
-        grouped[(effect["model"], effect["attack"], effect["condition"])].append(
-            effect
-        )
-    interval_rows = _paired_cluster_intervals(
-        root, samples=bootstrap_samples, seed=bootstrap_seed
-    )
+        grouped[(effect["model"], effect["attack"], effect["condition"])].append(effect)
+    interval_rows = _paired_cluster_intervals(root, samples=bootstrap_samples, seed=bootstrap_seed)
     overall = []
     for (model, attack, condition), effects in sorted(grouped.items()):
         pairs = sum(effect["pairs"] for effect in effects)
         only_a = sum(effect["direct_only_successes"] for effect in effects)
         only_b = sum(effect["defended_only_successes"] for effect in effects)
         row = {
-                "model": model,
-                "suite": "ALL",
-                "attack": attack,
-                "condition": condition,
-                "pairs": pairs,
-                "asr_difference": (only_b - only_a) / pairs if pairs else None,
-                "direct_only_successes": only_a,
-                "defended_only_successes": only_b,
-                "mcnemar_p": _exact_mcnemar_p(only_a, only_b),
-            }
+            "model": model,
+            "suite": "ALL",
+            "attack": attack,
+            "condition": condition,
+            "pairs": pairs,
+            "asr_difference": (only_b - only_a) / pairs if pairs else None,
+            "direct_only_successes": only_a,
+            "defended_only_successes": only_b,
+            "mcnemar_p": _exact_mcnemar_p(only_a, only_b),
+        }
         row.update(interval_rows.get((model, attack, condition), {}))
         overall.append(row)
     return overall
@@ -453,9 +445,9 @@ def write_outputs(root: str | Path, out: str | Path) -> None:
             "condition": row["condition"],
             "repetitions": row["repetitions"],
             "attack_success_rate": row["attack_success"]["rate"],
-            "attack_success_valid_injection_subset": row[
-                "attack_success_valid_injection_subset"
-            ]["rate"],
+            "attack_success_valid_injection_subset": row["attack_success_valid_injection_subset"][
+                "rate"
+            ],
             "utility_under_attack": row["utility_under_attack"]["rate"],
             "benign_utility": row["benign_utility"]["rate"],
             "attack_intervention_rate": row["attack_intervention"]["rate"],
@@ -465,10 +457,12 @@ def write_outputs(root: str | Path, out: str | Path) -> None:
             "model_calls": row["model_calls"],
             "provider_attempts": row["provider_attempts"],
             "rate_limit_retries": row["rate_limit_retries"],
+            "transient_error_retries": row["transient_error_retries"],
             "prompt_tokens": row["prompt_tokens"],
             "completion_tokens": row["completion_tokens"],
             "model_seconds": row["model_seconds"],
             "rate_limit_wait_seconds": row["rate_limit_wait_seconds"],
+            "transient_error_wait_seconds": row["transient_error_wait_seconds"],
             "trace_errors": row["trace_errors"],
         }
         for row in [*overall, *rows]

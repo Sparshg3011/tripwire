@@ -48,6 +48,58 @@ class HeldoutError(RuntimeError):
     pass
 
 
+def _authorize_transport_resume(
+    root: Path,
+    *,
+    planned_source: dict[str, Any],
+    current_source: dict[str, Any],
+    contract_sha256: str,
+    allow: bool,
+) -> None:
+    """Permit one clean, documented transport-only source transition."""
+    if planned_source == current_source:
+        return
+    receipt_path = root / "TRANSPORT-RESUME.json"
+    if receipt_path.exists():
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if (
+            receipt.get("planned_source") == planned_source
+            and receipt.get("resume_source") == current_source
+            and receipt.get("contract_sha256") == contract_sha256
+        ):
+            return
+        raise HeldoutError("transport-resume receipt does not match this checkout")
+    if not allow:
+        raise HeldoutError(
+            "existing held-out source state does not match this checkout; "
+            "use --allow-transport-resume only for an audited transport-only fix"
+        )
+    if planned_source.get("git_dirty") or current_source.get("git_dirty"):
+        raise HeldoutError("transport resume requires clean planned and current sources")
+    trace_files = list(root.glob("**/traces/**/*.json"))
+    failed_logs = []
+    for path in sorted(root.glob("**/runner.log")):
+        content = path.read_bytes()
+        if b"Traceback (most recent call last)" in content:
+            failed_logs.append(
+                {
+                    "path": str(path.relative_to(root)),
+                    "sha256": hashlib.sha256(content).hexdigest(),
+                }
+            )
+    receipt = {
+        "schema_version": 1,
+        "created_at": datetime.now(UTC).isoformat(),
+        "scope": "transport-only provider retry expansion; scientific contract unchanged",
+        "contract_sha256": contract_sha256,
+        "planned_source": planned_source,
+        "resume_source": current_source,
+        "checkpoint_trace_files": len(trace_files),
+        "failed_runner_logs": failed_logs,
+    }
+    receipt_path.write_text(json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def require_frozen_protocol(*, model: str, conditions: list[str], workers: int) -> None:
     protocol_path = Path(__file__).resolve().parents[2] / "gym" / "agentdojo-heldout.yaml"
     protocol = yaml.safe_load(protocol_path.read_text(encoding="utf-8"))
@@ -63,9 +115,7 @@ def require_frozen_protocol(*, model: str, conditions: list[str], workers: int) 
         mismatches.append("conditions changed")
     if expected.get("heldout_attack_pairs") != EXPECTED_HELDOUT_CASES:
         mismatches.append("held-out pair count changed")
-    if protocol.get("execution", {}).get("primary_condition_order") != (
-        PRIMARY_CONDITION_ORDER
-    ):
+    if protocol.get("execution", {}).get("primary_condition_order") != (PRIMARY_CONDITION_ORDER):
         mismatches.append("condition order changed")
     transport = protocol.get("execution", {}).get("free_endpoint_transport", {})
     if transport != {
@@ -221,9 +271,7 @@ def _run_shard(
             destination=destination,
         )
         process = subprocess.run(command, text=True, capture_output=True, check=False)
-        (destination / "runner.log").write_text(
-            process.stdout + process.stderr, encoding="utf-8"
-        )
+        (destination / "runner.log").write_text(process.stdout + process.stderr, encoding="utf-8")
         if process.returncode != 0:
             raise HeldoutError(
                 f"{suite} shard {shard_index} {condition} failed with "
@@ -242,9 +290,7 @@ def validate_results(
 ) -> dict[str, Any]:
     """Prove every predeclared case is present once and every trace succeeded."""
     rows = collect(root)
-    indexed = {
-        (row["model"], row["suite"], row["condition"]): row for row in rows
-    }
+    indexed = {(row["model"], row["suite"], row["condition"]): row for row in rows}
     checks: list[dict[str, Any]] = []
     failures: list[str] = []
     for suite, suite_plan in plan["suites"].items():
@@ -275,15 +321,12 @@ def validate_results(
                 failures.append(f"{suite}/{condition}")
 
     paired = {
-        (effect["model"], effect["condition"]): effect
-        for effect in paired_effects_overall(root)
+        (effect["model"], effect["condition"]): effect for effect in paired_effects_overall(root)
     }
     if {"direct", "tripwire-deny"} <= set(conditions):
         observed_pairs = paired.get((model, "tripwire-deny"), {}).get("pairs", 0)
         if observed_pairs != plan["heldout_attack_pairs"]:
-            failures.append(
-                f"paired comparison ({observed_pairs}/{plan['heldout_attack_pairs']})"
-            )
+            failures.append(f"paired comparison ({observed_pairs}/{plan['heldout_attack_pairs']})")
 
     receipt = {
         "schema_version": 1,
@@ -296,9 +339,7 @@ def validate_results(
         json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
     if failures:
-        raise HeldoutError(
-            "held-out result is incomplete: " + ", ".join(failures)
-        )
+        raise HeldoutError("held-out result is incomplete: " + ", ".join(failures))
     return receipt
 
 
@@ -309,14 +350,10 @@ def run(args: argparse.Namespace) -> None:
     allowed = {"direct", "tripwire-approve", "tripwire-deny"}
     if not conditions or not set(conditions) <= allowed:
         raise SystemExit(f"conditions must be comma-separated values from {sorted(allowed)}")
-    require_frozen_protocol(
-        model=args.model, conditions=conditions, workers=args.workers
-    )
+    require_frozen_protocol(model=args.model, conditions=conditions, workers=args.workers)
     plan = build_plan(args.shard_size)
     policies = {
-        suite: hashlib.sha256(
-            Path(f"gym/external_policies/{suite}.yaml").read_bytes()
-        ).hexdigest()
+        suite: hashlib.sha256(Path(f"gym/external_policies/{suite}.yaml").read_bytes()).hexdigest()
         for suite in plan["suites"]
     }
     contract = {
@@ -346,8 +383,13 @@ def run(args: argparse.Namespace) -> None:
         existing = json.loads(plan_path.read_text(encoding="utf-8"))
         if existing.get("contract_sha256") != plan["contract_sha256"]:
             raise HeldoutError("existing held-out contract does not match this invocation")
-        if existing.get("source") != plan["source"]:
-            raise HeldoutError("existing held-out source state does not match this checkout")
+        _authorize_transport_resume(
+            root,
+            planned_source=existing.get("source", {}),
+            current_source=plan["source"],
+            contract_sha256=plan["contract_sha256"],
+            allow=args.allow_transport_resume,
+        )
     else:
         plan_path.write_text(json.dumps(plan, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
@@ -391,6 +433,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", default="nvidia/nemotron-3-super-120b-a12b")
     parser.add_argument("--conditions", default="direct,tripwire-deny")
     parser.add_argument("--workers", type=int, default=4)
+    parser.add_argument(
+        "--allow-transport-resume",
+        action="store_true",
+        help="record and permit a clean transport-only source change on a frozen run",
+    )
     parser.add_argument(
         "--shard-size",
         type=int,
