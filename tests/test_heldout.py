@@ -1,7 +1,10 @@
+import json
+
 from tripwire_benchmarks.heldout import (
     DEVELOPMENT_USERS,
     EXPECTED_HELDOUT_CASES,
     HeldoutError,
+    _authorize_transport_resume,
     build_plan,
     require_frozen_protocol,
     validate_results,
@@ -26,12 +29,10 @@ def test_heldout_selection_hash_does_not_depend_on_shard_size_or_clock():
 
     # Sharding is an execution detail. The selected cases are identical.
     for suite in small["suites"]:
-        assert small["suites"][suite]["heldout_users"] == large["suites"][suite][
-            "heldout_users"
-        ]
-        assert small["suites"][suite]["injection_tasks"] == large["suites"][suite][
-            "injection_tasks"
-        ]
+        assert small["suites"][suite]["heldout_users"] == large["suites"][suite]["heldout_users"]
+        assert (
+            small["suites"][suite]["injection_tasks"] == large["suites"][suite]["injection_tasks"]
+        )
 
 
 def test_default_scale_yields_one_job_per_suite():
@@ -64,3 +65,42 @@ def test_completeness_receipt_rejects_missing_results(tmp_path):
         raise AssertionError("missing results should not pass completeness validation")
 
     assert (tmp_path / "COMPLETENESS.json").exists()
+
+
+def test_transport_only_source_change_requires_and_records_explicit_resume(tmp_path):
+    planned = {"git_commit": "a" * 40, "git_dirty": False}
+    current = {"git_commit": "b" * 40, "git_dirty": False}
+
+    try:
+        _authorize_transport_resume(
+            tmp_path,
+            planned_source=planned,
+            current_source=current,
+            contract_sha256="contract",
+            allow=False,
+        )
+    except HeldoutError as exc:
+        assert "--allow-transport-resume" in str(exc)
+    else:
+        raise AssertionError("source transition should require explicit authorization")
+
+    _authorize_transport_resume(
+        tmp_path,
+        planned_source=planned,
+        current_source=current,
+        contract_sha256="contract",
+        allow=True,
+    )
+    receipt = json.loads((tmp_path / "TRANSPORT-RESUME.json").read_text())
+    assert receipt["planned_source"] == planned
+    assert receipt["resume_source"] == current
+    assert receipt["contract_sha256"] == "contract"
+
+    # A restart from the same audited checkout no longer needs the flag.
+    _authorize_transport_resume(
+        tmp_path,
+        planned_source=planned,
+        current_source=current,
+        contract_sha256="contract",
+        allow=False,
+    )

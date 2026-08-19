@@ -39,16 +39,16 @@ def _write(
                 "repetition": 0,
                 "attack_results": pairs,
                 "attacked_utility_results": pairs,
-                "benign_results": [
-                    {"user_task": "u0", "injection_task": "", "value": True}
-                ],
+                "benign_results": [{"user_task": "u0", "injection_task": "", "value": True}],
                 "model_calls": 2,
                 "provider_attempts": 3,
                 "rate_limit_retries": 1,
+                "transient_error_retries": 2,
                 "prompt_tokens": 10,
                 "completion_tokens": 3,
                 "model_seconds": 1.5,
                 "rate_limit_wait_seconds": 10.0,
+                "transient_error_wait_seconds": 30.0,
                 "enforcement": {
                     "attacked": {
                         "gated_cases": attacked_gated,
@@ -125,7 +125,9 @@ def test_external_report_separates_attack_and_benign_interventions(tmp_path):
     assert row["model_seconds"] == 1.5
     assert row["provider_attempts"] == 3
     assert row["rate_limit_retries"] == 1
+    assert row["transient_error_retries"] == 2
     assert row["rate_limit_wait_seconds"] == 10.0
+    assert row["transient_error_wait_seconds"] == 30.0
 
 
 def test_overall_report_preserves_cross_suite_pairing(tmp_path):

@@ -2,11 +2,14 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import httpx
+import pytest
 from agentdojo.functions_runtime import EmptyEnv, make_function
 
 from tripwire.policy import load_policy
 from tripwire.policy.schema import Policy
 from tripwire_benchmarks.agentdojo import (
+    OpenAICompatibleLLM,
     _enforcement_receipt,
     _openai_messages,
     _pipeline_name,
@@ -76,9 +79,7 @@ def test_approve_and_deny_are_explicit_gate_bounds():
     runtime_type = make_guarded_runtime(policy(), "approve")
     runtime = runtime_type([make_function(read_email), make_function(send_email)])
     runtime.run_function(EmptyEnv(), "read_email", {})
-    result, error = runtime.run_function(
-        EmptyEnv(), "send_email", {"to": "colleague@example.com"}
-    )
+    result, error = runtime.run_function(EmptyEnv(), "send_email", {"to": "colleague@example.com"})
 
     assert result == "sent to colleague@example.com"
     assert error is None
@@ -171,9 +172,7 @@ def test_enforcement_receipts_survive_trace_resume(tmp_path):
     runtime.task_id = "user_task_0"
     runtime.task_kind = "user"
     runtime.run_function(EmptyEnv(), "read_email", {})
-    runtime.run_function(
-        EmptyEnv(), "send_email", {"to": "attacker@example.com"}
-    )
+    runtime.run_function(EmptyEnv(), "send_email", {"to": "attacker@example.com"})
     receipt = _enforcement_receipt([runtime])
     trace = {
         "user_task_id": "user_task_0",
@@ -203,10 +202,12 @@ def test_model_usage_is_recovered_from_resumed_traces(tmp_path):
                     "model_calls": 2,
                     "provider_attempts": 3,
                     "rate_limit_retries": 1,
+                    "transient_error_retries": 0,
                     "prompt_tokens": 100,
                     "completion_tokens": 10,
                     "model_seconds": 1.25,
                     "rate_limit_wait_seconds": 10.0,
+                    "transient_error_wait_seconds": 0.0,
                 }
             }
         )
@@ -218,10 +219,12 @@ def test_model_usage_is_recovered_from_resumed_traces(tmp_path):
                     "model_calls": 3,
                     "provider_attempts": 3,
                     "rate_limit_retries": 0,
+                    "transient_error_retries": 2,
                     "prompt_tokens": 200,
                     "completion_tokens": 20,
                     "model_seconds": 2.5,
                     "rate_limit_wait_seconds": 0.0,
+                    "transient_error_wait_seconds": 30.0,
                 }
             }
         )
@@ -233,28 +236,97 @@ def test_model_usage_is_recovered_from_resumed_traces(tmp_path):
         "model_calls": 5,
         "provider_attempts": 6,
         "rate_limit_retries": 1,
+        "transient_error_retries": 2,
         "prompt_tokens": 300,
         "completion_tokens": 30,
         "model_seconds": 3.75,
         "rate_limit_wait_seconds": 10.0,
+        "transient_error_wait_seconds": 30.0,
     }
+
+
+@pytest.mark.parametrize("failure_kind", ["timeout", "server_error"])
+def test_transient_provider_failures_are_retried(monkeypatch, failure_kind):
+    from openai import APITimeoutError, InternalServerError
+
+    request = httpx.Request("POST", "https://integrate.api.nvidia.com/v1/chat")
+    if failure_kind == "timeout":
+        failure = APITimeoutError(request=request)
+    else:
+        failure = InternalServerError(
+            "bad gateway",
+            response=httpx.Response(502, request=request),
+            body=None,
+        )
+    reply = SimpleNamespace(content="ok", tool_calls=None)
+    completion = SimpleNamespace(
+        usage=None,
+        choices=[SimpleNamespace(message=reply)],
+    )
+
+    class Completions:
+        def __init__(self):
+            self.calls = 0
+
+        def create(self, **_request):
+            self.calls += 1
+            if self.calls == 1:
+                raise failure
+            return completion
+
+    llm = OpenAICompatibleLLM.__new__(OpenAICompatibleLLM)
+    llm.client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    llm.model = "nvidia/test"
+    llm.temperature = 0.0
+    llm.max_tokens = 32
+    llm.seed = None
+    llm.disable_thinking = True
+    llm.model_calls = 0
+    llm.prompt_tokens = 0
+    llm.completion_tokens = 0
+    llm.model_seconds = 0.0
+    llm.provider_attempts = 0
+    llm.rate_limit_retry_count = 0
+    llm.rate_limit_wait_seconds = 0.0
+    llm.transient_error_retry_count = 0
+    llm.transient_error_wait_seconds = 0.0
+    llm.min_call_interval = 0.0
+    llm.rate_limit_retries = 1
+    llm.retry_base_seconds = 1.0
+    llm.retry_cap_seconds = 1.0
+    llm._last_request_started = None
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    llm.query("hello", SimpleNamespace(functions={}), None)
+
+    assert llm.client.chat.completions.calls == 2
+    assert llm.provider_attempts == 2
+    assert llm.model_calls == 1
+    assert llm.transient_error_retry_count == 1
+    assert llm.transient_error_wait_seconds == 1.0
 
 
 def test_rate_limit_delay_is_bounded_and_respects_provider_header():
     assert _retry_delay(attempt=0, base_seconds=10, cap_seconds=60) == 10
     assert _retry_delay(attempt=3, base_seconds=10, cap_seconds=60) == 60
-    assert _retry_delay(
-        attempt=0,
-        base_seconds=10,
-        cap_seconds=60,
-        headers={"retry-after": "35"},
-    ) == 35
-    assert _retry_delay(
-        attempt=0,
-        base_seconds=10,
-        cap_seconds=60,
-        headers={"retry-after-ms": "25000"},
-    ) == 25
+    assert (
+        _retry_delay(
+            attempt=0,
+            base_seconds=10,
+            cap_seconds=60,
+            headers={"retry-after": "35"},
+        )
+        == 35
+    )
+    assert (
+        _retry_delay(
+            attempt=0,
+            base_seconds=10,
+            cap_seconds=60,
+            headers={"retry-after-ms": "25000"},
+        )
+        == 25
+    )
 
 
 def test_trace_errors_are_never_silently_scored(tmp_path):
