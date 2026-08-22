@@ -4,6 +4,12 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+
+pytest.importorskip(
+    "agentdojo",
+    reason="AgentDojo adapter tests require the publication extra",
+)
+
 from agentdojo.functions_runtime import EmptyEnv, make_function
 
 from tripwire.policy import load_policy

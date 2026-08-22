@@ -1,5 +1,12 @@
 import json
 
+import pytest
+
+pytest.importorskip(
+    "agentdojo",
+    reason="Held-out planning tests require the publication extra",
+)
+
 from tripwire_benchmarks.heldout import (
     DEVELOPMENT_USERS,
     EXPECTED_HELDOUT_CASES,
