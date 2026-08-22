@@ -42,9 +42,7 @@ def test_profiles_make_the_budget_explicit():
 def test_plugin_only_auto_installs_when_autodojo_requested_it(monkeypatch):
     monkeypatch.setenv("AGENTDOJO_DEFENSE_PLUGINS", "one,two")
     assert _enabled_as_plugin() is False
-    monkeypatch.setenv(
-        "AGENTDOJO_DEFENSE_PLUGINS", "one,tripwire_benchmarks.autodojo_plugin"
-    )
+    monkeypatch.setenv("AGENTDOJO_DEFENSE_PLUGINS", "one,tripwire_benchmarks.autodojo_plugin")
     assert _enabled_as_plugin() is True
 
 

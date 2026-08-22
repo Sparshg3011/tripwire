@@ -244,9 +244,7 @@ def cluster_bootstrap_difference(
     differences = [b_rates[scenario] - a_rates[scenario] for scenario in shared]
     estimate = statistics.fmean(differences)
     rng = random.Random(random_seed)
-    sampled = [
-        statistics.fmean(rng.choice(differences) for _ in shared) for _ in range(draws)
-    ]
+    sampled = [statistics.fmean(rng.choice(differences) for _ in shared) for _ in range(draws)]
     alpha = (1 - confidence) / 2
     return ClusteredDifference(
         clusters=len(shared),

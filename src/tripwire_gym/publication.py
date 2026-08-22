@@ -74,14 +74,10 @@ def collect(root: str | Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]
                     summary.gate_prompts / len(measured) if measured else None
                 ),
                 "mean_wall_seconds": (
-                    sum(row.wall_seconds for row in measured) / len(measured)
-                    if measured
-                    else None
+                    sum(row.wall_seconds for row in measured) / len(measured) if measured else None
                 ),
                 "mean_model_seconds": (
-                    sum(row.model_seconds for row in measured) / len(measured)
-                    if measured
-                    else None
+                    sum(row.model_seconds for row in measured) / len(measured) if measured else None
                 ),
                 "prompt_tokens": sum(row.prompt_tokens for row in measured),
                 "completion_tokens": sum(row.completion_tokens for row in measured),
