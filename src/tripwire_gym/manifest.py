@@ -38,7 +38,11 @@ def fingerprint(paths: Iterable[str | Path], root: str | Path | None = None) -> 
     rows = []
     combined = hashlib.sha256()
     for path in files:
-        name = str(path.relative_to(base)) if base is not None and path.is_relative_to(base) else str(path)
+        name = (
+            str(path.relative_to(base))
+            if base is not None and path.is_relative_to(base)
+            else str(path)
+        )
         digest = sha256_file(path)
         rows.append({"path": name, "sha256": digest})
         combined.update(name.encode("utf-8"))

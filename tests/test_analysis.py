@@ -202,8 +202,7 @@ def test_headline_cells_match_the_summary_properties():
     )
     assert (
         "| `undefended` | 0% (0/2, 95% CI 0-66%) "
-        "| 100% (2/2, 95% CI 34-100%) | 100% (2/2, 95% CI 34-100%) | 0 | 0 |"
-        in head
+        "| 100% (2/2, 95% CI 34-100%) | 100% (2/2, 95% CI 34-100%) | 0 | 0 |" in head
     )
 
 
@@ -572,8 +571,7 @@ def test_attack_stops_keys_on_the_run_and_drops_the_errored_ones():
 
 def test_cluster_bootstrap_counts_scenarios_not_repetitions():
     control = [
-        attack("often", "exfiltration", "undefended", False, seed=seed)
-        for seed in range(100)
+        attack("often", "exfiltration", "undefended", False, seed=seed) for seed in range(100)
     ] + [attack("once", "exfiltration", "undefended", False)]
     defended = [
         attack("often", "exfiltration", "standard", True, seed=seed) for seed in range(100)

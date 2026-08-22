@@ -423,7 +423,9 @@ def main(argv: list[str] | None = None) -> None:
                 "system_prompt": SYSTEM_PROMPTS[args.prompt_profile],
                 "temperature": args.temperature,
             }
-            return ClaudeAgent(model=args.model, **options) if args.model else ClaudeAgent(**options)
+            return (
+                ClaudeAgent(model=args.model, **options) if args.model else ClaudeAgent(**options)
+            )
         preset = PROVIDERS.get(args.agent, {})
         return OpenAICompatAgent(
             model=args.model,
@@ -481,9 +483,7 @@ def main(argv: list[str] | None = None) -> None:
     summary_path.write_text(
         json.dumps(
             {
-                s.condition: _summary_row(
-                    s, [r for r in results if r.condition == s.condition]
-                )
+                s.condition: _summary_row(s, [r for r in results if r.condition == s.condition])
                 for s in summaries
             },
             indent=2,
