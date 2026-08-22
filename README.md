@@ -1,229 +1,424 @@
-# tripwire
+<div align="center">
 
-A deterministic firewall for AI agent tool calls.
+# Tripwire
 
-Agents read untrusted content — emails, web pages, files. Attackers put
-instructions in that content, and models can't reliably tell data from
-instructions. You can't stop a model from being fooled, but you can make
-sure a fooled model can't do damage.
+**A deterministic enforcement firewall for AI-agent tool calls.**
 
-Tripwire sits between your agent and its MCP tool servers and enforces
-policy on every call — outside the model, where no prompt can rewrite
-it:
+[![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![MCP](https://img.shields.io/badge/MCP-Tool%20Firewall-8B5CF6?style=for-the-badge)](https://modelcontextprotocol.io/)
+[![CI](https://img.shields.io/github/actions/workflow/status/Sparshg3011/tripwire/ci.yml?branch=main&style=for-the-badge&label=CI&logo=github)](https://github.com/Sparshg3011/tripwire/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache--2.0-3DA639?style=for-the-badge)](LICENSE)
 
+[Why Tripwire](#why-tripwire) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Policy](#policy-as-code) · [Evidence](#evidence-not-marketing) · [Documentation](#documentation)
+
+</div>
+
+---
+
+## Why Tripwire
+
+AI agents read untrusted emails, web pages, files, and tool results. An attacker can place
+instructions in that content, and the model may follow them. Prompt-only defenses ask the same
+model that was exposed to the attack to recognize and ignore it.
+
+Tripwire takes a different position:
+
+> **Assume the model can be fooled. Constrain what a fooled model is allowed to do.**
+
+Tripwire sits between an agent and its MCP tool servers. Every tool call is canonicalized,
+evaluated against policy, recorded, and then allowed, denied, or sent for human approval. The
+decision happens outside the model; no prompt can rewrite it. When Tripwire is configured as the
+agent's MCP endpoint, upstream tools are exposed only through the proxy.
+
+```text
+agent ── MCP ──▶ tripwire ── MCP ──▶ tool server
 ```
-agent ──MCP──▶ tripwire ──MCP──▶ your tool server
+
+Tripwire does not classify text as “safe” or “malicious.” It enforces explicit capabilities,
+argument boundaries, budgets, sequences, and information-flow rules at the point where an action
+would occur.
+
+---
+
+## What it enforces
+
+| Control | What it prevents |
+|:--|:--|
+| **Tool actions** | Allow, block, or require approval for each tool. Unknown tools fail closed. |
+| **Argument constraints** | Restrict recipients, paths, hosts, amounts, lengths, and numeric ranges after canonicalization. |
+| **Session budgets** | Cap call counts and cumulative values such as total refund amount. |
+| **Sequence rules** | Deny risky actions shortly after untrusted reads or other sensitive steps. |
+| **Information flow** | Mark sessions tainted after untrusted tool results and tighten selected actions. |
+| **Human approval** | Pause high-risk calls at a terminal or token-protected localhost gate. |
+| **Transactional dedupe** | With `--tx-db`, return the first result when an identical side effect is retried. |
+| **Forensic evidence** | Explain every verdict in a hash-chained audit log; trace, verify, report, and replay it. |
+
+The policy engine is pure and deterministic: no model call, classifier, network request, clock, or
+randomness appears in the decision path.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    CONTENT["Untrusted content<br/>email · web · files"] --> AGENT["AI agent"]
+    AGENT -->|"MCP tool call"| CANON
+
+    subgraph TW["Tripwire — trusted enforcement boundary"]
+        CANON["Canonicalize<br/>checked form = forwarded form"]
+        POLICY["Pure policy engine<br/>allow · gate · block"]
+        GATE["Human approval<br/>CLI or localhost web"]
+        TX["Transactional executor<br/>optional idempotency ledger"]
+        AUDIT[("Hash-chained<br/>audit log")]
+        TAINT["Session state<br/>taint · counts · sums"]
+
+        CANON --> POLICY
+        TAINT -.-> POLICY
+        POLICY -->|"require approval"| GATE
+        POLICY -->|"allow"| TX
+        GATE -->|"approved"| TX
+        POLICY -->|"every verdict"| AUDIT
+        TX -->|"intent + outcome"| AUDIT
+    end
+
+    POLICY -->|"block with reason"| AGENT
+    TX -->|"MCP"| SERVER["Upstream tool server"]
+    SERVER -->|"result"| TAINT
+    TAINT -->|"forward result"| AGENT
+
+    style TW fill:#0a0a0a,stroke:#8B5CF6,stroke-width:2px,color:#fff
+    style AUDIT fill:#111827,stroke:#3DA639,color:#fff
+    style SERVER fill:#111827,stroke:#3776AB,color:#fff
 ```
+
+### One call, five deterministic stages
+
+1. **Tool lookup** selects the declared action or the unknown-tool default.
+2. **Constraints** evaluate canonicalized arguments and fail closed on missing checked fields.
+3. **Limits** include the current call in per-session counts and running sums.
+4. **Sequences** compare the call with prior tools in the same session.
+5. **Flows** tighten the verdict after untrusted content has tainted the session.
+
+A verdict may only escalate: `allow → require_approval → block`. It can never become less strict in
+a later stage.
+
+---
+
+## Quick Start
+
+### 1. Install
 
 ```bash
 pip install tripwire-agent
-tripwire serve --policy policy.yaml --upstream "npx some-mcp-server" --gate web
 ```
 
-One policy file says what each tool may do, how much, in what order,
-and what needs a human:
+### 2. Start with a shadow policy
+
+Save this as `policy.yaml`. Shadow mode evaluates and logs every rule but blocks nothing, so you can
+measure the policy before enforcing it.
 
 ```yaml
 version: 1
+enforce: false
+
+defaults:
+  unknown_tools: block
+  gate_timeout_seconds: 120
+
 sources:
-  fetch_url: untrusted        # taints the session
+  "*": untrusted
+
 tools:
+  read_email: { action: allow }
   send_email:
     action: allow
     constraints:
       to: { regex: "^[^@]+@mycompany\\.example$" }
     limits: { per_session: 3 }
-  delete_file: { action: block, reason: "Destructive; disabled." }
-flows:                        # once untrusted content is in play, tighten
+  delete_file:
+    action: block
+    reason: "Destructive actions are disabled."
+
+flows:
   - when: context_tainted
-    tools: [send_email, execute_code]
+    tools: [send_email]
     action: require_approval
+    reason: "Untrusted content reached an external action."
 ```
 
-## I attacked it 38 ways
-
-> **Benchmark status:** the numbers below are the original exploratory N=1
-> pilot, not the publication result. The repository now includes a frozen-plan
-> template, stateful AgentDojo/AgentDyn adapters, adaptive AutoDojo evaluation,
-> holdouts, clustered statistics, and reproducibility manifests. Use the
-> [publication benchmark protocol](docs/benchmarking.md) for new claims.
-
-The repo ships a benchmark that runs a real agent against real attacks
-through the real proxy, and publishes both numbers — how many attacks
-got stopped, **and what the defence cost when there was no attack at
-all.** One figure without the other is marketing.
-
-![security/utility frontier](docs/img/frontier.png)
-
-38 attacks across seven families, each with a benign twin, each verified
-to land when undefended. Agent:
-`nvidia/nemotron-3-ultra-550b-a55b`, one seed per cell, 760 runs, no
-errors.
-
-| condition | attacks stopped | benign tasks still completed |
-|---|---|---|
-| undefended | 61% (23/38) | 95% |
-| shadow | 61% — evaluates, blocks nothing | 97% |
-| loose | 74% | 97% |
-| **standard** | **87%** | **95%** |
-| strict | 100% | 16% |
-
-**The undefended row is not zero, and that is the first finding.** A
-competent model refuses most injections by itself — 23 of 38 here. Any
-benchmark that reports a firewall stopping "87% of attacks" without
-telling you the model already stopped 61% is taking credit for the
-model's work.
-
-So the number that matters is the marginal one:
-
-> Of the **15 attacks the model fell for**, tripwire stopped **10** — at
-> a cost of ~0% benign completion. With a cautious human at the gate it
-> stopped all 15, at a cost of most of the work.
-
-`strict` stops everything and completes 16% of the tasks. That is not a
-recommendation, it is the end of the axis — the honest way to show that
-"block everything" is not a security posture.
-
-Reproduce it:
+Validate it before the proxy starts:
 
 ```bash
-./gym/run_benchmark.sh                    # scripted agent, free, ~4 min
+tripwire validate policy.yaml
+```
+
+### 3. Put Tripwire in front of an MCP server
+
+```bash
+tripwire serve \
+  --policy policy.yaml \
+  --upstream "npx -y @modelcontextprotocol/server-filesystem /path/to/workspace" \
+  --audit ~/.tripwire/audit.jsonl \
+  --gate web
+```
+
+The agent sees the upstream tools unchanged. Tripwire mediates the calls before forwarding them.
+
+### 4. Inspect before enforcing
+
+```bash
+tripwire report ~/.tripwire/audit.jsonl
+tripwire trace ~/.tripwire/audit.jsonl
+```
+
+When the shadow report stops surprising you, set `enforce: true` and restart the proxy. For a full
+Claude Desktop walkthrough, including absolute-path configuration, see the
+[five-minute quickstart](docs/quickstart.md).
+
+---
+
+## Policy as code
+
+One versioned YAML file describes the boundary. Policies reject unknown keys and invalid
+combinations instead of silently ignoring them.
+
+```yaml
+version: 1
+enforce: true
+
+defaults:
+  unknown_tools: block
+  gate_timeout_seconds: 120
+
+sources:
+  read_email: untrusted
+  fetch_url: untrusted
+  read_calendar: trusted
+  "*": untrusted
+
+tools:
+  read_email: { action: allow }
+  fetch_url: { action: allow }
+
+  send_email:
+    action: require_approval
+    constraints:
+      to: { regex: "^[^@]+@mycompany\\.com$" }
+      body: { max_length: 10000 }
+    limits: { per_session: 3 }
+
+  issue_refund:
+    action: allow
+    constraints:
+      amount: { type: number, min: 0, max: 100 }
+    limits:
+      sum_per_session: { field: amount, max: 500 }
+
+  delete_file:
+    action: block
+    reason: "Destructive actions are disabled."
+
+  http_post: { action: allow }
+  execute_code: { action: allow }
+  write_file: { action: allow }
+
+sequences:
+  - deny: execute_code
+    within_turns_after: fetch_url
+    turns: 3
+
+flows:
+  - when: context_tainted
+    tools: [send_email, execute_code, write_file]
+    action: require_approval
+    reason: "Untrusted content is present; external actions need review."
+```
+
+The [policy reference](docs/policy.md) documents every field, evaluation order, normalization rule,
+and failure direction.
+
+---
+
+## Guarantees and boundaries
+
+| Guarantee | Scope |
+|:--|:--|
+| **Fail closed** | Unknown tools, malformed policies, evaluator errors, gate timeouts, and audit failures never become silent allows. |
+| **Total MCP mediation** | Upstream tools are discovered and re-advertised through the proxy; within MCP there is no alternate route. |
+| **Pure evaluation** | A decision is a deterministic function of the call, session state, and policy. |
+| **Monotonic tightening** | Later policy stages may escalate a verdict but never relax it. |
+| **Checked form is executed** | Canonicalized arguments are both evaluated and forwarded, avoiding check/use disagreement. |
+| **No unrecorded side effect** | The enforced path records its decision before forwarding; an unwritable audit log halts execution. |
+
+These guarantees are deliberately narrow. Tripwire mediates MCP tool calls; it is not a sandbox and
+does not control shell access, raw HTTP, reply text, a compromised host, or a malicious upstream
+server. The audit chain is tamper-evident, not externally anchored: truncating its tail remains a
+documented limit. Read the complete [threat model](THREAT_MODEL.md) before production use.
+
+---
+
+## Evidence, not marketing
+
+A security control can stop every attack by refusing every action. Tripwire reports security and
+utility together, always against the same tasks without attack text.
+
+> **Publication status:** the repository includes a frozen AgentDojo held-out protocol, external
+> policies, completeness receipts, paired tests, and clustered confidence intervals. Publication
+> claims are generated only after the full matrix passes its completeness check. See the
+> [publication benchmark protocol](docs/benchmarking.md).
+
+### Exploratory adversarial gym
+
+The original internal gym contains 38 attacks across seven families, each paired with a benign twin
+and verified to land when undefended. The table below is the exploratory Nemotron Ultra run: one
+seed per cell, 760 runs, and zero execution errors. It is useful evidence, not the final publication
+result. It reports the synthetic **approve bracket**, in which every gated call is approved, to
+measure the policy's upper-bound utility without claiming that a human reviewed the runs. The
+corresponding deny bracket is reported in [RESULTS.md](RESULTS.md).
+
+![Security/utility frontier](docs/img/frontier.png)
+
+| Condition | Attacks stopped | Benign tasks completed | Interpretation |
+|:--|--:|--:|:--|
+| Model only | 61% (23/38) | 95% | The model already refuses many attacks. |
+| Shadow | 61% (23/38) | 97% | Policy evaluated; nothing blocked. |
+| Loose | 74% (28/38) | 97% | Low-friction constraints. |
+| **Standard** | **87% (33/38)** | **95%** | +26 points over the model-only baseline. |
+| Strict | 100% (38/38) | 16% | The block-everything end of the trade-off, not a recommendation. |
+
+The honest marginal result is smaller than the headline rate: the model fell for 15 attacks, and
+the standard policy recovered 10 of them without reducing benign completion in this run. A strict
+policy recovered all 15 while destroying most utility.
+
+The multi-model sweep moves the model-only baseline from 53% to 83%; Tripwire adds 14–26 percentage
+points across the four evaluated models. Full counts, timeouts, confidence intervals, paired tests,
+failure cases, and ablations live in:
+
+- [Benchmark results](RESULTS.md)
+- [Gym methodology](docs/gym.md)
+- [Model comparison](docs/models.md)
+- [Policy-layer ablation](docs/ablation.md)
+- [AgentDojo screening](docs/agentdojo-screening-results.md)
+
+Reproduce the local gym without an API key, or run the live-agent matrix through an OpenAI-compatible
+endpoint:
+
+```bash
+./gym/run_benchmark.sh
 ./gym/run_benchmark.sh nvidia 1 nvidia/nemotron-3-ultra-550b-a55b 6
 ```
 
-### Does it hold up on other models?
+---
 
-The rule engine never sees the model, so it should. Four of them, three
-labs:
+## Operations and forensics
 
-| model | model alone | with `standard` | firewall adds |
-|---|---|---|---|
-| nemotron-3-ultra (550B) | 61% | 87% | **+26** |
-| nemotron-3.5-lightning (30B) | 53% | 79% | **+26** |
-| muse-glimmer (30B) | 82% | 97% | **+16** |
-| glm-5.2 † | 83% | 97% | **+14** |
+### Roll out safely
 
-How much a model refuses unaided swings from 53% to 83% — a bigger term
-than anything tripwire contributes. The two nemotrons gain the same +26
-from baselines eight points apart; muse and glm gain less because they
-had less left to lose, missing 7 and 6 attacks where the 550B missed 15.
-Measured against what each model actually let through, tripwire took
-back between half and six-sevenths on all four.
-
-† The GLM run dropped 7.7% of its cells to timeouts and is scored on the
-36 attacks that completed under both conditions.
-[Full table and caveats](docs/models.md).
-
-### How much of this is noise
-
-`shadow` evaluates every rule and blocks nothing, so it must score
-exactly what `undefended` scores. It did in the permissive bracket and
-missed by two scenarios in the other one.
-
-That gap is the noise floor. With one seed per cell and a
-nondeterministic model, **differences smaller than about five points
-are not real**, and the gap between `standard` and `loose` is the only
-one here comfortably outside it. Published numbers should use three
-seeds or more; these use one, and say so.
-
-### What got through
-
-Five attacks beat `standard` even with the model's own judgement in
-front of them: `gate-refund-01`, `multi-grant-01`,
-`probe-bom-recipient-01`, `probe-padded-amount-01`, `redirect-body-01`.
-
-They are all the same shape — **the tool was allowed to do exactly
-this.** A refund inside every cap. A write to a legal path. A reply to
-an allowlisted colleague carrying a body the attacker chose. Constraints
-describe *where* a call may act, never *whether it should*. No allowlist
-closes this; only a human, or a rule that reads content, does.
-
-### Which layer actually does the work
-
-Taking `standard` apart one mechanism at a time
-([full table](docs/ablation.md)):
-
-| layer | marginal contribution |
-|---|---|
-| tool actions | +2.6 pts |
-| **argument constraints** | **+65.8 pts** |
-| budgets | +2.6 pts |
-| sequence rules | **+0.0 pts** |
-| information flow | +0.0 to +28.9 pts, depending entirely on the human |
-
-Boring allowlists do almost all of it. The sequence rules stop nothing
-on this corpus. And the taint-and-gate layer — the most architecturally
-interesting part — buys you *a place to put a human* and nothing else.
-
-Full methodology, and what these numbers can't tell you, in
-[docs/gym.md](docs/gym.md).
-
-## Guarantees
-
-1. **Fail closed.** Unknown tool, malformed policy, evaluator error,
-   gate timeout, unwritable audit log — the answer is no, or the proxy
-   refuses to run at all.
-2. **Pure evaluation.** Policy decisions are a pure function of
-   (call, session state, policy): no I/O, no clock, no randomness.
-3. **Total mediation.** Tools are discovered from the upstream server
-   and re-advertised; within MCP there is no route around the proxy.
-4. **Every decision is logged with its reason**, in a hash-chained,
-   tamper-evident audit log.
-5. **No side effect without a record.** If the log can't be written,
-   nothing gets executed.
-6. **Monotonic tightening.** Later policy stages can escalate a
-   verdict, never relax one.
-
-Tripwire doesn't inspect your content; it controls where content can
-flow. There is no classifier in the decision path — decisions are
-deterministic, explainable, and reproducible from the log.
-
-## After an incident
-
+```text
+shadow traffic → inspect reports → replay candidate policy → enforce
 ```
-$ tripwire trace audit.jsonl
+
+Never begin with enforcement. Capture representative traffic in shadow mode, read which rules would
+fire, and replay a candidate policy against the recorded history before tightening production.
+
+### CLI reference
+
+| Command | Purpose |
+|:--|:--|
+| `tripwire serve` | Run the MCP proxy in front of an upstream server. |
+| `tripwire validate` | Reject an invalid policy before deployment. |
+| `tripwire report` | Summarize policy decisions, interventions, and rules that fired. |
+| `tripwire trace` | Reconstruct one session as a causal chain with arguments and reasons. |
+| `tripwire replay` | Re-judge recorded traffic under a candidate policy without executing tools. |
+| `tripwire verify` | Verify the audit log’s hash chain and locate a broken link. |
+
+Example incident trace:
+
+```text
 session a1b2c3d4 — 4 call(s)
 
   turn 0   ok     read_email
-      args   folder="inbox"
       rule   tools.read_email.action
       →      this result tainted the session
 
   turn 2   BLOCK  send_email
       args   to="archive@evil.example"
       rule   tools.send_email.constraints.to
-      reason to fails the constraint on send_email
+      reason recipient fails the allowlist
       result not forwarded
-
-  untrusted content entered at turn 0 via read_email; every later verdict
-  was decided with that in mind.
 ```
 
-Also: `tripwire report` (what your policy is actually doing),
-`tripwire replay --policy candidate.yaml` (what a policy change *would*
-have done to traffic you've already seen), and `tripwire verify` (prove
-the log hasn't been edited).
+The [production guide](docs/production.md) covers log rotation, redaction, exit codes, upgrade
+behavior, gate selection, and operational failure modes.
 
-## Docs
+---
 
-- [Quickstart](docs/quickstart.md) — secure a Claude Desktop MCP server in 5 minutes
-- [Policy language](docs/policy.md) — every rule, evaluation order, canonicalization
-- [Production](docs/production.md) — shadow → read → replay → enforce
-- [The gym](docs/gym.md) — benchmark methodology and its limits
-- [Publication benchmark](docs/benchmarking.md) — external, adaptive, holdout, and statistical protocol
-- [Models](docs/models.md) — the same firewall in front of three different models
-- [Writeup](docs/writeup.md) — the launch post: problem, design, and what got through
-- [Ablation](docs/ablation.md) — which layer actually stops the attacks (answer: the boring one)
-- [Threat model](THREAT_MODEL.md) — what this defends, what it doesn't, and what each choice costs
+## Project structure
 
-## Related work
+```text
+tripwire/
+├── src/tripwire/
+│   ├── policy/                 # schema, loader, canonicalization, pure evaluator
+│   ├── proxy/                  # MCP discovery, mediation, and upstream forwarding
+│   ├── gate/                   # terminal and token-protected localhost approvals
+│   ├── taint/                  # sticky session information-flow state
+│   ├── tx/                     # audit chain, forensics, and idempotency ledger
+│   ├── replay.py               # re-judge captured traffic under a candidate policy
+│   └── cli.py                  # serve · validate · verify · trace · report · replay
+├── src/tripwire_gym/           # paired adversarial benchmark harness
+├── src/tripwire_benchmarks/    # AgentDojo/AgentDyn adapters and publication analysis
+├── gym/                        # scenarios, policies, frozen plans, and runners
+├── docs/                       # operator, policy, benchmark, and design documentation
+└── tests/                      # unit, property, failure-matrix, concurrency, and E2E tests
+```
 
-NeMo Guardrails, LlamaFirewall and AgentArmor are detection stacks and
-voluntary pipelines: they classify, and the agent cooperates. Tripwire
-is interposed enforcement — the agent has no route around it — and
-publishes a live-agent adversarial benchmark rather than asking you to
-trust the design.
+---
+
+## Documentation
+
+| Document | Use it for |
+|:--|:--|
+| [Quickstart](docs/quickstart.md) | Secure a Claude Desktop MCP server in five minutes. |
+| [Policy language](docs/policy.md) | Define tools, constraints, budgets, sequences, flows, and canonicalization. |
+| [Production guide](docs/production.md) | Move safely from shadow traffic to enforcement. |
+| [Threat model](THREAT_MODEL.md) | Understand guarantees, assumptions, and residual risk. |
+| [Benchmark methodology](docs/gym.md) | Reproduce the paired security/utility gym and interpret its limits. |
+| [Publication protocol](docs/benchmarking.md) | Reproduce external evaluation, holdouts, statistics, and manifests. |
+| [Security policy](SECURITY.md) | Report a vulnerability privately. |
+| [Contributing](CONTRIBUTING.md) | Set up development, add attacks, policies, or code. |
+
+---
+
+## Development
+
+```bash
+git clone https://github.com/Sparshg3011/tripwire.git
+cd tripwire
+python3.12 -m venv .venv
+.venv/bin/pip install -e ".[dev,gym]"
+.venv/bin/pytest -q
+```
+
+CI runs linting, formatting, strict type checks for the policy and transaction cores, the full test
+suite on Python 3.11–3.13, a scripted gym smoke test, and a dependency audit.
+
+Attack scenarios and real policy packs are especially welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for the machine-checkable scenario requirements and engineering invariants.
+
+Security issues should not be opened publicly. Use
+[GitHub private vulnerability reporting](https://github.com/Sparshg3011/tripwire/security/advisories/new).
+
+---
 
 ## License
 
-Apache-2.0
+Released under the [Apache License 2.0](LICENSE).
+
+---
+
+<div align="center">
+
+**[↑ Back to top](#tripwire)**
+
+</div>
