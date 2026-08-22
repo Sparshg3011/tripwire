@@ -12,7 +12,13 @@ import pytest
 
 pytest.importorskip("matplotlib")
 
-from tripwire_gym.chart import family_breakdown, frontier, summaries_from_results
+from tripwire_gym.chart import (
+    LABEL_MIN_GAP,
+    _label_layout,
+    family_breakdown,
+    frontier,
+    summaries_from_results,
+)
 from tripwire_gym.runner import RunResult
 from tripwire_gym.scoring import Outcome, Summary
 
@@ -152,6 +158,20 @@ def test_frontier_draws_without_error_bars_too(tmp_path):
     path = frontier(matrix(), tmp_path / "plain.png", error_bars=False)
 
     assert is_png(path)
+
+
+def test_frontier_direct_labels_do_not_overlap_at_the_published_coordinates():
+    points = [(94.7, 39.5), (97.4, 39.5), (97.4, 26.3), (94.7, 13.2), (15.8, 0.0)]
+
+    labels = _label_layout(points)
+
+    # The four right-edge labels share one column, with coincident rates
+    # separated vertically. The strict label remains beside its own point.
+    assert len({label[0] for label in labels[:4]}) == 1
+    assert abs(labels[0][1] - labels[1][1]) >= LABEL_MIN_GAP
+    assert labels[0][2] == labels[1][2] == "right"
+    assert labels[4][0] > points[4][0]
+    assert labels[4][2] == "left"
 
 
 def test_family_breakdown_writes_a_png(tmp_path):

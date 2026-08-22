@@ -31,6 +31,7 @@ CONDITION_COLOUR = {
 UNKNOWN_COLOUR = "#6b6b6b"
 INK = "#222222"
 FAINT = "#666666"
+LABEL_MIN_GAP = 6.0
 
 
 @dataclass
@@ -91,13 +92,56 @@ def _whiskers(value: float, sd: float) -> list[list[float]] | None:
     return [[min(sd, value)], [min(sd, 100.0 - value)]]
 
 
+def _spread_label_y(values: list[float]) -> list[float]:
+    """Place label centres far enough apart to stay legible at README size."""
+    if not values:
+        return []
+
+    # Reverse the input order for exact ties. The first condition in the
+    # published story (undefended) then sits above its control (shadow),
+    # matching the reader's top-to-bottom scan.
+    ordered = sorted(enumerate(values), key=lambda item: (item[1], -item[0]))
+    placed: list[tuple[int, float]] = []
+    for index, desired in ordered:
+        y = max(3.0, desired)
+        if placed:
+            y = max(y, float(placed[-1][1]) + LABEL_MIN_GAP)
+        placed.append((index, y))
+
+    # Keep the final label inside the axes while preserving every gap.
+    overflow = float(placed[-1][1]) - 101.0
+    if overflow > 0:
+        placed = [(index, y - overflow) for index, y in placed]
+
+    result = [0.0] * len(values)
+    for index, y in placed:
+        result[int(index)] = float(y)
+    return result
+
+
+def _label_layout(points: list[tuple[float, float]]) -> list[tuple[float, float, str]]:
+    """Return direct-label anchors without relying on fragile text offsets."""
+    layout: list[tuple[float, float, str] | None] = [None] * len(points)
+    for outside in (False, True):
+        indices = [i for i, (x, _) in enumerate(points) if (x > 82) == outside]
+        label_y = _spread_label_y([points[i][1] for i in indices])
+        if outside:
+            # Align crowded right-edge labels into one readable column.
+            label_x = min(points[i][0] for i in indices) - 3.0 if indices else 0.0
+        for index, y in zip(indices, label_y, strict=True):
+            x = label_x if outside else points[index][0] + 2.8
+            layout[index] = (x, y, "right" if outside else "left")
+    return [item for item in layout if item is not None]
+
+
 def frontier(summaries: list[Summary], path: str | Path, error_bars: bool = True) -> Path:
     plt = _pyplot()
     fig, ax = plt.subplots(figsize=(7.6, 6.4))
 
     seeds = 0
     drew_bars = False
-    points = []
+    points: list[tuple[float, float]] = []
+    point_labels: list[tuple[str, str]] = []
     for s in summaries:
         x = 100 * s.benign_completion_rate
         y = 100 * s.attack_success_rate
@@ -125,24 +169,32 @@ def frontier(summaries: list[Summary], path: str | Path, error_bars: bool = True
             capsize=4,
             zorder=3,
         )
-        # labels on the right-hand points would run off the canvas
-        outside = x > 82
-        # conditions can land on the same coordinates — shadow is supposed
-        # to sit exactly on undefended, that's what makes it a control — so
-        # stack their labels instead of printing them over each other
-        stacked = sum(1 for px, py in points if abs(px - x) < 2 and abs(py - y) < 2)
+        points.append((x, y))
+        point_labels.append((s.condition, colour))
+
+    for (x, y), (label_x, label_y, align), (condition, colour) in zip(
+        points, _label_layout(points), point_labels, strict=True
+    ):
         ax.annotate(
-            s.condition,
+            condition,
             (x, y),
-            textcoords="offset points",
-            xytext=(-11, 9 - 15 * stacked) if outside else (11, 9 - 15 * stacked),
-            ha="right" if outside else "left",
+            xytext=(label_x, label_y),
+            textcoords="data",
+            ha=align,
+            va="center",
             fontsize=10.5,
             fontweight="semibold",
             color=colour,
             zorder=4,
+            arrowprops={
+                "arrowstyle": "-",
+                "color": colour,
+                "linewidth": 0.8,
+                "alpha": 0.65,
+                "shrinkA": 5,
+                "shrinkB": 7,
+            },
         )
-        points.append((x, y))
 
     if len(points) > 1:
         points.sort()
@@ -168,8 +220,7 @@ def frontier(summaries: list[Summary], path: str | Path, error_bars: bool = True
     ax.text(
         0,
         1.025,
-        "one point per condition. bottom right is the only good corner: "
-        "attacks stopped, work still done",
+        "bottom right is best: attacks stopped while benign work still completes",
         transform=ax.transAxes,
         fontsize=9.5,
         color=FAINT,
