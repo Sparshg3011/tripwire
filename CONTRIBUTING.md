@@ -65,6 +65,22 @@ through the real proxy for anything touching the request path. Fakes
 are fine at the seams (`canonicalize`, `evaluate`, the gate) — that's
 what they're injectable for.
 
+## Commit history
+
+Keep each commit focused on one reviewable concern. Write the subject in
+imperative sentence case, keep it concise, and use the body to explain why
+the change exists when the diff cannot do that on its own.
+
+Good subjects describe an outcome:
+
+- `Harden AgentDojo runs against API rate limits`
+- `Add completeness receipts to publication reports`
+- `Document the shadow-to-enforcement rollout`
+
+Avoid subjects such as `changes`, `formatting`, or `fix stuff`. Before opening
+a pull request, squash local fixups into their logical parent commits. Never
+rewrite a branch that other contributors may already be using.
+
 ## Security issues
 
 Please don't open a public issue. See [SECURITY.md](SECURITY.md).
