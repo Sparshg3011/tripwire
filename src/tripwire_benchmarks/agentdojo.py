@@ -37,6 +37,7 @@ from tripwire.session import SessionState
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 BLOCKED = "tripwire_blocked"
+PROTECTAI_MODEL_NAME = "protectai/deberta-v3-base-prompt-injection-v2"
 
 
 class AdapterError(Exception):
@@ -641,7 +642,12 @@ class OpenAICompatibleLLM:
         return query, runtime, env, [*messages, output], extra_args or {}
 
 
-def make_pipeline(llm: OpenAICompatibleLLM, defense: str | None):
+def make_pipeline(
+    llm: OpenAICompatibleLLM,
+    defense: str | None,
+    *,
+    protectai_model_revision: str | None = None,
+):
     """Compose an AgentDojo pipeline without changing its benchmark logic."""
     from agentdojo.agent_pipeline.agent_pipeline import AgentPipeline, load_system_message
     from agentdojo.agent_pipeline.basic_elements import InitQuery, SystemMessage
@@ -676,10 +682,23 @@ def make_pipeline(llm: OpenAICompatibleLLM, defense: str | None):
     if defense == "transformers_pi_detector":
         from agentdojo.agent_pipeline.pi_detector import TransformersBasedPIDetector
 
+        detector_model = PROTECTAI_MODEL_NAME
+        if protectai_model_revision:
+            try:
+                from huggingface_hub import snapshot_download
+            except ImportError as exc:  # pragma: no cover - publication extra supplies it
+                raise AdapterError(
+                    "pinning the ProtectAI detector requires huggingface-hub"
+                ) from exc
+            detector_model = snapshot_download(
+                repo_id=PROTECTAI_MODEL_NAME,
+                revision=protectai_model_revision,
+            )
+
         # Match AgentDojo v1.2.2's official defense configuration exactly.
         loop_elements.append(
             TransformersBasedPIDetector(
-                model_name="protectai/deberta-v3-base-prompt-injection-v2",
+                model_name=detector_model,
                 safe_label="SAFE",
                 threshold=0.5,
                 mode="message",
@@ -779,7 +798,11 @@ def run_once(args, repetition: int) -> dict[str, Any]:
     elif args.condition != "direct":
         prompt_defense = args.condition
 
-    pipeline = make_pipeline(llm, prompt_defense)
+    pipeline = make_pipeline(
+        llm,
+        prompt_defense,
+        protectai_model_revision=args.protectai_model_revision,
+    )
     attack = load_attack(args.attack, protected, pipeline)
     user_tasks = args.user_task or None
     injection_tasks = args.injection_task or None
@@ -880,6 +903,10 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--retry-cap-seconds", type=float, default=60.0)
     parser.add_argument("--api-seed", action="store_true")
     parser.add_argument("--disable-thinking", action="store_true")
+    parser.add_argument(
+        "--protectai-model-revision",
+        help="immutable Hugging Face revision for the ProtectAI detector",
+    )
     parser.add_argument("--force-rerun", action="store_true")
     parser.add_argument("--out", required=True)
     return parser.parse_args(argv)
@@ -940,6 +967,10 @@ def main(argv: list[str] | None = None) -> None:
             "rate_limit_retries": args.rate_limit_retries,
             "retry_base_seconds": args.retry_base_seconds,
             "retry_cap_seconds": args.retry_cap_seconds,
+            "protectai_model_name": (
+                PROTECTAI_MODEL_NAME if args.condition == "transformers_pi_detector" else None
+            ),
+            "protectai_model_revision": args.protectai_model_revision,
         },
         "runs": runs,
         "summary": {

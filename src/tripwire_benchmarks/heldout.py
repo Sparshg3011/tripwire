@@ -206,6 +206,7 @@ def _command(
     users: list[str],
     model: str,
     destination: Path,
+    protectai_model_revision: str | None = None,
 ) -> list[str]:
     command = [
         sys.executable,
@@ -239,6 +240,8 @@ def _command(
     ]
     for user in users:
         command.extend(("--user-task", user))
+    if protectai_model_revision:
+        command.extend(("--protectai-model-revision", protectai_model_revision))
     return command
 
 
@@ -250,6 +253,7 @@ def _run_shard(
     users: list[str],
     conditions: list[str],
     model: str,
+    protectai_model_revision: str | None = None,
 ) -> str:
     completed = []
     preferred = PRIMARY_CONDITION_ORDER[suite]
@@ -269,6 +273,7 @@ def _run_shard(
             users=users,
             model=model,
             destination=destination,
+            protectai_model_revision=protectai_model_revision,
         )
         process = subprocess.run(command, text=True, capture_output=True, check=False)
         (destination / "runner.log").write_text(process.stdout + process.stderr, encoding="utf-8")

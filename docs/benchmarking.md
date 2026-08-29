@@ -321,6 +321,31 @@ The compact primary artifact—including the frozen plan, completeness receipt,
 generated aggregates, hashes and independent validation—is under
 [`docs/results/agentdojo-heldout/`](results/agentdojo-heldout/README.md).
 
+### Frozen secondary ProtectAI comparison
+
+The secondary comparison is a separate protocol; it does not rewrite or
+extend the completed primary contract. It verifies the exact SHA-256 of the
+four frozen Direct result files, reconstructs the identical 85-user/844-pair
+selection, and runs only AgentDojo's stock `TransformersBasedPIDetector`.
+The detector configuration is unchanged, while its model weights are pinned
+to immutable Hugging Face revision `90c9989b1a342275dd0d1a95aad283c04e075671`.
+Runtime package versions, transport limits, completeness checks, and the same
+paired clustered analysis are frozen in
+[`gym/agentdojo-protectai-heldout.yaml`](../gym/agentdojo-protectai-heldout.yaml).
+
+```bash
+set -a
+source .env
+set +a
+./gym/run_agentdojo_protectai_heldout.sh \
+  gym/results/agentdojo-protectai-heldout \
+  gym/results/agentdojo-heldout
+```
+
+This is intentionally a secondary defense baseline. Its held-out outcome must
+not be described until the completeness receipt proves all 844 paired attacks
+and both sets of 85 benign tasks are present with zero trace errors.
+
 ## Stage 4: AgentDyn external validity
 
 Use the isolated AgentDyn environment so its fork cannot silently change the

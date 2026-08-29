@@ -172,6 +172,35 @@ def test_transformers_detector_matches_agentdojo_configuration(monkeypatch):
     }
 
 
+def test_transformers_detector_can_pin_an_immutable_model_revision(monkeypatch):
+    import huggingface_hub
+    from agentdojo.agent_pipeline import pi_detector
+
+    captured = {}
+
+    class FakeDetector:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr(pi_detector, "TransformersBasedPIDetector", FakeDetector)
+    monkeypatch.setattr(
+        huggingface_hub,
+        "snapshot_download",
+        lambda **kwargs: f"/snapshots/{kwargs['revision']}",
+    )
+
+    make_pipeline(
+        SimpleNamespace(model="nvidia/test"),
+        "transformers_pi_detector",
+        protectai_model_revision="abc123",
+    )
+
+    assert captured["model_name"] == "/snapshots/abc123"
+    assert captured["safe_label"] == "SAFE"
+    assert captured["threshold"] == 0.5
+    assert captured["mode"] == "message"
+
+
 def test_enforcement_receipts_survive_trace_resume(tmp_path):
     runtime_type = make_guarded_runtime(policy(), "deny")
     runtime = runtime_type([make_function(read_email), make_function(send_email)])
