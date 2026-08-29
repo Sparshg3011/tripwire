@@ -177,6 +177,7 @@ def test_transformers_detector_can_pin_an_immutable_model_revision(monkeypatch):
     from agentdojo.agent_pipeline import pi_detector
 
     captured = {}
+    downloads = []
 
     class FakeDetector:
         def __init__(self, **kwargs):
@@ -186,7 +187,7 @@ def test_transformers_detector_can_pin_an_immutable_model_revision(monkeypatch):
     monkeypatch.setattr(
         huggingface_hub,
         "snapshot_download",
-        lambda **kwargs: f"/snapshots/{kwargs['revision']}",
+        lambda **kwargs: downloads.append(kwargs) or f"/snapshots/{kwargs['revision']}",
     )
 
     make_pipeline(
@@ -199,6 +200,13 @@ def test_transformers_detector_can_pin_an_immutable_model_revision(monkeypatch):
     assert captured["safe_label"] == "SAFE"
     assert captured["threshold"] == 0.5
     assert captured["mode"] == "message"
+    assert downloads == [
+        {
+            "repo_id": "protectai/deberta-v3-base-prompt-injection-v2",
+            "revision": "abc123",
+            "local_files_only": True,
+        }
+    ]
 
 
 def test_enforcement_receipts_survive_trace_resume(tmp_path):

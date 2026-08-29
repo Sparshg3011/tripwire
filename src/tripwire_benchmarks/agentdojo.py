@@ -686,14 +686,22 @@ def make_pipeline(
         if protectai_model_revision:
             try:
                 from huggingface_hub import snapshot_download
+                from huggingface_hub.errors import LocalEntryNotFoundError
             except ImportError as exc:  # pragma: no cover - publication extra supplies it
                 raise AdapterError(
                     "pinning the ProtectAI detector requires huggingface-hub"
                 ) from exc
-            detector_model = snapshot_download(
-                repo_id=PROTECTAI_MODEL_NAME,
-                revision=protectai_model_revision,
-            )
+            try:
+                detector_model = snapshot_download(
+                    repo_id=PROTECTAI_MODEL_NAME,
+                    revision=protectai_model_revision,
+                    local_files_only=True,
+                )
+            except LocalEntryNotFoundError:
+                detector_model = snapshot_download(
+                    repo_id=PROTECTAI_MODEL_NAME,
+                    revision=protectai_model_revision,
+                )
 
         # Match AgentDojo v1.2.2's official defense configuration exactly.
         loop_elements.append(

@@ -1,5 +1,5 @@
 schema_version: 1
-protocol_revision: 1
+protocol_revision: 2
 status: frozen
 benchmark: AgentDojo
 benchmark_version: v1.2.2
@@ -59,3 +59,12 @@ screening_basis:
 known_implementation_limit:
   AgentDojo passes complete tool outputs to a detector with a 512-token model
   context. The stock implementation is retained unchanged for comparability.
+deviations_before_scored_run:
+  - >
+    The first development-only smoke attempt stopped before any target-model
+    call or scored episode because Hugging Face's snapshot resolver attempted
+    a metadata request while offline mode was enabled, despite the exact model
+    revision already being cached. Revision 2 resolves that immutable cached
+    snapshot first and falls back to downloading the same revision only when
+    it is absent. Cases, weights, detector settings, target model, prompts,
+    scoring, transport, and analysis are unchanged.
