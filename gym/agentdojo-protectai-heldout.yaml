@@ -1,5 +1,5 @@
 schema_version: 1
-protocol_revision: 2
+protocol_revision: 3
 status: frozen
 benchmark: AgentDojo
 benchmark_version: v1.2.2
@@ -68,3 +68,9 @@ deviations_before_scored_run:
     snapshot first and falls back to downloading the same revision only when
     it is absent. Cases, weights, detector settings, target model, prompts,
     scoring, transport, and analysis are unchanged.
+  - >
+    The first full-run shell invocation exited before Python started because
+    macOS Bash 3.2 treats an empty optional-argument array as unbound under
+    `set -u`. No plan, trace, model call, or result was created. Revision 3
+    invokes a non-empty command array and appends the resume flag only when
+    requested. The scientific contract and transport settings are unchanged.

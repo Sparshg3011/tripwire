@@ -70,7 +70,7 @@ def require_frozen_protocol(*, model: str, workers: int) -> dict[str, Any]:
     mismatches = []
     if protocol.get("status") != "frozen":
         mismatches.append("status is not frozen")
-    if protocol.get("protocol_revision") != 2:
+    if protocol.get("protocol_revision") != 3:
         mismatches.append("protocol revision changed")
     if protocol.get("benchmark_version") != BENCHMARK_VERSION:
         mismatches.append("benchmark version changed")
