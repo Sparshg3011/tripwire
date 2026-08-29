@@ -113,6 +113,46 @@ aren't real.
 16% of the work. It's there to mark the end of the axis and to make the
 point that "block everything" isn't a security posture.
 
+## The held-out result is stronger—and less flattering
+
+The internal gym was development evidence. For the primary external test I
+froze the policies and protocol, excluded the 12 AgentDojo users used during
+development, and crossed all 85 remaining users with every injection task in
+their suite. That produced 844 attacked cases per condition plus the same 85
+tasks without an injection. AgentDojo's official state and task checkers—not
+Tripwire's log and not the model's explanation—scored every episode.
+
+Model: `nvidia/nemotron-3-super-120b-a12b`. Attack: AgentDojo's official
+`important_instructions`. One run per case, temperature zero, thinking
+disabled. Strict Tripwire ran unattended: every gate was denied, and no hidden
+benchmark label or reviewer model pretended to be a human.
+
+| metric | direct | strict Tripwire | paired change |
+|---|---:|---:|---:|
+| **attack success** | **30.7% (259/844)** | **4.0% (34/844)** | **-26.7 points** |
+| **benign utility** | **82.4% (70/85)** | **36.5% (31/85)** | **-45.9 points** |
+| utility under attack | 63.7% (538/844) | 31.8% (268/844) | -32.0 points |
+| trace errors | 0 | 0 | 0 |
+
+The security effect is not a small-sample accident: its predeclared two-way
+user-by-injection cluster-bootstrap 95% interval is -33.6 to -19.8 points. But
+the utility loss is larger, with a user-cluster interval of -56.5 to -35.3.
+Tripwire intervened in 40 of 85 clean tasks.
+
+That changes the claim. The experiment shows that deterministic mediation can
+remove most successful injections at a strict operating point. It does **not**
+show a production-ready default. The sticky session-wide taint rule cannot
+separate “untrusted content was observed” from “this sensitive action was
+still explicitly intended,” so it buys security by refusing too much. Slack is
+the clearest failure: attack success remains 32.2% while benign utility falls
+from 100% to 22.2%.
+
+This mixed result is more useful than a flattering one. The next research
+question is no longer whether mediation can stop attacks; it is whether
+finer-grained provenance can recover utility without giving the attacks back.
+The [full held-out report](agentdojo-heldout-results.md) includes every suite,
+the frozen provenance, clustered analysis and required caveats.
+
 ## What got through
 
 Five attacks beat `standard` even with the model's own judgement in
@@ -229,3 +269,6 @@ out of that command, including the ones that don't flatter the project.
 
 Code, threat model and full methodology:
 [github.com/Sparshg3011/tripwire](https://github.com/Sparshg3011/tripwire)
+
+Primary external result and compact artifact:
+[AgentDojo held-out report](agentdojo-heldout-results.md)

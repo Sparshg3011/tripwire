@@ -1,0 +1,88 @@
+{
+  "checks": [
+    {
+      "complete": true,
+      "condition": "direct",
+      "expected_attack_pairs": 518,
+      "expected_benign_tasks": 37,
+      "observed_attack_pairs": 518,
+      "observed_benign_tasks": 37,
+      "suite": "workspace",
+      "trace_errors": 0
+    },
+    {
+      "complete": true,
+      "condition": "tripwire-deny",
+      "expected_attack_pairs": 518,
+      "expected_benign_tasks": 37,
+      "observed_attack_pairs": 518,
+      "observed_benign_tasks": 37,
+      "suite": "workspace",
+      "trace_errors": 0
+    },
+    {
+      "complete": true,
+      "condition": "direct",
+      "expected_attack_pairs": 117,
+      "expected_benign_tasks": 13,
+      "observed_attack_pairs": 117,
+      "observed_benign_tasks": 13,
+      "suite": "banking",
+      "trace_errors": 0
+    },
+    {
+      "complete": true,
+      "condition": "tripwire-deny",
+      "expected_attack_pairs": 117,
+      "expected_benign_tasks": 13,
+      "observed_attack_pairs": 117,
+      "observed_benign_tasks": 13,
+      "suite": "banking",
+      "trace_errors": 0
+    },
+    {
+      "complete": true,
+      "condition": "direct",
+      "expected_attack_pairs": 90,
+      "expected_benign_tasks": 18,
+      "observed_attack_pairs": 90,
+      "observed_benign_tasks": 18,
+      "suite": "slack",
+      "trace_errors": 0
+    },
+    {
+      "complete": true,
+      "condition": "tripwire-deny",
+      "expected_attack_pairs": 90,
+      "expected_benign_tasks": 18,
+      "observed_attack_pairs": 90,
+      "observed_benign_tasks": 18,
+      "suite": "slack",
+      "trace_errors": 0
+    },
+    {
+      "complete": true,
+      "condition": "direct",
+      "expected_attack_pairs": 119,
+      "expected_benign_tasks": 17,
+      "observed_attack_pairs": 119,
+      "observed_benign_tasks": 17,
+      "suite": "travel",
+      "trace_errors": 0
+    },
+    {
+      "complete": true,
+      "condition": "tripwire-deny",
+      "expected_attack_pairs": 119,
+      "expected_benign_tasks": 17,
+      "observed_attack_pairs": 119,
+      "observed_benign_tasks": 17,
+      "suite": "travel",
+      "trace_errors": 0
+    }
+  ],
+  "complete": true,
+  "failures": [],
+  "schema_version": 1,
+  "selection_sha256": "aa9cabea1a787a4a12c5bef0c816057cbe77cb68ce12981bc0e945d533798e94"
+}

@@ -1,0 +1,343 @@
+{
+  "benchmark": "AgentDojo",
+  "benchmark_version": "v1.2.2",
+  "contract_sha256": "3b43ae804d4ab2f31b2af114bbfbacbf35227599f6e7e21166ef99ed17aef16d",
+  "created_at": "2026-08-18T23:43:08.545551+00:00",
+  "execution": {
+    "attack": "important_instructions",
+    "benchmark_version": "v1.2.2",
+    "conditions": [
+      "direct",
+      "tripwire-deny"
+    ],
+    "min_call_interval_seconds": 2.0,
+    "model": "nvidia/nemotron-3-super-120b-a12b",
+    "policy_sha256": {
+      "banking": "9a73620c2b8d7a04b6cef445768ed189ad10c1a8a47f9e5f02165ccbbac786b9",
+      "slack": "482242a4a4c6aad06bdb167b9e7ac483f109e5031e9caae2e1280abd6b11a06f",
+      "travel": "3991b940772a27035090c71a45a0efb9629a187f445c58d3ab111aa68d17eb29",
+      "workspace": "164321300abe931dce0de8c3140ea2fef6d9b14f5dd19ddb77d5c1d98f0a3bb8"
+    },
+    "primary_condition_order": {
+      "banking": [
+        "tripwire-deny",
+        "direct"
+      ],
+      "slack": [
+        "direct",
+        "tripwire-deny"
+      ],
+      "travel": [
+        "tripwire-deny",
+        "direct"
+      ],
+      "workspace": [
+        "direct",
+        "tripwire-deny"
+      ]
+    },
+    "rate_limit_retries": 20,
+    "repetitions": 1,
+    "retry_base_seconds": 10.0,
+    "retry_cap_seconds": 60.0,
+    "selection_sha256": "aa9cabea1a787a4a12c5bef0c816057cbe77cb68ce12981bc0e945d533798e94",
+    "temperature": 0,
+    "thinking": "disabled"
+  },
+  "heldout_attack_pairs": 844,
+  "heldout_user_tasks": 85,
+  "schema_version": 1,
+  "selection": "all user tasks except frozen development-pilot users",
+  "selection_sha256": "aa9cabea1a787a4a12c5bef0c816057cbe77cb68ce12981bc0e945d533798e94",
+  "source": {
+    "git_commit": "59bbcb940cb3976d7394f2e9b48c27bbb70c85f3",
+    "git_dirty": false
+  },
+  "suites": {
+    "banking": {
+      "attack_pairs": 117,
+      "development_users_excluded": [
+        "user_task_3",
+        "user_task_6",
+        "user_task_10"
+      ],
+      "heldout_users": [
+        "user_task_0",
+        "user_task_1",
+        "user_task_2",
+        "user_task_4",
+        "user_task_5",
+        "user_task_7",
+        "user_task_8",
+        "user_task_9",
+        "user_task_11",
+        "user_task_12",
+        "user_task_13",
+        "user_task_14",
+        "user_task_15"
+      ],
+      "injection_tasks": [
+        "injection_task_0",
+        "injection_task_1",
+        "injection_task_2",
+        "injection_task_3",
+        "injection_task_4",
+        "injection_task_5",
+        "injection_task_6",
+        "injection_task_7",
+        "injection_task_8"
+      ],
+      "primary_condition_order": [
+        "tripwire-deny",
+        "direct"
+      ],
+      "shards": [
+        [
+          "user_task_0",
+          "user_task_1",
+          "user_task_2",
+          "user_task_4",
+          "user_task_5",
+          "user_task_7",
+          "user_task_8",
+          "user_task_9",
+          "user_task_11",
+          "user_task_12",
+          "user_task_13",
+          "user_task_14",
+          "user_task_15"
+        ]
+      ]
+    },
+    "slack": {
+      "attack_pairs": 90,
+      "development_users_excluded": [
+        "user_task_1",
+        "user_task_13",
+        "user_task_14"
+      ],
+      "heldout_users": [
+        "user_task_0",
+        "user_task_2",
+        "user_task_3",
+        "user_task_4",
+        "user_task_5",
+        "user_task_6",
+        "user_task_7",
+        "user_task_8",
+        "user_task_9",
+        "user_task_10",
+        "user_task_11",
+        "user_task_12",
+        "user_task_15",
+        "user_task_16",
+        "user_task_17",
+        "user_task_18",
+        "user_task_19",
+        "user_task_20"
+      ],
+      "injection_tasks": [
+        "injection_task_1",
+        "injection_task_2",
+        "injection_task_3",
+        "injection_task_4",
+        "injection_task_5"
+      ],
+      "primary_condition_order": [
+        "direct",
+        "tripwire-deny"
+      ],
+      "shards": [
+        [
+          "user_task_0",
+          "user_task_2",
+          "user_task_3",
+          "user_task_4",
+          "user_task_5",
+          "user_task_6",
+          "user_task_7",
+          "user_task_8",
+          "user_task_9",
+          "user_task_10",
+          "user_task_11",
+          "user_task_12",
+          "user_task_15",
+          "user_task_16",
+          "user_task_17",
+          "user_task_18",
+          "user_task_19",
+          "user_task_20"
+        ]
+      ]
+    },
+    "travel": {
+      "attack_pairs": 119,
+      "development_users_excluded": [
+        "user_task_9",
+        "user_task_17",
+        "user_task_18"
+      ],
+      "heldout_users": [
+        "user_task_0",
+        "user_task_1",
+        "user_task_2",
+        "user_task_3",
+        "user_task_4",
+        "user_task_5",
+        "user_task_6",
+        "user_task_7",
+        "user_task_8",
+        "user_task_10",
+        "user_task_11",
+        "user_task_12",
+        "user_task_13",
+        "user_task_14",
+        "user_task_15",
+        "user_task_16",
+        "user_task_19"
+      ],
+      "injection_tasks": [
+        "injection_task_0",
+        "injection_task_1",
+        "injection_task_2",
+        "injection_task_3",
+        "injection_task_4",
+        "injection_task_5",
+        "injection_task_6"
+      ],
+      "primary_condition_order": [
+        "tripwire-deny",
+        "direct"
+      ],
+      "shards": [
+        [
+          "user_task_0",
+          "user_task_1",
+          "user_task_2",
+          "user_task_3",
+          "user_task_4",
+          "user_task_5",
+          "user_task_6",
+          "user_task_7",
+          "user_task_8",
+          "user_task_10",
+          "user_task_11",
+          "user_task_12",
+          "user_task_13",
+          "user_task_14",
+          "user_task_15",
+          "user_task_16",
+          "user_task_19"
+        ]
+      ]
+    },
+    "workspace": {
+      "attack_pairs": 518,
+      "development_users_excluded": [
+        "user_task_13",
+        "user_task_19",
+        "user_task_27"
+      ],
+      "heldout_users": [
+        "user_task_0",
+        "user_task_1",
+        "user_task_2",
+        "user_task_3",
+        "user_task_4",
+        "user_task_5",
+        "user_task_6",
+        "user_task_7",
+        "user_task_8",
+        "user_task_9",
+        "user_task_10",
+        "user_task_11",
+        "user_task_12",
+        "user_task_14",
+        "user_task_15",
+        "user_task_16",
+        "user_task_17",
+        "user_task_18",
+        "user_task_20",
+        "user_task_21",
+        "user_task_22",
+        "user_task_23",
+        "user_task_24",
+        "user_task_25",
+        "user_task_26",
+        "user_task_28",
+        "user_task_29",
+        "user_task_30",
+        "user_task_31",
+        "user_task_32",
+        "user_task_33",
+        "user_task_34",
+        "user_task_35",
+        "user_task_36",
+        "user_task_37",
+        "user_task_38",
+        "user_task_39"
+      ],
+      "injection_tasks": [
+        "injection_task_0",
+        "injection_task_1",
+        "injection_task_2",
+        "injection_task_3",
+        "injection_task_4",
+        "injection_task_5",
+        "injection_task_6",
+        "injection_task_7",
+        "injection_task_8",
+        "injection_task_9",
+        "injection_task_10",
+        "injection_task_11",
+        "injection_task_12",
+        "injection_task_13"
+      ],
+      "primary_condition_order": [
+        "direct",
+        "tripwire-deny"
+      ],
+      "shards": [
+        [
+          "user_task_0",
+          "user_task_1",
+          "user_task_2",
+          "user_task_3",
+          "user_task_4",
+          "user_task_5",
+          "user_task_6",
+          "user_task_7",
+          "user_task_8",
+          "user_task_9",
+          "user_task_10",
+          "user_task_11",
+          "user_task_12",
+          "user_task_14",
+          "user_task_15",
+          "user_task_16",
+          "user_task_17",
+          "user_task_18",
+          "user_task_20",
+          "user_task_21",
+          "user_task_22",
+          "user_task_23",
+          "user_task_24",
+          "user_task_25",
+          "user_task_26",
+          "user_task_28",
+          "user_task_29",
+          "user_task_30",
+          "user_task_31",
+          "user_task_32",
+          "user_task_33",
+          "user_task_34",
+          "user_task_35",
+          "user_task_36",
+          "user_task_37",
+          "user_task_38",
+          "user_task_39"
+        ]
+      ]
+    }
+  }
+}

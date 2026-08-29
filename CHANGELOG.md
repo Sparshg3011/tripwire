@@ -29,5 +29,9 @@ refused to start.
   scenarios across seven families, each with a twin, each verified to
   land undefended, plus an ablation isolating what each policy layer
   contributes.
+- Frozen AgentDojo `v1.2.2` held-out evaluation with 844 paired attacks
+  and 85 benign tasks per condition, clustered effect intervals,
+  completeness and transport-resume receipts, and compact reproducibility
+  artifacts.
 
 [Unreleased]: https://github.com/Sparshg3011/tripwire/commits/main

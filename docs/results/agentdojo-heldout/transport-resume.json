@@ -1,0 +1,25 @@
+{
+  "checkpoint_trace_files": 200,
+  "contract_sha256": "3b43ae804d4ab2f31b2af114bbfbacbf35227599f6e7e21166ef99ed17aef16d",
+  "created_at": "2026-08-19T06:51:45.090847+00:00",
+  "failed_runner_logs": [
+    {
+      "path": "banking/tripwire-deny/shard-00/runner.log",
+      "sha256": "bb69ba47cf82a54cb961cd73ebbf55b72e7ce38cd82fc33fd6e3315268ce48e7"
+    },
+    {
+      "path": "workspace/direct/shard-00/runner.log",
+      "sha256": "3f9113372210de92eb6d3482330a4f98c2b623da19cf1cd48ff24dc91b24d8cd"
+    }
+  ],
+  "planned_source": {
+    "git_commit": "59bbcb940cb3976d7394f2e9b48c27bbb70c85f3",
+    "git_dirty": false
+  },
+  "resume_source": {
+    "git_commit": "5278f79ad4522a4eb5e512c934526065009486cb",
+    "git_dirty": false
+  },
+  "schema_version": 1,
+  "scope": "transport-only provider retry expansion; scientific contract unchanged"
+}

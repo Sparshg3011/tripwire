@@ -263,10 +263,37 @@ documented limit. Read the complete [threat model](THREAT_MODEL.md) before produ
 A security control can stop every attack by refusing every action. Tripwire reports security and
 utility together, always against the same tasks without attack text.
 
-> **Publication status:** the repository includes a frozen AgentDojo held-out protocol, external
-> policies, completeness receipts, paired tests, and clustered confidence intervals. Publication
-> claims are generated only after the full matrix passes its completeness check. See the
-> [publication benchmark protocol](docs/benchmarking.md).
+> **Publication status:** the frozen primary AgentDojo matrix is complete: 844 paired attacks and
+> 85 benign tasks per condition, with zero trace errors. The security gain is large and the utility
+> cost is larger; both are reported below. The full held-out ProtectAI comparison remains pending.
+> See the [primary result](docs/agentdojo-heldout-results.md) and
+> [publication protocol](docs/benchmarking.md).
+
+### Primary held-out AgentDojo result
+
+The primary external experiment uses AgentDojo `v1.2.2`, its official
+`important_instructions` attack and deterministic task/state checkers, and
+`nvidia/nemotron-3-super-120b-a12b`. The 12 users seen during development were excluded before the
+run; all 85 remaining users were crossed with every injection task in their suite. Strict Tripwire
+ran unattended: no human or reviewer model approved gates, and every approval request was denied.
+
+| Metric | Direct | Strict Tripwire | Paired change |
+|:--|--:|--:|--:|
+| **Attack success** | **30.7% (259/844)** | **4.0% (34/844)** | **-26.7 points** |
+| **Benign utility** | **82.4% (70/85)** | **36.5% (31/85)** | **-45.9 points** |
+| Utility under attack | 63.7% (538/844) | 31.8% (268/844) | -32.0 points |
+| Trace/API errors | 0 | 0 | 0 |
+
+![AgentDojo held-out security/utility trade-off: attack success falls from 30.7% to 4.0% while benign utility falls from 82.4% to 36.5%.](docs/img/agentdojo-heldout.png)
+
+The ASR difference has a predeclared two-way user-by-injection cluster-bootstrap 95% interval of
+**-33.6 to -19.8 points**. The benign-utility difference has a user-cluster 95% interval of
+**-56.5 to -35.3 points**. This is strong evidence of security improvement at one conservative
+operating point—not a production-readiness claim. Tripwire intervened in 40 of 85 benign tasks, and
+Slack retained 32.2% attack success while benign utility fell from 100% to 22.2%.
+
+Read the [full result, suite breakdown, provenance and limitations](docs/agentdojo-heldout-results.md)
+or inspect the [compact machine-readable artifact](docs/results/agentdojo-heldout/README.md).
 
 ### Exploratory adversarial gym
 
@@ -299,6 +326,7 @@ failure cases, and ablations live in:
 - [Gym methodology](docs/gym.md)
 - [Model comparison](docs/models.md)
 - [Policy-layer ablation](docs/ablation.md)
+- [AgentDojo held-out primary result](docs/agentdojo-heldout-results.md)
 - [AgentDojo screening](docs/agentdojo-screening-results.md)
 
 Reproduce the local gym without an API key, or run the live-agent matrix through an OpenAI-compatible
@@ -385,6 +413,7 @@ tripwire/
 | [Threat model](THREAT_MODEL.md) | Understand guarantees, assumptions, and residual risk. |
 | [Benchmark methodology](docs/gym.md) | Reproduce the paired security/utility gym and interpret its limits. |
 | [Publication protocol](docs/benchmarking.md) | Reproduce external evaluation, holdouts, statistics, and manifests. |
+| [AgentDojo held-out result](docs/agentdojo-heldout-results.md) | Inspect the primary external result, provenance, suite effects, and limitations. |
 | [Security policy](SECURITY.md) | Report a vulnerability privately. |
 | [Contributing](CONTRIBUTING.md) | Set up development, add attacks, policies, or code. |
 

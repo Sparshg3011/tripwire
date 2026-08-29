@@ -93,6 +93,10 @@ more directly. They can be added later as clearly labelled secondary results.
 - The AgentDojo-family adapter enforces Tripwire **before** a Python tool runs.
   Blocked calls do not alter the stateful application and do not appear in the
   executed trace used by official benchmark checkers.
+- The frozen AgentDojo primary matrix is complete: 844 paired attacks and 85
+  benign tasks per condition, zero trace errors, a hashed selection and policy
+  contract, an explicit transport-resume receipt, and predeclared clustered
+  effect intervals.
 - The AutoDojo plugin applies the same pre-execution rule inside its adaptive
   optimization loop. It also adds NVIDIA NIM as both a target-model provider and
   an optimizer-model provider without modifying the pinned AutoDojo checkout.
@@ -252,22 +256,28 @@ The seeded 24-pair development pilot and its limitations are reported in
 tasks are excluded from the primary test set. This leaves 85 untouched user
 tasks and 844 attack pairs across all four suites.
 
-Before running, freeze the experiment commit and change
-`gym/agentdojo-heldout.yaml` from `prepared_not_frozen` to `frozen`. The runner
-verifies the expected suite sizes, materializes a hashed selection receipt, and
-executes one resumable job per suite. The direct/strict order is counterbalanced
-across suites and fixed in the plan before the run. Strict Tripwire means
-unattended operation: every `require_approval` decision is denied. It is not
-described as human performance.
+The experiment was frozen at protocol revision 3 before a complete aggregate
+outcome was produced. The runner verifies the expected suite sizes,
+materializes a hashed selection receipt, and executes one resumable job per
+suite. The direct/strict order is counterbalanced across suites and fixed in
+the plan before the run. Strict Tripwire means unattended operation: every
+`require_approval` decision is denied. It is not described as human
+performance.
 
 ```bash
 ./gym/run_agentdojo_heldout.sh gym/results/agentdojo-heldout
 ```
 
-The primary comparison is `direct` versus `tripwire-deny`. The permissive
-`tripwire-approve` condition remains a mechanism bound from the smoke study,
-not the deployable security result. After the primary analysis is frozen, run
-prompt baselines on the same held-out user tasks as secondary comparisons.
+The primary comparison is `direct` versus `tripwire-deny`. It completed all
+844 attack pairs and both sets of 85 benign tasks with zero trace errors. ASR
+fell from 30.7% to 4.0% (paired change -26.7 points; predeclared crossed-cluster
+95% interval -33.6 to -19.8), while benign utility fell from 82.4% to 36.5%
+(change -45.9 points; user-cluster 95% interval -56.5 to -35.3). The
+[primary report](agentdojo-heldout-results.md) gives the suite breakdown,
+provenance and limitations. The permissive `tripwire-approve` condition
+remains a mechanism bound from the smoke study, not the deployable security
+result. ProtectAI is the frozen secondary defense comparison; it must complete
+before comparative claims are made.
 
 AgentDojo's cross-product reuses user tasks and injection goals, so the 844
 pairs are not treated as 844 independent samples. The primary effect interval
@@ -283,13 +293,17 @@ A final completeness receipt proves
 that all 844 attack pairs and both sets of 85 benign tasks are present with no
 trace errors before the run is treated as complete.
 
-The hosted free NVIDIA endpoint is run with one worker, a two-second minimum
+The hosted free NVIDIA endpoint was run with one worker, a two-second minimum
 request interval, and deterministic 429 backoff (10 seconds doubling to a
 60-second cap, at most 20 retries). A pre-score transport shakedown established
 that four workers—and briefly one worker without explicit backoff—hit HTTP 429.
-No aggregate held-out outcome was produced or inspected. This revision and its
-unchanged scientific fields are recorded in the frozen YAML before the scored
-run.
+The revision 2 scored attempt then stopped after 200 successful checkpoints on
+an HTTP 502 and a read timeout. No aggregate condition result was produced or
+inspected before protocol revision 3 extended the same bounded retry policy to
+timeouts, connection failures, and HTTP 5xx responses. Successful checkpoints
+were reused; selection, policies, model, prompts, scoring, condition order and
+analysis were unchanged. The deviation is recorded in the frozen YAML and
+[transport receipt](results/agentdojo-heldout/transport-resume.json).
 
 For an unsharded replication or targeted diagnostic, the lower-level command
 remains available:
@@ -302,6 +316,10 @@ remains available:
 
 `tripwire-approve` and `tripwire-deny` are bounds on approval behavior. They are
 not two competing products and neither estimates a human operator.
+
+The compact primary artifact—including the frozen plan, completeness receipt,
+generated aggregates, hashes and independent validation—is under
+[`docs/results/agentdojo-heldout/`](results/agentdojo-heldout/README.md).
 
 ## Stage 4: AgentDyn external validity
 
