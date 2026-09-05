@@ -310,6 +310,16 @@ Slack retained 32.2% attack success while benign utility fell from 100% to 22.2%
 Read the [full result, suite breakdown, provenance and limitations](docs/agentdojo-heldout-results.md)
 or inspect the [compact machine-readable artifact](docs/results/agentdojo-heldout/README.md).
 
+### Completed mechanism ablation
+
+The full-minus-one scripted ablation covers 912 unique episodes: 38 attacks
+and 38 benign twins, six policies, and both approval brackets. All cases
+completed with zero runner errors. Removing argument constraints raises
+approve-all attack success from 11/38 to 28/38, while benign completion rises
+from 20/38 to 31/38. These are controlled mechanism results on an authored
+corpus, not estimates of model or human performance. See the
+[full results and validation receipt](docs/ablation.md).
+
 ### Exploratory adversarial gym
 
 The original internal gym contains 38 attacks across seven families, each paired with a benign twin
