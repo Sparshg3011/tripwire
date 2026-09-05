@@ -19,10 +19,10 @@ fi
 $PY -m tripwire_gym.ablations --policy gym/policies/standard.yaml --out "$POLICY_DIR"
 
 run_cell() {
-  BRACKET="$1"
-  CONDITIONS="$2"
-  POLICY_PATH="$3"
-  DESTINATION="$4"
+  local BRACKET="$1"
+  local CONDITIONS="$2"
+  local POLICY_PATH="$3"
+  local DESTINATION="$4"
   if [ -n "$MODEL" ]; then
     $PY -m tripwire_gym --agent "$AGENT" --model "$MODEL" \
       --runs "$RUNS" --human "$BRACKET" --concurrency "$CONCURRENCY" \
