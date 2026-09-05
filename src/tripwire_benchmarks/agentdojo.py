@@ -34,6 +34,7 @@ from tripwire.policy.evaluator import evaluate
 from tripwire.policy.schema import Policy
 from tripwire.policy.types import ToolCall
 from tripwire.session import SessionState
+from tripwire_gym.resources import GYM
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 BLOCKED = "tripwire_blocked"
@@ -797,7 +798,9 @@ def run_once(args, repetition: int) -> dict[str, Any]:
     prompt_defense = None
     protected = suite
     if args.condition.startswith("tripwire-"):
-        policy_path = Path(args.policy or f"gym/external_policies/{args.suite}.yaml")
+        policy_path = (
+            Path(args.policy) if args.policy else GYM / "external_policies" / f"{args.suite}.yaml"
+        )
         if not policy_path.exists():
             raise AdapterError(f"no Tripwire policy for suite {args.suite}: {policy_path}")
         policy = load_policy(policy_path)
@@ -953,13 +956,17 @@ def main(argv: list[str] | None = None) -> None:
             "policy": (
                 str(Path(args.policy).resolve())
                 if args.policy
-                else str(Path(f"gym/external_policies/{args.suite}.yaml").resolve())
+                else str(GYM / "external_policies" / f"{args.suite}.yaml")
                 if args.condition.startswith("tripwire-")
                 else None
             ),
             "policy_sha256": (
                 hashlib.sha256(
-                    Path(args.policy or f"gym/external_policies/{args.suite}.yaml").read_bytes()
+                    (
+                        Path(args.policy)
+                        if args.policy
+                        else GYM / "external_policies" / f"{args.suite}.yaml"
+                    ).read_bytes()
                 ).hexdigest()
                 if args.condition.startswith("tripwire-")
                 else None

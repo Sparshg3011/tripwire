@@ -30,6 +30,7 @@ from tripwire_benchmarks.heldout import (
     validate_results,
 )
 from tripwire_benchmarks.report import collect, paired_effects_overall, write_outputs
+from tripwire_gym.resources import GYM
 
 CONDITION = "transformers_pi_detector"
 TARGET_MODEL = "nvidia/nemotron-3-super-120b-a12b"
@@ -59,7 +60,7 @@ def _runtime_versions() -> dict[str, str]:
 
 
 def require_frozen_protocol(*, model: str, workers: int) -> dict[str, Any]:
-    protocol_path = Path(__file__).resolve().parents[2] / "gym" / "agentdojo-protectai-heldout.yaml"
+    protocol_path = GYM / "agentdojo-protectai-heldout.yaml"
     protocol = cast(
         dict[str, Any],
         yaml.safe_load(protocol_path.read_text(encoding="utf-8")),

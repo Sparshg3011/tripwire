@@ -113,6 +113,21 @@ a later stage.
 pip install tripwire-agent
 ```
 
+The base package includes the command-line firewall and a deterministic smoke
+benchmark. It needs Python 3.11 or newer and no model API key:
+
+```bash
+python -m tripwire_gym --agent scripted \
+  --scenario exfil-email-01 --scenario exfil-email-01-benign \
+  --conditions undefended,standard --out ./tripwire-smoke
+```
+
+The smoke test checks that the injected email action succeeds without the
+firewall, is refused under the standard policy, and its benign twin completes.
+Policies and scenarios are included in the installed package. Install
+`tripwire-agent[gym]` for live model benchmarks and plotting; the external
+AgentDojo adapter is available in `tripwire-agent[publication]`.
+
 ### 2. Start with a shadow policy
 
 Save this as `policy.yaml`. Shadow mode evaluates and logs every rule but blocks nothing, so you can

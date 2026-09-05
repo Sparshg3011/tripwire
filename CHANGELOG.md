@@ -10,6 +10,13 @@ refused to start.
 
 ## [Unreleased]
 
+### Fixed
+
+- Include benchmark scenarios, policies, and frozen protocols in the wheel so
+  installed benchmark commands work outside a repository checkout.
+- Exercise the installed wheel on Python 3.11, 3.12, and 3.13 before publishing,
+  and run the same CI and dependency audit for tags as for pull requests.
+
 ### Added
 
 - MCP proxy over stdio: tools are discovered upstream and re-advertised

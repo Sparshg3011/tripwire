@@ -17,6 +17,7 @@ import yaml
 
 from tripwire_benchmarks.agentdojo import _source_state
 from tripwire_benchmarks.report import collect, paired_effects_overall, write_outputs
+from tripwire_gym.resources import GYM
 
 BENCHMARK_VERSION = "v1.2.2"
 EXPECTED = {
@@ -101,7 +102,7 @@ def _authorize_transport_resume(
 
 
 def require_frozen_protocol(*, model: str, conditions: list[str], workers: int) -> None:
-    protocol_path = Path(__file__).resolve().parents[2] / "gym" / "agentdojo-heldout.yaml"
+    protocol_path = GYM / "agentdojo-heldout.yaml"
     protocol = yaml.safe_load(protocol_path.read_text(encoding="utf-8"))
     expected = protocol.get("expected", {})
     mismatches = []
@@ -358,7 +359,9 @@ def run(args: argparse.Namespace) -> None:
     require_frozen_protocol(model=args.model, conditions=conditions, workers=args.workers)
     plan = build_plan(args.shard_size)
     policies = {
-        suite: hashlib.sha256(Path(f"gym/external_policies/{suite}.yaml").read_bytes()).hexdigest()
+        suite: hashlib.sha256(
+            (GYM / "external_policies" / f"{suite}.yaml").read_bytes()
+        ).hexdigest()
         for suite in plan["suites"]
     }
     contract = {
