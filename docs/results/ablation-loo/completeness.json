@@ -1,0 +1,115 @@
+{
+  "batches": 4,
+  "cells": 12,
+  "checks": [
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "approve",
+      "condition": "standard",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "approve",
+      "condition": "loo-no-actions",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "approve",
+      "condition": "loo-no-constraints",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "approve",
+      "condition": "loo-no-flows",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "approve",
+      "condition": "loo-no-limits",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "approve",
+      "condition": "loo-no-sequences",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "deny",
+      "condition": "standard",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "deny",
+      "condition": "loo-no-actions",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "deny",
+      "condition": "loo-no-constraints",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "deny",
+      "condition": "loo-no-flows",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "deny",
+      "condition": "loo-no-limits",
+      "errors": 0,
+      "runs": 76
+    },
+    {
+      "attacks": 38,
+      "benign": 38,
+      "bracket": "deny",
+      "condition": "loo-no-sequences",
+      "errors": 0,
+      "runs": 76
+    }
+  ],
+  "complete": true,
+  "corpus_sha256": "9860ea2c4584b9725eefd07623257efc1bad4b10e9b992bd64be3a8f1f91d686",
+  "errors": 0,
+  "expected_runs": 912,
+  "observed_runs": 912,
+  "result_sha256": {
+    "approve/full": "5dd0ac7af2c9e0b30fff745bd85a11c4c854ed82c3d3e4bf1d767033a7018d9b",
+    "approve/leave-one-out": "1ad6d57432db5ea8df54a7e0d2e208fd429d9cf18094f01fc47f12f534488a38",
+    "deny/full": "f58f6a70ff2e5a23b733de7e353397a020b709acd3c997f2c9853ae20d28c120",
+    "deny/leave-one-out": "fc822257d2efa8a0e43ef1bd7f793c29afcec2629b673f25c1c68a2988070bab"
+  },
+  "schema_version": 1,
+  "source_commit": "effb26e594eea8befd89d4f00f32b88023f9f835"
+}

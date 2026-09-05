@@ -16,6 +16,8 @@ refused to start.
   installed benchmark commands work outside a repository checkout.
 - Exercise the installed wheel on Python 3.11, 3.12, and 3.13 before publishing,
   and run the same CI and dependency audit for tags as for pull requests.
+- Preserve all five leave-one-out policy conditions across both approval
+  brackets in the ablation runner.
 
 ### Added
 
@@ -40,5 +42,7 @@ refused to start.
   and 85 benign tasks per condition, clustered effect intervals,
   completeness and transport-resume receipts, and compact reproducibility
   artifacts.
+- Completed full-minus-one scripted ablation: 912 runs across six policies
+  and both approval brackets, with zero runner errors and compact evidence.
 
 [Unreleased]: https://github.com/Sparshg3011/tripwire/commits/main
