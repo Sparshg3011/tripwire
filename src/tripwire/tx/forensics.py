@@ -142,11 +142,12 @@ def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
 
 def _gate_note(kind: str, data: dict[str, Any]) -> str:
     if kind == "gate_requested":
-        return f"asked a human (timeout {data.get('timeout')}s)"
+        via = f" via {data['gate_type']}" if data.get("gate_type") else ""
+        return f"approval requested{via} (timeout {data.get('timeout')}s)"
     if kind == "gate_approved":
-        return "a human approved it"
+        return "the approval gate approved it"
     if kind == "gate_denied":
-        return "a human denied it"
+        return "the approval gate denied it"
     if kind == "gate_timeout":
         return f"nobody answered within {data.get('seconds')}s"
     if kind == "gate_error":
@@ -229,7 +230,7 @@ class Report:
     calls: int = 0
     allowed: int = 0
     blocked: int = 0
-    gated: int = 0  # calls sent to a human — not calls a human allowed
+    gated: int = 0  # calls requiring approval — not calls a gate allowed
     gate_approved: int = 0
     gate_refused: int = 0  # denied, timed out, errored, or no gate at all
     shadow_would_block: int = 0
@@ -261,8 +262,8 @@ def report(records: list[dict[str, Any]]) -> Report:
         if kind == "session_tainted":
             tainted.add(r.get("session", ""))
             continue
-        # A gate verdict says a human was asked; only these say what the
-        # human answered. Counting "sent to a human" as the outcome would
+        # A gate verdict requires approval; only these say how the gate
+        # answered. Counting "required approval" as the outcome would
         # report a refused call as though it went through.
         if kind == "gate_approved":
             rep.gate_approved += 1
@@ -300,7 +301,7 @@ def format_report(rep: Report) -> str:
         f"  allowed outright   {rep.allowed}",
         f"  blocked by policy  {rep.blocked}",
         (
-            f"  sent to a human    {rep.gated}"
+            f"  required approval  {rep.gated}"
             f"  (approved {rep.gate_approved}, refused {rep.gate_refused})"
         ),
     ]

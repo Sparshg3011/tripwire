@@ -23,7 +23,7 @@ jobs:
       - run: ruff format --check src tests scripts
       # strict typing where correctness is load-bearing; the rest of the
       # tree is checked by tests instead
-      - run: mypy --strict src/tripwire/policy src/tripwire/tx
+      - run: mypy --strict src/tripwire/policy src/tripwire/tx src/tripwire/gate/exact.py
       - run: pytest -q
 
       # The benchmark harness itself, on the scripted agent: no API key,

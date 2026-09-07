@@ -10,6 +10,7 @@ window. Refusing a call should never help the caller.
 
 from __future__ import annotations
 
+import secrets
 from collections.abc import Mapping
 from typing import Any
 
@@ -38,6 +39,9 @@ def _summed_fields(policy: Policy) -> dict[str, str]:
 class SessionState:
     def __init__(self, policy: Policy, taint: TaintTracker | None = None):
         self.policy = policy
+        # A capability is bound to this live session, not an audit label that
+        # an embedding application could accidentally reuse after a restart.
+        self.approval_scope = secrets.token_urlsafe(24)
         self.taint = taint if taint is not None else TaintTracker(policy)
         self.turn = 0
         self.broken: str | None = None

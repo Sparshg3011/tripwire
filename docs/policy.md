@@ -129,3 +129,8 @@ you have to type it out and mean it.
 Taint is deliberately blunt in v0.1 (session-wide, sticky, no
 declassification). The trade and its cost are discussed in the threat
 model; the benchmark measures the cost instead of hiding it.
+
+For trusted hosts that can authorize a complete action before a session,
+the experimental [exact pre-approval API](exact-approvals.md) can approve that
+one call without clearing taint or overriding hard blocks. It does not infer
+intent or remove the documented utility limitation for content-dependent tasks.

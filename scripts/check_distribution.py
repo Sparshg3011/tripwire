@@ -26,6 +26,7 @@ def main() -> None:
     with zipfile.ZipFile(wheels[0]) as archive:
         names = archive.namelist()
         check_members(names)
+        assert "tripwire/gate/exact.py" in names, "exact-approval API missing from wheel"
         scenarios = [
             name
             for name in names

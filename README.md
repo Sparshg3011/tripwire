@@ -405,6 +405,10 @@ session a1b2c3d4 — 4 call(s)
 The [production guide](docs/production.md) covers log rotation, redaction, exit codes, upgrade
 behavior, gate selection, and operational failure modes.
 
+For trusted host integrations, an experimental [exact pre-approval API](docs/exact-approvals.md)
+can authorize a complete known call once, without clearing session taint. It is library-only;
+it does not change the default CLI or establish improved AgentDojo completion.
+
 ---
 
 ## Project structure

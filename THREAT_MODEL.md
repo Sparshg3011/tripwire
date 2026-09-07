@@ -61,7 +61,7 @@ Named plainly, because a security tool that oversells is a hazard:
 result taints the session until it ends; nothing washes it off. This is
 the sound direction — it can over-block, never under-block — and the
 over-blocking is real: after one `fetch_url`, every flow-guarded tool
-needs a human for the rest of the session. The benchmark measures that
+needs approval for the rest of the session. The benchmark measures that
 cost as lost task completion instead of hiding it. Per-message taint
 and declassification are v0.2 design work, not v0.1 promises.
 
@@ -118,7 +118,7 @@ outcome — see "malicious upstream" above. The ledger also stores tool
 results unredacted; the db file deserves the same protection as the
 audit log.
 
-**The approval gate assumes the human reads.** Gate prompts show the
+**Interactive approval assumes the human reads.** Gate prompts show the
 tool, the exact arguments, the rule that fired, and the taint trail —
 context an approval box needs to be more than a click-yes box. It
 remains a human decision, and "make the human tired of saying yes" is a
@@ -127,6 +127,16 @@ real attack family the benchmark exercises. The web gate binds to
 submit forms to localhost from any page: without the token, injected
 content could steer the user's own browser into approving the
 attacker's call.
+
+**Exact pre-approvals trust the host's authorization, not the agent's plan.**
+The experimental library gate can spend a host-issued approval for one complete
+canonical call, once, in its bound live session before expiry. All covered tools
+must always require approval, so executing a call before taint also consumes the
+grant. It neither clears taint nor overrides policy blocks. Host code must not
+derive grants from attacker-controlled messages, let the agent issue them, or
+automatically replenish them on restart. Unknown/content-dependent arguments
+still require review; the API does not establish a general utility fix. See
+[the exact-approval contract](docs/exact-approvals.md).
 
 **Sessions are serialized.** One call at a time per session, including
 human think-time on gates. Parallel calls could otherwise race past

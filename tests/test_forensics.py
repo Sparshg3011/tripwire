@@ -165,14 +165,14 @@ def test_the_gate_conversation_lands_on_the_gated_call(log_path):
 
     first, gated = trace(read_records(log_path), "s1")
     assert first.notes == []
-    assert gated.notes == ["asked a human (timeout 120s)", "a human approved it"]
+    assert gated.notes == ["approval requested (timeout 120s)", "the approval gate approved it"]
     assert gated.outcome == "ok"
 
 
 @pytest.mark.parametrize(
     "event, note",
     [
-        (("gate_denied", {"tool": "send_email"}), "a human denied it"),
+        (("gate_denied", {"tool": "send_email"}), "the approval gate denied it"),
         (("gate_timeout", {"tool": "send_email", "seconds": 30}), "nobody answered within 30s"),
         (("gate_unavailable", {"tool": "send_email"}), "no gate was configured, so it was refused"),
     ],
@@ -492,9 +492,9 @@ def test_format_report_renders_every_nonzero_number(log_path):
     assert "7 call(s) across 1 session(s)" in squeezed
     assert "allowed outright 3" in squeezed
     assert "blocked by policy 2" in squeezed
-    # a gate verdict says a human was asked; the gate_* record says what
+    # a gate verdict requires approval; the gate_* record says what
     # they answered, and the report has to show both
-    assert "sent to a human 1 (approved 0, refused 1)" in squeezed
+    assert "required approval 1 (approved 0, refused 1)" in squeezed
     assert "shadow mode) 1" in squeezed
     assert "untrusted content 1" in squeezed
     assert "2 tools.delete_file" in squeezed

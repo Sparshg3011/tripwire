@@ -21,6 +21,11 @@ refused to start.
 
 ### Added
 
+- Experimental library-only exact pre-approvals: host-authorized full calls,
+  one use, live-session binding, expiry, and revocation; no default-policy
+  relaxation and no claim of improved AgentDojo utility yet.
+- Reproducible paired benign-utility diagnosis, separating 40 regressions and
+  one improvement from the net loss of 39 tasks.
 - MCP proxy over stdio: tools are discovered upstream and re-advertised
   unchanged, so agents see the same toolbox
 - Policy language v1: per-tool actions, argument constraints,
