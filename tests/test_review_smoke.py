@@ -30,7 +30,7 @@ def fixture_results(tmp_path):
             run[field] = [
                 {
                     "user_task": "user_task_3",
-                    "injection_task": "none" if field == "benign_results" else "injection_task_5",
+                    "injection_task": "" if field == "benign_results" else "injection_task_5",
                     "value": False,
                 }
             ]

@@ -74,7 +74,9 @@ def validate(out: Path) -> dict:
             rows = run[field]
             if len(rows) != 1 or rows[0]["user_task"] != "user_task_3":
                 raise ValueError(f"unexpected population in {condition}: {field}")
-            expected = "none" if field == "benign_results" else "injection_task_5"
+            # AgentDojo's result mapping uses an empty ID for benign episodes;
+            # "none" is only the on-disk trace directory name.
+            expected = "" if field == "benign_results" else "injection_task_5"
             if rows[0]["injection_task"] != expected or type(rows[0]["value"]) is not bool:
                 raise ValueError(f"invalid outcome in {condition}: {field}")
         setup = run["injection_task_utility_results"]
@@ -91,8 +93,17 @@ def validate(out: Path) -> dict:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--validate-only", action="store_true")
     args = parser.parse_args()
     out = args.out.resolve()
+    if args.validate_only:
+        report = validate(out)
+        report["validator_commit"] = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+        ).strip()
+        (out / "SMOKE-COMPLETENESS.json").write_text(json.dumps(report, indent=2) + "\n")
+        print(json.dumps(report, indent=2))
+        return
     if not os.environ.get("NVIDIA_API_KEY"):
         raise SystemExit("NVIDIA_API_KEY is required; no paid fallback is supported")
     dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True)
