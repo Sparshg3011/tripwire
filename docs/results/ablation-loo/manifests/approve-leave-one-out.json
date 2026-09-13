@@ -1,0 +1,383 @@
+{
+  "benchmark": "tripwire-gym",
+  "corpus": {
+    "files": [
+      {
+        "path": "gym/scenarios/destruct-cleanup-01-benign.yaml",
+        "sha256": "bf6e88856192e2152f5a5935336a37a61bf290066e8323430a061e676f614ba4"
+      },
+      {
+        "path": "gym/scenarios/destruct-cleanup-01.yaml",
+        "sha256": "4ceb4ab84c63009e49bc93668ef72dbaec3767cba630146c51d6a2f1056b99ea"
+      },
+      {
+        "path": "gym/scenarios/destruct-config-02-benign.yaml",
+        "sha256": "632809251ed64661cf5f80ae226823dd41143d2ed20c3e5f7c2e69f335e50c98"
+      },
+      {
+        "path": "gym/scenarios/destruct-config-02.yaml",
+        "sha256": "65d90f16300a1fc8e098a33f94e1b9b783eed622aa874e0bcb1b8bd591a3cbcb"
+      },
+      {
+        "path": "gym/scenarios/destruct-index-purge-01-benign.yaml",
+        "sha256": "8dd4eac18b764dfb766dadfcecbb0149e0f9cec82413ee70b8e9aa55ccd05eb6"
+      },
+      {
+        "path": "gym/scenarios/destruct-index-purge-01.yaml",
+        "sha256": "7a499e0459bbb446ec93156f19a77a2acc8111c82c22046e35c96cff6e6224b0"
+      },
+      {
+        "path": "gym/scenarios/destruct-settlement-path-01-benign.yaml",
+        "sha256": "9fb64d227eb74782a7e3415385e8b2cb55e452dd99210ad37470cfa257c2aa60"
+      },
+      {
+        "path": "gym/scenarios/destruct-settlement-path-01.yaml",
+        "sha256": "fb094b1619eea4b75600d6ca728d9617b69c7ee3ab847d787239b2dd2117cdd0"
+      },
+      {
+        "path": "gym/scenarios/destruct-workspace-03-benign.yaml",
+        "sha256": "ec4fd080f69b5d526d5fefbb13cdef7ad29d0f519f8ecae238897212edd81a5c"
+      },
+      {
+        "path": "gym/scenarios/destruct-workspace-03.yaml",
+        "sha256": "72dc9d844077aa5a1e2bfcb33a04d42a79048e039989fac6c56d1e62a2e1029e"
+      },
+      {
+        "path": "gym/scenarios/exfil-alias-bridge-01-benign.yaml",
+        "sha256": "6d2937103e58177beaf4211080d0bc6a4800b00566c0be7791d8da9f5b3240f7"
+      },
+      {
+        "path": "gym/scenarios/exfil-alias-bridge-01.yaml",
+        "sha256": "e6832931fb3b1257e85d54ba4065d2d62ff2fcbe85e28c4980b23750283df22d"
+      },
+      {
+        "path": "gym/scenarios/exfil-calendar-01-benign.yaml",
+        "sha256": "cb190daa4cebc915f9a4f0f4d4d31ff0d83f7c9eb47567be9b1308f053d3d24a"
+      },
+      {
+        "path": "gym/scenarios/exfil-calendar-01.yaml",
+        "sha256": "158adfb88a2ac992a4717c9d9e0e73163c0db14c2fa74c05e512615737fe43fc"
+      },
+      {
+        "path": "gym/scenarios/exfil-email-01-benign.yaml",
+        "sha256": "6ffc0c8b8038368e93f7905222ede71eade9ec5dabcb8af3cc508f0e4647721a"
+      },
+      {
+        "path": "gym/scenarios/exfil-email-01.yaml",
+        "sha256": "223b3ebcac8f37fdc6515dcc4821e81cecff6f534735c65e145f4f1e619e52c3"
+      },
+      {
+        "path": "gym/scenarios/exfil-pathdata-01-benign.yaml",
+        "sha256": "bcbd4602a5dda53c5ea3bb610b18efa128773bd86ca92570bc6405b2a21424f4"
+      },
+      {
+        "path": "gym/scenarios/exfil-pathdata-01.yaml",
+        "sha256": "485e8453849c352c1f05b76c2ae4dd7affa68c7d7d93e938a0e0da881ae28cd5"
+      },
+      {
+        "path": "gym/scenarios/exfil-publicdir-01-benign.yaml",
+        "sha256": "8f4fd6c8346bf997d54a1933588c179c5bd9ec5d64dc5c40c22fb64f069dc157"
+      },
+      {
+        "path": "gym/scenarios/exfil-publicdir-01.yaml",
+        "sha256": "52d48d5dd8e03a0ef642cb6c49c5163484389f5131613b6dac61daf666c5da79"
+      },
+      {
+        "path": "gym/scenarios/exfil-ticket-01-benign.yaml",
+        "sha256": "187e5c258405c49d8ae3f6c4ffc9390170342d4a7df7599e0438a2285a252334"
+      },
+      {
+        "path": "gym/scenarios/exfil-ticket-01.yaml",
+        "sha256": "680699316ec1c95ff9ee19d344596cc968e3e74886aad822f03ef0fa58256eb2"
+      },
+      {
+        "path": "gym/scenarios/exfil-webhook-01-benign.yaml",
+        "sha256": "282fe24bb17c2373b4535a411bab89907bbccf23716e2df66a9214b49c0fbaf5"
+      },
+      {
+        "path": "gym/scenarios/exfil-webhook-01.yaml",
+        "sha256": "247e7f2bedf48d019c11afe837154cab4fb476a6c2744da2b4c59a5641af14e8"
+      },
+      {
+        "path": "gym/scenarios/gate-invoice-01-benign.yaml",
+        "sha256": "c331ad92feb59170134e9c4f872cedad3a1df9d97c27bf6d40763fcb7ae393d0"
+      },
+      {
+        "path": "gym/scenarios/gate-invoice-01.yaml",
+        "sha256": "337b29479148cd36d9924beac34aa43418b776e99be37879adcdbc591053d35d"
+      },
+      {
+        "path": "gym/scenarios/gate-refund-01-benign.yaml",
+        "sha256": "4b46bcbc82dcc221d80948acdce9108f2d0591d3274b31ea1acffd3fde71877b"
+      },
+      {
+        "path": "gym/scenarios/gate-refund-01.yaml",
+        "sha256": "2224d4e9091d5b4cb9b39a8e5b7a2c166d57baf157cb0018074d5dc01bd0ec8c"
+      },
+      {
+        "path": "gym/scenarios/gate-webhook-01-benign.yaml",
+        "sha256": "fd3110892435c94ca2346a5dd7a2e7255211ef0bed38d7ae402e9c11079571bc"
+      },
+      {
+        "path": "gym/scenarios/gate-webhook-01.yaml",
+        "sha256": "e58451982cb4495761b4fe61896b474632b279ceb9279fa3f6610d3ba989ab22"
+      },
+      {
+        "path": "gym/scenarios/multi-alias-01-benign.yaml",
+        "sha256": "0e566a999b1e0c2fa12d69faf58b90069b66c6ee9a66cd14ceae6d3f680f6c7f"
+      },
+      {
+        "path": "gym/scenarios/multi-alias-01.yaml",
+        "sha256": "2ce11350fe98f8daaa02f1ecf7c46780a51ba17867134453541ebf38ef8d107a"
+      },
+      {
+        "path": "gym/scenarios/multi-cron-01-benign.yaml",
+        "sha256": "e0d57bae3dd9ece7337b5d1ad3919c85527e9bd67ea6d011eb96f3a41c38101e"
+      },
+      {
+        "path": "gym/scenarios/multi-cron-01.yaml",
+        "sha256": "def55655237110ceffa4f69ab4704d4a88b02360e6b5cf8d417b8d96e0905e34"
+      },
+      {
+        "path": "gym/scenarios/multi-grant-01-benign.yaml",
+        "sha256": "9633fcf3dcafffdbe252a0025fa2ce4a36f6559b62cb86d066d87276f5496793"
+      },
+      {
+        "path": "gym/scenarios/multi-grant-01.yaml",
+        "sha256": "68ade890b7e4322b8c7096050a4948e90ee99dbcacdd5f5c5b0615703d1ef409"
+      },
+      {
+        "path": "gym/scenarios/multi-partner-01-benign.yaml",
+        "sha256": "09ff89cf5295973677b7a4235fd7d6a30373d40f917584cdf195ebc8812c72fd"
+      },
+      {
+        "path": "gym/scenarios/multi-partner-01.yaml",
+        "sha256": "76ae8cb33753c7fe5bd997f36969af40b8203792304b56b76439221ac5d937fc"
+      },
+      {
+        "path": "gym/scenarios/multi-refund-01-benign.yaml",
+        "sha256": "3b04a811767e31d39f62da602a5827deea7af8e0801abd162b5804b7f6ce14f2"
+      },
+      {
+        "path": "gym/scenarios/multi-refund-01.yaml",
+        "sha256": "ca296f6c368a92b9e2fa62079fdbed8c6a29e7426795aa8352c86ff998d87d1f"
+      },
+      {
+        "path": "gym/scenarios/multi-relay-01-benign.yaml",
+        "sha256": "c2754ba432f4485c2a2dbcf91623a3917a9e55c266e5203fbfbb8e049ae23d09"
+      },
+      {
+        "path": "gym/scenarios/multi-relay-01.yaml",
+        "sha256": "9baa30434d38eb2aa04a90d064cd0911e5ca806b51a1acb639448b80012b315f"
+      },
+      {
+        "path": "gym/scenarios/probe-bom-recipient-01-benign.yaml",
+        "sha256": "1696eff7eac413633acb398d5bbd5ef7c04dc25a6bf2ab7ae84d405ffd2b15c4"
+      },
+      {
+        "path": "gym/scenarios/probe-bom-recipient-01.yaml",
+        "sha256": "883bf78ca7dc207450dd207fc7ae9e44cd60a28050ab0c20843d5da88292a329"
+      },
+      {
+        "path": "gym/scenarios/probe-fullwidth-at-01-benign.yaml",
+        "sha256": "cd2b3ce7954d7b4b7bf990aa5ac692775e2e5aef0fd67de11a643a0359984861"
+      },
+      {
+        "path": "gym/scenarios/probe-fullwidth-at-01.yaml",
+        "sha256": "b4f6bec9496f24e0b9da675616957fc4013690561fcefeb4664e5cc6f9960164"
+      },
+      {
+        "path": "gym/scenarios/probe-fullwidth-path-01-benign.yaml",
+        "sha256": "d5e565c4e10e46255481e138f6343bc9899f114bd4b00836b02bc60e87a05cdb"
+      },
+      {
+        "path": "gym/scenarios/probe-fullwidth-path-01.yaml",
+        "sha256": "df3c370f5a71143f2649d2d8b4d2b43057cc2b0afb15c015e8703aeffd09fbd3"
+      },
+      {
+        "path": "gym/scenarios/probe-padded-amount-01-benign.yaml",
+        "sha256": "374333ea8a2d22b87f23f7318629c21ec7c5b2ec078df72deb9dab43684bfeda"
+      },
+      {
+        "path": "gym/scenarios/probe-padded-amount-01.yaml",
+        "sha256": "9c6d3a08c6db59cd9161060c771c1add28bc82fd26af0a2549c9bdea5cdf8b56"
+      },
+      {
+        "path": "gym/scenarios/probe-refund-scinot-01-benign.yaml",
+        "sha256": "feb9058d95d7762e84549b26a74feb598aa443f47e0f61a2d5df70100b6ea04e"
+      },
+      {
+        "path": "gym/scenarios/probe-refund-scinot-01.yaml",
+        "sha256": "36473266344ad68b55c91e5d6cb33d051f40e14266b8edce8d771315de4ad40a"
+      },
+      {
+        "path": "gym/scenarios/probe-zwsp-host-01-benign.yaml",
+        "sha256": "2f97912008db058b80fae20cea3d0bc469d0b6254618a9a5f786e28af93d738c"
+      },
+      {
+        "path": "gym/scenarios/probe-zwsp-host-01.yaml",
+        "sha256": "b6fe66de472f38525c0eccf525885e77cd23ee5689b86225f0144c20dce2bd33"
+      },
+      {
+        "path": "gym/scenarios/redirect-body-01-benign.yaml",
+        "sha256": "4e83ab8622c7ffe9e3d304568bb87f4ca156cc4adcd9361de62fa6d96e07956b"
+      },
+      {
+        "path": "gym/scenarios/redirect-body-01.yaml",
+        "sha256": "75635798b630d34b09aa0d5d675c90bd3b779cd4978c9b0085f5e3f0fd988ac7"
+      },
+      {
+        "path": "gym/scenarios/redirect-path-01-benign.yaml",
+        "sha256": "d3d844f8b2e07057868824d3e63e05bebb2be1a4e4a78ad20cd108e81569d6ad"
+      },
+      {
+        "path": "gym/scenarios/redirect-path-01.yaml",
+        "sha256": "8eb4909399d3d8cee8c5bd3d09ad0a6987c5798179b8f17410b754c523830e29"
+      },
+      {
+        "path": "gym/scenarios/redirect-refund-03-benign.yaml",
+        "sha256": "dc9bd67eb796d970049b56cbab72b767aa6de49f08c487e78ba54669ad30860b"
+      },
+      {
+        "path": "gym/scenarios/redirect-refund-03.yaml",
+        "sha256": "cef1b3b06a4e95180a8a4cb7c172f7cbc14b9bbd71c64108c7affc0da36d72a0"
+      },
+      {
+        "path": "gym/scenarios/redirect-render-02-benign.yaml",
+        "sha256": "5414d124d84dbe958e0fde6e5ea87459c9e4435536dbf96d278a4d61861aecb0"
+      },
+      {
+        "path": "gym/scenarios/redirect-render-02.yaml",
+        "sha256": "b4457ecbba222087d68a3525cd2e921f4ac59c6388ce30083f720051766a32df"
+      },
+      {
+        "path": "gym/scenarios/redirect-reply-01-benign.yaml",
+        "sha256": "34915eb1d8a7c3a59b918a22d445c218665944327973c08ce41ef6b497575ec1"
+      },
+      {
+        "path": "gym/scenarios/redirect-reply-01.yaml",
+        "sha256": "b23dad0ebe0482d7c1e174413f1b823df91ef735e20797ad84a5c3142815073a"
+      },
+      {
+        "path": "gym/scenarios/unauth-calendar-post-01-benign.yaml",
+        "sha256": "5f27f414da7a615f4870a07f8d088adf08f5a2c0eb198656e0ce6caea7115c8f"
+      },
+      {
+        "path": "gym/scenarios/unauth-calendar-post-01.yaml",
+        "sha256": "09fc7ca812d8d53e134705ccff244fd4240802424fe6d726a33258950e33e9c1"
+      },
+      {
+        "path": "gym/scenarios/unauth-email-internal-01-benign.yaml",
+        "sha256": "82e8d1e05d472e1c10bf50c6f919dbb46595dfea5b5f530474026ac0c93c70d7"
+      },
+      {
+        "path": "gym/scenarios/unauth-email-internal-01.yaml",
+        "sha256": "93100b11ea5a2e8f53ccab45ee6459ec68985fafbb31291db322fb981189971a"
+      },
+      {
+        "path": "gym/scenarios/unauth-flag-write-01-benign.yaml",
+        "sha256": "a1db9e4ed1fefff7fc7c1db63a0ad67072ad04b673e7ce0ac035dedf64903d23"
+      },
+      {
+        "path": "gym/scenarios/unauth-flag-write-01.yaml",
+        "sha256": "0458028cefa588f7eba058336e3cda88b27c2ef4e32473bd715bcd8dfdf00775"
+      },
+      {
+        "path": "gym/scenarios/unauth-post-log-01-benign.yaml",
+        "sha256": "4ad44314b2f8c573cc576fb6fbbe9adaa20aeebd209be51f453c8fb8c6f4b151"
+      },
+      {
+        "path": "gym/scenarios/unauth-post-log-01.yaml",
+        "sha256": "b19c84be303e69203e6dbe076ddd0ab30118ce963328a617931c717f75adf3f6"
+      },
+      {
+        "path": "gym/scenarios/unauth-refund-batch-01-benign.yaml",
+        "sha256": "9feb10c91dff16d610f1015cebeadd24b404f94437d8456ed462485c7594bbf3"
+      },
+      {
+        "path": "gym/scenarios/unauth-refund-batch-01.yaml",
+        "sha256": "36688898a871431de60f2bbbd6c530968aea22766beda5aed69b9463711f0e75"
+      },
+      {
+        "path": "gym/scenarios/unauth-refund-cap-01-benign.yaml",
+        "sha256": "1f12b963f24fced4cd40aee1a2d431aa95b7bee71aeb1f2f7e960352a599cc84"
+      },
+      {
+        "path": "gym/scenarios/unauth-refund-cap-01.yaml",
+        "sha256": "da2d48d8fc42b1b189d1502462c6f1b98c0f383146399bba176c270db137086a"
+      }
+    ],
+    "sha256": "9860ea2c4584b9725eefd07623257efc1bad4b10e9b992bd64be3a8f1f91d686"
+  },
+  "created_at": "2026-09-05T03:41:04.622470+00:00",
+  "environment": {
+    "packages": {
+      "agentdojo": "0.1.35",
+      "anthropic": "0.122.0",
+      "mcp": "1.29.0",
+      "openai": "3.0.0",
+      "pydantic": "2.13.4",
+      "tripwire-agent": "0.1.0"
+    },
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.8"
+  },
+  "policies": {
+    "files": [
+      {
+        "path": "/Users/sparshgupta/projects/ai-portfolio/tripwire/gym/results/ablation-loo-package-release/generated-policies/loo-no-actions.yaml",
+        "sha256": "7a8a86eb497e993ed5a2bd0d6d95b5fcfcb84e89b5ca850f70239dc0c883db21"
+      },
+      {
+        "path": "/Users/sparshgupta/projects/ai-portfolio/tripwire/gym/results/ablation-loo-package-release/generated-policies/loo-no-constraints.yaml",
+        "sha256": "de130ad500df3c3717bb3081aaf6f1ba0535cdbdb81cd6647d0b7487c515c51e"
+      },
+      {
+        "path": "/Users/sparshgupta/projects/ai-portfolio/tripwire/gym/results/ablation-loo-package-release/generated-policies/loo-no-flows.yaml",
+        "sha256": "5b19a29d9acf207efdfedf320fec75daf3ab34de212c0a8a600d32f45d47690a"
+      },
+      {
+        "path": "/Users/sparshgupta/projects/ai-portfolio/tripwire/gym/results/ablation-loo-package-release/generated-policies/loo-no-limits.yaml",
+        "sha256": "bae0a598db3f2f2a368a5c375a110158573ccb6bf4df2ba72dad9f7894ac40f3"
+      },
+      {
+        "path": "/Users/sparshgupta/projects/ai-portfolio/tripwire/gym/results/ablation-loo-package-release/generated-policies/loo-no-sequences.yaml",
+        "sha256": "5eef7ade4969feb6feeb33ba36390aa6337af25e7a4c888ee50e422aa2c1a719"
+      }
+    ],
+    "sha256": "e3843226150c5c78203a665f9e193c7692771e8f0cf405354661b856835d7df5"
+  },
+  "results": {
+    "completion_tokens": 0,
+    "errored_runs": 0,
+    "model_calls": 0,
+    "model_seconds_sum": 0.0,
+    "prompt_tokens": 0,
+    "runs": 380,
+    "sha256": "1ad6d57432db5ea8df54a7e0d2e208fd429d9cf18094f01fc47f12f534488a38",
+    "wall_seconds_sum": 445.84977000020444
+  },
+  "run_id": "eb5fcf534beb2a8b",
+  "schema_version": 1,
+  "settings": {
+    "agent": "scripted",
+    "api_seed": false,
+    "base_url": null,
+    "concurrency": 1,
+    "conditions": "loo-no-actions,loo-no-constraints,loo-no-limits,loo-no-sequences,loo-no-flows",
+    "disable_thinking": false,
+    "human": "approve",
+    "max_tokens": 2048,
+    "model": null,
+    "prompt_profile": "plain",
+    "runs": 1,
+    "scenario": [],
+    "shuffle_seed": 17229,
+    "temperature": 0.0,
+    "timeout": 900.0
+  },
+  "source": {
+    "git_commit": "effb26e594eea8befd89d4f00f32b88023f9f835",
+    "git_dirty": false
+  }
+}

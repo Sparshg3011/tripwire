@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> None:
             "model, where a run is mostly waiting on the API"
         ),
     )
-    parser.add_argument("--out", default=str(GYM / "results"), help="where the artefacts go")
+    parser.add_argument("--out", default="gym-results", help="where the artefacts go")
     parser.add_argument("--policy-dir", default=str(GYM / "policies"), help="policy tier yaml")
     parser.add_argument(
         "--agent",

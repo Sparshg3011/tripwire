@@ -1,75 +1,67 @@
-# Which layer actually does the work
+# Full-minus-one policy ablation
 
-> This is the older cumulative, order-dependent ablation. It shows whether each
-> growing partial stack is sufficient, but its “marginal” columns depend on the
-> order chosen. The publication ablation is full-minus-one and runs with
-> `./gym/run_ablation_loo.sh`; see [benchmarking.md](benchmarking.md).
+Status: complete scripted experiment, 912 runs, zero runner errors.
 
-`standard` stacks five mechanisms and reports one number. This takes them
-away one at a time to find out what each is worth.
+This experiment asks how the full policy changes when exactly one of its five
+mechanisms is removed. It covers 38 attacks and their 38 benign twins under
+the full policy and five reduced policies, with every approval either granted
+or denied. That is 76 scenarios × 6 policies × 2 approval brackets = 912 runs.
 
-Run with the scripted agent, 38 attacks, both human brackets:
+The scripted agent executes fixed attempts. These results measure the policy's
+mechanisms on the authored corpus; they do not estimate a model's adaptability
+or real human approval behavior. The separate
+[AgentDojo held-out experiment](agentdojo-heldout-results.md) evaluates a live
+model on external tasks.
+
+## Results
+
+Attack success is lower-is-better; benign completion is higher-is-better.
+Every denominator below is 38. Each cell ran once with no model API calls.
+
+| Policy | Attack successes: approve all | Attack successes: deny all | Benign completions: approve all | Benign completions: deny all |
+|:--|--:|--:|--:|--:|
+| Full standard policy | 11 (28.9%) | 0 (0.0%) | 20 (52.6%) | 3 (7.9%) |
+| Without tool actions | 12 (31.6%) | 1 (2.6%) | 20 (52.6%) | 3 (7.9%) |
+| Without argument constraints | 28 (73.7%) | 1 (2.6%) | 31 (81.6%) | 6 (15.8%) |
+| Without budgets | 12 (31.6%) | 0 (0.0%) | 20 (52.6%) | 3 (7.9%) |
+| Without sequence rules | 11 (28.9%) | 0 (0.0%) | 20 (52.6%) | 3 (7.9%) |
+| Without information-flow rules | 11 (28.9%) | 11 (28.9%) | 20 (52.6%) | 20 (52.6%) |
+
+Removing argument constraints has the largest measured effect when every
+approval is granted: 17 additional attacks succeed, a 44.7-point increase,
+while 11 additional benign tasks complete, a 28.9-point increase. Tool actions
+and budgets each prevent one additional attack in that bracket. Removing
+sequence rules produces no net change on this corpus, which does not establish
+that sequence rules are unnecessary for other attacks.
+
+When every approval is denied, removing information-flow rules raises attack
+success from 0 to 11 and benign completion from 3 to 20. The extra protection
+therefore depends on denied approvals and has a substantial utility cost.
+Neither approval bracket is an estimate of how a person would respond.
+
+These differences are conditional on the remaining mechanisms. They are not
+additive contributions and should not be summed into an overall score. In
+particular, removing constraints also removes the numeric-string
+canonicalization that those constraints enable.
+
+## Reproduce and audit
+
+From a source checkout with the development dependencies installed:
 
 ```bash
-./gym/run_ablation.sh
+./gym/run_ablation_loo.sh scripted 1 '' 1 gym/results/ablation-loo
+.venv/bin/python -m tripwire_gym.publication \
+  --root gym/results/ablation-loo --out gym/results/ablation-loo/summary
+.venv/bin/python scripts/validate_ablation.py gym/results/ablation-loo
 ```
 
-| layer added | attacks stopped | marginal | benign completion |
-|---|---|---|---|
-| nothing | 0% (0/38) | — | 100% |
-| + tool actions | 3% (1/38) | +2.6 pts | 100% |
-| **+ argument constraints** | **68% (26/38)** | **+65.8 pts** | 53% |
-| + budgets | 71% (27/38) | +2.6 pts | 53% |
-| + sequence rules | 71% (27/38) | **+0.0 pts** | 53% |
-| + information flow (human approves) | 71% (27/38) | +0.0 pts | 53% |
-| + information flow (human denies) | 100% (38/38) | +28.9 pts | 8% |
+The [compact artifact](results/ablation-loo/README.md) includes metrics,
+manifests, a completeness receipt, and hashes. Its four manifests record the
+same clean source commit and corpus. The raw episode files remain local.
+Descriptive Wilson intervals are available in the generated report; this
+fixed, authored corpus does not support a claim of population-wide statistical
+significance.
 
-## Three things worth saying out loud
-
-**Boring allowlists do almost all of it.** Argument constraints alone
-account for 66 of the 71 points — recipient allowlists, host allowlists,
-a path prefix, a numeric bound. Not the taint tracker, not the sequence
-engine. If you only ever write one thing in a policy, write the
-constraints.
-
-**The sequence rules earn nothing.** Zero attacks, in either bracket.
-Two rules that fire on no scenario in the corpus. That's either a
-feature that doesn't pay for itself or a corpus that doesn't test it
-properly, and I currently can't tell you which — every attack that
-*could* have tripped a sequence rule was already stopped a stage
-earlier by a constraint. Keeping it in the policy language is defensible
-(order-of-operations attacks are real); claiming it contributes to the
-71% is not.
-
-**The information-flow layer's entire value is the human.** With a
-maximally cooperative human it contributes exactly nothing: +0.0 points.
-With a maximally cautious one it contributes +28.9 and takes benign
-completion from 53% to 8%. So the taint-and-gate machinery — the most
-architecturally interesting part of tripwire — buys you nothing on its
-own. It buys you a *place to put a human*, and everything it's worth
-depends on what that human does.
-
-## What this changes about how to read the headline
-
-The published "standard stops 71%" is, more precisely: allowlists stop
-68%, budgets add 3%, and the flow layer adds between 0 and 29 more
-depending entirely on who is answering the gate.
-
-That's a less impressive sentence and a more useful one.
-
-## Caveats
-
-The ablation uses the scripted agent on purpose. The question is what
-the *firewall* contributes, so the agent has to be held still — a model
-that improvises around a refusal moves both axes and the deltas stop
-being attributable to the layer that was just added. The absolute
-utility numbers here are therefore the pessimistic floor described in
-[gym.md](gym.md), and only the *differences between rows* are the
-result.
-
-One measurement wrinkle: removing the constraint layer also removes the
-numeric-string canonicalization it switches on, because rule C5 only
-applies to fields a policy constrains as numbers. Read the constraints
-row as "constraints plus the canonicalization they enable", which is
-what you would actually be turning off. Details in
-[../gym/ablations/README.md](../gym/ablations/README.md).
+The earlier cumulative ablation remains reproducible with
+`gym/run_ablation.sh`. Its incremental effects depend on the order in which
+mechanisms are added and differ from the full-minus-one effects above.

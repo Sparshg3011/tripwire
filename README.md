@@ -113,6 +113,21 @@ a later stage.
 pip install tripwire-agent
 ```
 
+The base package includes the command-line firewall and a deterministic smoke
+benchmark. It needs Python 3.11 or newer and no model API key:
+
+```bash
+python -m tripwire_gym --agent scripted \
+  --scenario exfil-email-01 --scenario exfil-email-01-benign \
+  --conditions undefended,standard --out ./tripwire-smoke
+```
+
+The smoke test checks that the injected email action succeeds without the
+firewall, is refused under the standard policy, and its benign twin completes.
+Policies and scenarios are included in the installed package. Install
+`tripwire-agent[gym]` for live model benchmarks and plotting; the external
+AgentDojo adapter is available in `tripwire-agent[publication]`.
+
 ### 2. Start with a shadow policy
 
 Save this as `policy.yaml`. Shadow mode evaluates and logs every rule but blocks nothing, so you can
@@ -295,6 +310,16 @@ Slack retained 32.2% attack success while benign utility fell from 100% to 22.2%
 Read the [full result, suite breakdown, provenance and limitations](docs/agentdojo-heldout-results.md)
 or inspect the [compact machine-readable artifact](docs/results/agentdojo-heldout/README.md).
 
+### Completed mechanism ablation
+
+The full-minus-one scripted ablation covers 912 unique episodes: 38 attacks
+and 38 benign twins, six policies, and both approval brackets. All cases
+completed with zero runner errors. Removing argument constraints raises
+approve-all attack success from 11/38 to 28/38, while benign completion rises
+from 20/38 to 31/38. These are controlled mechanism results on an authored
+corpus, not estimates of model or human performance. See the
+[full results and validation receipt](docs/ablation.md).
+
 ### Exploratory adversarial gym
 
 The original internal gym contains 38 attacks across seven families, each paired with a benign twin
@@ -379,6 +404,10 @@ session a1b2c3d4 — 4 call(s)
 
 The [production guide](docs/production.md) covers log rotation, redaction, exit codes, upgrade
 behavior, gate selection, and operational failure modes.
+
+For trusted host integrations, an experimental [exact pre-approval API](docs/exact-approvals.md)
+can authorize a complete known call once, without clearing session taint. It is library-only;
+it does not change the default CLI or establish improved AgentDojo completion.
 
 ---
 

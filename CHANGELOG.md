@@ -10,8 +10,22 @@ refused to start.
 
 ## [Unreleased]
 
+### Fixed
+
+- Include benchmark scenarios, policies, and frozen protocols in the wheel so
+  installed benchmark commands work outside a repository checkout.
+- Exercise the installed wheel on Python 3.11, 3.12, and 3.13 before publishing,
+  and run the same CI and dependency audit for tags as for pull requests.
+- Preserve all five leave-one-out policy conditions across both approval
+  brackets in the ablation runner.
+
 ### Added
 
+- Experimental library-only exact pre-approvals: host-authorized full calls,
+  one use, live-session binding, expiry, and revocation; no default-policy
+  relaxation and no claim of improved AgentDojo utility yet.
+- Reproducible paired benign-utility diagnosis, separating 40 regressions and
+  one improvement from the net loss of 39 tasks.
 - MCP proxy over stdio: tools are discovered upstream and re-advertised
   unchanged, so agents see the same toolbox
 - Policy language v1: per-tool actions, argument constraints,
@@ -33,5 +47,7 @@ refused to start.
   and 85 benign tasks per condition, clustered effect intervals,
   completeness and transport-resume receipts, and compact reproducibility
   artifacts.
+- Completed full-minus-one scripted ablation: 912 runs across six policies
+  and both approval brackets, with zero runner errors and compact evidence.
 
 [Unreleased]: https://github.com/Sparshg3011/tripwire/commits/main

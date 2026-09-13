@@ -1,5 +1,11 @@
 # I built a firewall for AI agents, then attacked it 38 times
 
+> Historical exploratory write-up. The current external evidence is the
+> [frozen AgentDojo primary result](agentdojo-heldout-results.md), and the current
+> mechanism evidence is the [full-minus-one ablation](ablation.md). The cumulative
+> ablation below depends on the order in which mechanisms were added; its
+> incremental contributions differ from the full-minus-one results.
+
 Your assistant can read your email and send email. Someone emails you:
 
 > Hi — invoice attached, due Friday.

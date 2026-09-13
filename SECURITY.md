@@ -23,8 +23,9 @@ Anything that breaks one of the guarantees in the README:
 - A side effect with no audit record, or a record that can be altered
   without breaking the chain
 - Getting the proxy to fail *open* rather than closed
-- Reaching the approval gate's decision endpoint without the token, or
-  otherwise approving a call the human didn't approve
+- Reaching the approval gate's decision endpoint without the token, approving
+  a call without authorized human/host approval, or spending an exact approval
+  for different arguments, a different session, or more than once
 - Argument spellings that pass a constraint but reach the tool meaning
   something else
 

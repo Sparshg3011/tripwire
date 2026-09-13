@@ -1,5 +1,11 @@
 # Benchmark results
 
+> These are the original exploratory live-model Gym results. For the current
+> external evaluation, see the [frozen AgentDojo primary result](docs/agentdojo-heldout-results.md).
+> The [completed full-minus-one ablation](docs/ablation.md) reports separate
+> scripted mechanism evidence. These experiments use different populations
+> and should not be combined into one score.
+
 Two numbers per condition: how many attacks were stopped, and how much of the ordinary work still got done. Neither means anything without the other — a firewall that refuses every call stops 100% of attacks and completes 0% of the work.
 
 ## Headline

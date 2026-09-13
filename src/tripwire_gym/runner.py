@@ -38,10 +38,9 @@ from mcp.client.stdio import stdio_client
 
 from tripwire_gym.agent import Agent, AgentStats, ToolCallRecord
 from tripwire_gym.human import Human, find_gate_url
+from tripwire_gym.resources import GYM
 from tripwire_gym.scenario import Scenario
 from tripwire_gym.scoring import Call, Outcome, score
-
-GYM = Path(__file__).resolve().parent.parent.parent / "gym"
 
 # A whole run: proxy start, several model round trips, tool calls. Big
 # reasoning models spend minutes thinking, and a cap that fires costs a

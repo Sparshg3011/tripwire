@@ -1,8 +1,8 @@
 """What an approval gate is: one yes/no question, asked with context.
 
-A gate never decides anything. Policy already decided this call needs a
-human; the gate's whole job is to put the question in front of one and
-report back what they said. Everything else — timeouts, gate crashes,
+A gate cannot override a policy block. Policy already decided this call
+needs approval; a gate obtains that approval interactively or matches a
+host-issued, exact pre-authorization. Everything else — timeouts, gate crashes,
 no gate configured — is handled by the interceptor, and every one of
 those paths ends in a refusal. Silence is a no.
 """
@@ -37,9 +37,11 @@ class ApprovalRequest:
     tainted: bool = False
     tainted_by: tuple[str, ...] = ()
     turn: int = 0
+    # Set by the host interceptor, never taken from tool arguments.
+    approval_scope: str = ""
 
 
 class ApprovalGate(Protocol):
     async def request(self, req: ApprovalRequest) -> bool:
-        """True means a human approved. Anything else means no."""
+        """True means approved by this gate. Anything else means no."""
         ...

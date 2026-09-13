@@ -22,7 +22,7 @@ import sys
 import time
 import types
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +34,8 @@ from tripwire.policy.evaluator import evaluate
 from tripwire.policy.schema import Policy
 from tripwire.policy.types import ToolCall
 from tripwire.session import SessionState
+from tripwire_benchmarks.reviewer import PROMPT_SHA256, ActionReviewer
+from tripwire_gym.resources import GYM
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 BLOCKED = "tripwire_blocked"
@@ -53,9 +55,12 @@ class EnforcementEvent:
     reason: str
     executed: bool
     tainted: bool
+    review: dict[str, Any] | None = None
 
 
-def make_guarded_runtime(policy: Policy, gate: str):
+def make_guarded_runtime(
+    policy: Policy, gate: str, reviewer_factory: Callable[[], ActionReviewer] | None = None
+):
     """Create the runtime class AgentDojo instantiates for each task."""
     try:
         from agentdojo.functions_runtime import FunctionCall, FunctionsRuntime
@@ -64,8 +69,10 @@ def make_guarded_runtime(policy: Policy, gate: str):
             "AgentDojo is not installed; install tripwire-agent[publication]"
         ) from exc
 
-    if gate not in {"approve", "deny"}:
-        raise ValueError("gate must be approve or deny")
+    if gate not in {"approve", "deny", "review"}:
+        raise ValueError("gate must be approve, deny, or review")
+    if (gate == "review") != (reviewer_factory is not None):
+        raise ValueError("a reviewer factory is required only for the review condition")
 
     class GuardedRuntime(FunctionsRuntime):
         last_instance = None
@@ -77,6 +84,9 @@ def make_guarded_runtime(policy: Policy, gate: str):
             self.executed_calls: list[FunctionCall] = []
             self.task_id = ""
             self.task_kind = "unknown"
+            self.trusted_task = ""
+            self.observations: list[dict[str, Any]] = []
+            self.reviewer = reviewer_factory() if reviewer_factory is not None else None
             type(self).last_instance = self
 
         def run_function(
@@ -98,8 +108,26 @@ def make_guarded_runtime(policy: Policy, gate: str):
                 return "", message
 
             allowed = verdict.shadow or verdict.decision == "allow"
+            review = None
             if verdict.decision == "gate" and not verdict.shadow:
                 allowed = gate == "approve"
+                if self.reviewer is not None:
+                    try:
+                        answer = self.reviewer.review(
+                            task=self.trusted_task,
+                            tool=function,
+                            args=copy.deepcopy(dict(checked)),
+                            observations=copy.deepcopy(self.observations),
+                        )
+                        allowed = answer.approved is True
+                        review = asdict(answer)
+                    except Exception as exc:  # noqa: BLE001 - never forward after a reviewer fault
+                        allowed = False
+                        review = {
+                            "approved": False,
+                            "status": "reviewer_error",
+                            "reason": type(exc).__name__,
+                        }
 
             event = EnforcementEvent(
                 tool=function,
@@ -109,6 +137,7 @@ def make_guarded_runtime(policy: Policy, gate: str):
                 reason=verdict.reason,
                 executed=allowed,
                 tainted=snapshot.tainted,
+                review=review,
             )
             self.events.append(event)
             if not allowed:
@@ -128,6 +157,18 @@ def make_guarded_runtime(policy: Policy, gate: str):
                 )
             self.session.record(function, checked)
             self.session.observe_result(function, is_error=error is not None)
+            if self.reviewer is not None:
+                from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
+
+                self.observations.append(
+                    {
+                        "tool": function,
+                        "args": copy.deepcopy(forwarded),
+                        "result": tool_result_to_str(result),
+                        "error": error,
+                        "trust": policy.source_class(function),
+                    }
+                )
             return result, error
 
     GuardedRuntime.__name__ = f"TripwireRuntime_{gate}"
@@ -180,6 +221,7 @@ def _read_enforcement_receipts(
     events = [event for receipt in receipts for event in receipt.get("events", [])]
     gated_cases = {event["case_id"] for event in events if event.get("decision") == "gate"}
     blocked_cases = {event["case_id"] for event in events if not event.get("executed", False)}
+    reviews = [event["review"] for event in events if event.get("review") is not None]
     return {
         "tasks": len(receipts),
         "tool_calls": len(events),
@@ -188,10 +230,17 @@ def _read_enforcement_receipts(
         "gated_cases": len(gated_cases),
         "blocked_cases": len(blocked_cases),
         "events": events,
+        "review_requests": len(reviews),
+        "review_approvals": sum(review.get("approved") is True for review in reviews),
+        "review_limits": sum(
+            review.get("status") in {"review_limit", "input_limit"} for review in reviews
+        ),
     }
 
 
-def protect_suite(suite, policy: Policy, gate: str):
+def protect_suite(
+    suite, policy: Policy, gate: str, reviewer_factory: Callable[[], ActionReviewer] | None = None
+):
     """Shallow-copy a suite and replace only its task execution method.
 
     The copy remains an AgentDojo TaskSuite for attacks that inspect it.
@@ -205,7 +254,7 @@ def protect_suite(suite, policy: Policy, gate: str):
     except ImportError as exc:  # pragma: no cover
         raise AdapterError("AgentDojo is not installed") from exc
 
-    runtime_type = make_guarded_runtime(policy, gate)
+    runtime_type = make_guarded_runtime(policy, gate, reviewer_factory)
     protected = copy.copy(suite)
 
     def run_task_with_pipeline(
@@ -237,6 +286,7 @@ def protect_suite(suite, policy: Policy, gate: str):
         runtime = runtime_type(self.tools)
         runtime.task_id = user_task.ID
         runtime.task_kind = "user" if isinstance(user_task, BaseUserTask) else "injection_check"
+        runtime.trusted_task = prompt
         model_output = None
         messages = []
         for _ in range(3):
@@ -545,11 +595,11 @@ class OpenAICompatibleLLM:
         request: dict[str, Any] = {
             "model": self.model,
             "messages": _openai_messages(messages),
-            "tools": tools,
-            "tool_choice": "auto",
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
+        if tools:
+            request.update(tools=tools, tool_choice="auto")
         if self.seed is not None:
             request["seed"] = self.seed
         if self.disable_thinking:
@@ -737,6 +787,61 @@ def _pipeline_name(model: str, defense: str | None) -> str:
     return f"local-{safe_model}-{defense or 'none'}"
 
 
+def make_reviewer_factory(llm: OpenAICompatibleLLM) -> Callable[[], ActionReviewer]:
+    """Use a separate context and no tool access; include its usage in traces."""
+    from agentdojo.types import text_content_block_from_string
+
+    def complete(messages: list[dict[str, str]]) -> str:
+        converted = [
+            {
+                "role": message["role"],
+                "content": [text_content_block_from_string(message["content"])],
+            }
+            for message in messages
+        ]
+        _, _, _, output, _ = llm.query("", types.SimpleNamespace(functions={}), None, converted)
+        if not output or output[-1].get("tool_calls"):
+            raise ValueError("reviewer did not produce a text-only decision")
+        return _content_text(output[-1].get("content"))
+
+    return lambda: ActionReviewer(complete)
+
+
+def _guard_review_contract(args, destination: Path) -> None:
+    """Never reuse a review trace under a changed model, prompt, code, or policy."""
+    from tripwire_benchmarks import reviewer
+
+    if args.condition != "tripwire-review":
+        return
+    source = _source_state()
+    if source.get("git_dirty"):
+        raise AdapterError("commit the development implementation before starting a review run")
+    policy_path = (
+        Path(args.policy) if args.policy else GYM / "external_policies" / f"{args.suite}.yaml"
+    )
+    settings = {
+        key: value for key, value in vars(args).items() if key not in {"out", "force_rerun"}
+    }
+    contract = {
+        "settings": settings,
+        "source": source,
+        "adapter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "reviewer_sha256": hashlib.sha256(Path(reviewer.__file__).read_bytes()).hexdigest(),
+        "prompt_sha256": reviewer.PROMPT_SHA256,
+        "policy_sha256": hashlib.sha256(policy_path.read_bytes()).hexdigest(),
+        "agentdojo_version": importlib.metadata.version("agentdojo"),
+        "openai_version": importlib.metadata.version("openai"),
+    }
+    path = destination / "review-contract.json"
+    if path.exists():
+        if json.loads(path.read_text(encoding="utf-8")) != contract:
+            raise AdapterError("review contract changed; choose a new output directory")
+        return
+    if any(destination.rglob("traces/**/*.json")):
+        raise AdapterError("existing traces have no review contract; choose a new output directory")
+    path.write_text(json.dumps(contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def _source_state() -> dict[str, Any]:
     """Record the exact local source state without failing outside a Git checkout."""
     root = Path(__file__).resolve().parents[2]
@@ -797,12 +902,30 @@ def run_once(args, repetition: int) -> dict[str, Any]:
     prompt_defense = None
     protected = suite
     if args.condition.startswith("tripwire-"):
-        policy_path = Path(args.policy or f"gym/external_policies/{args.suite}.yaml")
+        policy_path = (
+            Path(args.policy) if args.policy else GYM / "external_policies" / f"{args.suite}.yaml"
+        )
         if not policy_path.exists():
             raise AdapterError(f"no Tripwire policy for suite {args.suite}: {policy_path}")
         policy = load_policy(policy_path)
         gate = args.condition.removeprefix("tripwire-")
-        protected = protect_suite(suite, policy, gate)
+        reviewer_factory = None
+        if gate == "review":
+            review_llm = OpenAICompatibleLLM(
+                model=args.reviewer_model or args.model,
+                base_url=args.base_url,
+                api_key=os.environ[args.api_key_var],
+                temperature=0,
+                max_tokens=384,
+                disable_thinking=args.disable_thinking,
+                timeout=args.timeout,
+                min_call_interval=args.min_call_interval,
+                rate_limit_retries=args.rate_limit_retries,
+                retry_base_seconds=args.retry_base_seconds,
+                retry_cap_seconds=args.retry_cap_seconds,
+            )
+            reviewer_factory = make_reviewer_factory(review_llm)
+        protected = protect_suite(suite, policy, gate, reviewer_factory)
     elif args.condition != "direct":
         prompt_defense = args.condition
 
@@ -851,6 +974,20 @@ def run_once(args, repetition: int) -> dict[str, Any]:
     }
     trace_usage = _read_trace_usage(benign_trace_dir, attacked_trace_dir)
     trace_errors = _read_trace_errors(benign_trace_dir, attacked_trace_dir)
+    review_errors = []
+    for group in enforcement.values():
+        for event in group["events"]:
+            review = event.get("review")
+            if review and review.get("status") in {
+                "provider_error",
+                "invalid_response",
+                "reviewer_error",
+                "missing_task",
+            }:
+                review_errors.append(
+                    {"user_task": event["task_id"], "error": f"reviewer: {review['status']}"}
+                )
+    trace_errors.extend(review_errors)
     return {
         "repetition": repetition,
         "benign_utility": _mean(benign_values),
@@ -874,6 +1011,10 @@ def run_once(args, repetition: int) -> dict[str, Any]:
         "rate_limit_wait_seconds": trace_usage["rate_limit_wait_seconds"],
         "transient_error_wait_seconds": trace_usage["transient_error_wait_seconds"],
         "enforcement": enforcement,
+        "review_errors": len(review_errors),
+        "review_requests": sum(group["review_requests"] for group in enforcement.values()),
+        "review_approvals": sum(group["review_approvals"] for group in enforcement.values()),
+        "review_limits": sum(group["review_limits"] for group in enforcement.values()),
     }
 
 
@@ -893,10 +1034,14 @@ def parse_args(argv: list[str] | None = None):
             "transformers_pi_detector",
             "tripwire-approve",
             "tripwire-deny",
+            "tripwire-review",
         ],
         required=True,
     )
     parser.add_argument("--policy")
+    parser.add_argument(
+        "--reviewer-model", help="experimental tripwire-review model; defaults to actor"
+    )
     parser.add_argument("--attack", default="important_instructions")
     parser.add_argument("--user-task", action="append", default=[])
     parser.add_argument("--injection-task", action="append", default=[])
@@ -917,7 +1062,10 @@ def parse_args(argv: list[str] | None = None):
     )
     parser.add_argument("--force-rerun", action="store_true")
     parser.add_argument("--out", required=True)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.reviewer_model and args.condition != "tripwire-review":
+        parser.error("--reviewer-model requires --condition tripwire-review")
+    return args
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -933,6 +1081,7 @@ def main(argv: list[str] | None = None) -> None:
     destination = Path(args.out)
     destination.mkdir(parents=True, exist_ok=True)
     try:
+        _guard_review_contract(args, destination)
         runs = [run_once(args, repetition) for repetition in range(args.repetitions)]
     except (AdapterError, KeyError, ValueError) as exc:
         print(f"tripwire_benchmarks.agentdojo: {exc}", file=sys.stderr)
@@ -953,13 +1102,17 @@ def main(argv: list[str] | None = None) -> None:
             "policy": (
                 str(Path(args.policy).resolve())
                 if args.policy
-                else str(Path(f"gym/external_policies/{args.suite}.yaml").resolve())
+                else str(GYM / "external_policies" / f"{args.suite}.yaml")
                 if args.condition.startswith("tripwire-")
                 else None
             ),
             "policy_sha256": (
                 hashlib.sha256(
-                    Path(args.policy or f"gym/external_policies/{args.suite}.yaml").read_bytes()
+                    (
+                        Path(args.policy)
+                        if args.policy
+                        else GYM / "external_policies" / f"{args.suite}.yaml"
+                    ).read_bytes()
                 ).hexdigest()
                 if args.condition.startswith("tripwire-")
                 else None
@@ -979,6 +1132,12 @@ def main(argv: list[str] | None = None) -> None:
                 PROTECTAI_MODEL_NAME if args.condition == "transformers_pi_detector" else None
             ),
             "protectai_model_revision": args.protectai_model_revision,
+            "reviewer_model": (args.reviewer_model or args.model)
+            if args.condition == "tripwire-review"
+            else None,
+            "reviewer_prompt_sha256": (
+                PROMPT_SHA256 if args.condition == "tripwire-review" else None
+            ),
         },
         "runs": runs,
         "summary": {
@@ -997,6 +1156,10 @@ def main(argv: list[str] | None = None) -> None:
                 run["transient_error_wait_seconds"] for run in runs
             ),
             "trace_errors": sum(len(run["trace_errors"]) for run in runs),
+            "review_errors": sum(run["review_errors"] for run in runs),
+            "review_requests": sum(run["review_requests"] for run in runs),
+            "review_approvals": sum(run["review_approvals"] for run in runs),
+            "review_limits": sum(run["review_limits"] for run in runs),
             "attacked_gate_prompts": sum(
                 run["enforcement"]["attacked"]["gate_prompts"] for run in runs
             ),

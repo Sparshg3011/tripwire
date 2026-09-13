@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,6 +18,7 @@ import yaml
 
 from tripwire_benchmarks.agentdojo import _source_state
 from tripwire_benchmarks.report import collect, paired_effects_overall, write_outputs
+from tripwire_gym.resources import GYM
 
 BENCHMARK_VERSION = "v1.2.2"
 EXPECTED = {
@@ -46,6 +48,12 @@ PRIMARY_CONDITION_ORDER = {
 
 class HeldoutError(RuntimeError):
     pass
+
+
+def _run_sequential(jobs: Iterable[Any], run_job: Callable[[Any], str]) -> None:
+    """Do not prequeue another suite after the only worker has failed."""
+    for job in jobs:
+        print(run_job(job), flush=True)
 
 
 def _authorize_transport_resume(
@@ -101,7 +109,7 @@ def _authorize_transport_resume(
 
 
 def require_frozen_protocol(*, model: str, conditions: list[str], workers: int) -> None:
-    protocol_path = Path(__file__).resolve().parents[2] / "gym" / "agentdojo-heldout.yaml"
+    protocol_path = GYM / "agentdojo-heldout.yaml"
     protocol = yaml.safe_load(protocol_path.read_text(encoding="utf-8"))
     expected = protocol.get("expected", {})
     mismatches = []
@@ -275,8 +283,27 @@ def _run_shard(
             destination=destination,
             protectai_model_revision=protectai_model_revision,
         )
-        process = subprocess.run(command, text=True, capture_output=True, check=False)
-        (destination / "runner.log").write_text(process.stdout + process.stderr, encoding="utf-8")
+        # Append and stream: capture_output kept diagnostics in memory until
+        # shard exit, then overwrote the previous failed attempt on resume.
+        # Scientific settings and the child command are unchanged.
+        with (destination / "runner.log").open("a", encoding="utf-8", buffering=1) as log:
+            log.write(
+                json.dumps({"runner_event": "started", "at": datetime.now(UTC).isoformat()}) + "\n"
+            )
+            log.flush()
+            process = subprocess.run(
+                command, text=True, stdout=log, stderr=subprocess.STDOUT, check=False
+            )
+            log.write(
+                json.dumps(
+                    {
+                        "runner_event": "exited",
+                        "at": datetime.now(UTC).isoformat(),
+                        "returncode": process.returncode,
+                    }
+                )
+                + "\n"
+            )
         if process.returncode != 0:
             raise HeldoutError(
                 f"{suite} shard {shard_index} {condition} failed with "
@@ -358,7 +385,9 @@ def run(args: argparse.Namespace) -> None:
     require_frozen_protocol(model=args.model, conditions=conditions, workers=args.workers)
     plan = build_plan(args.shard_size)
     policies = {
-        suite: hashlib.sha256(Path(f"gym/external_policies/{suite}.yaml").read_bytes()).hexdigest()
+        suite: hashlib.sha256(
+            (GYM / "external_policies" / f"{suite}.yaml").read_bytes()
+        ).hexdigest()
         for suite in plan["suites"]
     }
     contract = {
@@ -403,29 +432,42 @@ def run(args: argparse.Namespace) -> None:
         for suite, suite_plan in plan["suites"].items()
         for index, users in enumerate(suite_plan["shards"])
     ]
-    executor = ThreadPoolExecutor(max_workers=args.workers)
-    try:
-        futures = {
-            executor.submit(
-                _run_shard,
+    if args.workers == 1:
+        _run_sequential(
+            jobs,
+            lambda job: _run_shard(
                 root=root,
-                suite=suite,
-                shard_index=index,
-                users=users,
+                suite=job[0],
+                shard_index=job[1],
+                users=job[2],
                 conditions=conditions,
                 model=args.model,
-            ): (suite, index)
-            for suite, index, users in jobs
-        }
-        for future in as_completed(futures):
-            print(future.result(), flush=True)
-    except BaseException:
-        for future in futures:
-            future.cancel()
-        executor.shutdown(wait=True, cancel_futures=True)
-        raise
+            ),
+        )
     else:
-        executor.shutdown(wait=True)
+        executor = ThreadPoolExecutor(max_workers=args.workers)
+        try:
+            futures = {
+                executor.submit(
+                    _run_shard,
+                    root=root,
+                    suite=suite,
+                    shard_index=index,
+                    users=users,
+                    conditions=conditions,
+                    model=args.model,
+                ): (suite, index)
+                for suite, index, users in jobs
+            }
+            for future in as_completed(futures):
+                print(future.result(), flush=True)
+        except BaseException:
+            for future in futures:
+                future.cancel()
+            executor.shutdown(wait=True, cancel_futures=True)
+            raise
+        else:
+            executor.shutdown(wait=True)
 
     write_outputs(root, root / "summary")
     validate_results(root, plan, conditions=conditions, model=args.model)

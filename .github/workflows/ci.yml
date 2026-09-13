@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
 
 jobs:
   test:
@@ -18,11 +19,11 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev,gym]"
-      - run: ruff check src tests
-      - run: ruff format --check src tests
+      - run: ruff check src tests scripts
+      - run: ruff format --check src tests scripts
       # strict typing where correctness is load-bearing; the rest of the
       # tree is checked by tests instead
-      - run: mypy --strict src/tripwire/policy src/tripwire/tx
+      - run: mypy --strict src/tripwire/policy src/tripwire/tx src/tripwire/gate/exact.py
       - run: pytest -q
 
       # The benchmark harness itself, on the scripted agent: no API key,
@@ -40,7 +41,28 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev,publication]"
-      - run: pytest -q tests/test_agentdojo_adapter.py tests/test_autodojo.py tests/test_heldout.py
+      - run: pytest -q tests/test_agentdojo_adapter.py tests/test_autodojo.py tests/test_heldout.py tests/test_protectai_heldout.py tests/test_action_reviewer.py tests/test_agentdojo_review.py tests/test_benchmark_transport.py tests/test_review_smoke.py tests/test_review_policy_v2.py tests/test_review_audit.py
+
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - run: python scripts/check_distribution.py
+      - name: Exercise the installed wheel outside the checkout
+        run: |
+          python -m venv /tmp/installed
+          /tmp/installed/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/installed/bin/python "$GITHUB_WORKSPACE/scripts/smoke_installed.py"
 
   audit:
     runs-on: ubuntu-latest

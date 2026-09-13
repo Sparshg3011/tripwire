@@ -232,10 +232,17 @@ class Interceptor:
             tainted=snapshot.tainted,
             tainted_by=self._taint_trail(),
             turn=snapshot.turn,
+            approval_scope=self.session.approval_scope,
         )
         timeout = self.policy.defaults.gate_timeout_seconds
         self.audit.append(
-            "gate_requested", {"tool": name, "rule": verdict.rule_id, "timeout": timeout}
+            "gate_requested",
+            {
+                "tool": name,
+                "rule": verdict.rule_id,
+                "timeout": timeout,
+                "gate_type": type(self.gate).__name__,
+            },
         )
 
         # A gate that returns None is not the same event as a gate that
@@ -262,7 +269,7 @@ class Interceptor:
             self.audit.append("gate_error", {"tool": name, "error": f"gate returned {answer!r}"})
             return False, "The approval gate gave an unusable answer, so the call is refused."
         self.audit.append("gate_denied", {"tool": name, "rule": verdict.rule_id})
-        return False, "A human reviewed this call and denied it."
+        return False, "The approval gate denied this call."
 
     def _taint_trail(self) -> tuple[str, ...]:
         # display context for the human, not enforcement — if the tracker

@@ -36,7 +36,7 @@ tripwire report ~/.tripwire/audit.jsonl
 412 call(s) across 37 session(s)
   allowed outright   381
   blocked by policy  0
-  sent to a human    0  (approved 0, refused 0)
+  required approval  0  (approved 0, refused 0)
   WOULD have been stopped (shadow mode)  31
   sessions that saw untrusted content  22
 
