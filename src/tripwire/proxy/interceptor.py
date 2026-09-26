@@ -21,6 +21,7 @@ import anyio
 from mcp import types
 
 from tripwire.gate import ApprovalGate, ApprovalRequest
+from tripwire.gate.review import ReviewGate
 from tripwire.policy.canonical import canonicalize as real_canonicalize
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
@@ -81,6 +82,8 @@ class Interceptor:
         self.canonicalize = canonicalize
         self.evaluate = evaluate
         self._lock = anyio.Lock()
+        if isinstance(gate, ReviewGate):
+            gate.bind(session, policy, audit)
 
     async def handle(self, name: str, arguments: dict) -> types.CallToolResult:
         try:
@@ -102,6 +105,14 @@ class Interceptor:
             os._exit(70)
 
     async def _handle(self, name: str, arguments: dict) -> types.CallToolResult:
+        if isinstance(self.gate, ReviewGate):
+            try:
+                self.gate.check_context(self.session, self.policy)
+            except Exception as e:
+                self.audit.append("review_context_error", {"tool": name, "error": _describe(e)})
+                return _refused(
+                    "Review context changed; start a new host session.", "review.context"
+                )
         verdict, args, snapshot = self._decide(name, arguments)
 
         self.audit.append(
@@ -163,6 +174,8 @@ class Interceptor:
             # got, so the call counts and whatever came back is untrusted.
             self.audit.append("tool_error", {"tool": name, "error": _describe(e)})
             self._remember(name, args, is_error=True)
+            if isinstance(self.gate, ReviewGate):
+                self.gate.close("unknown_upstream_outcome")
             return types.CallToolResult(
                 isError=True,
                 content=[
@@ -170,6 +183,8 @@ class Interceptor:
                 ],
             )
         except BaseException:
+            if isinstance(self.gate, ReviewGate):
+                self.gate.close("unknown_upstream_outcome")
             # Cancellation lands here — the agent hung up, or a timeout
             # fired, while the tool was already running. Cancelling us
             # doesn't cancel the side effect, so it still gets written
@@ -183,6 +198,8 @@ class Interceptor:
         # Keep the counterfactual state in canonical form in shadow mode,
         # while the upstream still received forward_args unchanged.
         self._remember(name, args, is_error=bool(result.isError))
+        if isinstance(self.gate, ReviewGate):
+            self.gate.observe(name, dict(forward_args), result)
         return result
 
     async def _forward(self, name: str, args: Mapping[str, Any]) -> types.CallToolResult:
@@ -263,7 +280,7 @@ class Interceptor:
             return True, ""
         if answer is _NO_ANSWER:
             self.audit.append("gate_timeout", {"tool": name, "seconds": timeout})
-            return False, f"No human answered within {timeout}s."
+            return False, f"The approval gate did not answer within {timeout}s."
         if answer is not False:
             # the gate answered, but not with a yes or a no
             self.audit.append("gate_error", {"tool": name, "error": f"gate returned {answer!r}"})

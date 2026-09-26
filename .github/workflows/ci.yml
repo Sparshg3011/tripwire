@@ -63,6 +63,7 @@ jobs:
           /tmp/installed/bin/pip install dist/*.whl
           cd /tmp
           /tmp/installed/bin/python "$GITHUB_WORKSPACE/scripts/smoke_installed.py"
+          /tmp/installed/bin/python "$GITHUB_WORKSPACE/scripts/smoke_review_installed.py" --installed
 
   audit:
     runs-on: ubuntu-latest

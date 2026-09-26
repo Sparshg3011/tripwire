@@ -809,7 +809,7 @@ def make_reviewer_factory(llm: OpenAICompatibleLLM) -> Callable[[], ActionReview
 
 def _guard_review_contract(args, destination: Path) -> None:
     """Never reuse a review trace under a changed model, prompt, code, or policy."""
-    from tripwire_benchmarks import reviewer
+    from tripwire.gate import reviewer
 
     if args.condition != "tripwire-review":
         return

@@ -474,7 +474,7 @@ async def test_gate_timeout_refuses_and_says_nobody_answered(audit_path, records
 
     assert itc.upstream.calls == []
     assert result.isError
-    assert "No human answered within 1s" in result.content[0].text
+    assert "The approval gate did not answer within 1s" in result.content[0].text
     assert [r["kind"] for r in records()] == ["decision", "gate_requested", "gate_timeout"]
 
 

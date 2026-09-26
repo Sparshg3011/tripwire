@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import secrets
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from mcp import types
@@ -16,6 +17,7 @@ from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
 from tripwire.gate import ApprovalGate, CliGate, WebGate
+from tripwire.gate.review import ReviewGate
 from tripwire.policy import load_policy
 from tripwire.proxy.interceptor import Interceptor
 from tripwire.proxy.upstream import Upstream
@@ -50,11 +52,16 @@ async def serve(
     gate_mode: str = "none",
     gate_port: int = 8642,
     tx_db: str | Path | None = None,
+    *,
+    gate_factory: Callable[[SessionState], ApprovalGate] | None = None,
 ) -> None:
     # Everything here raises on problems, and that's the point: bad
     # policy / dead upstream / unwritable log / unreachable gate =
     # refuse to start.
     policy = load_policy(policy_path)
+    if gate_factory is not None and gate_mode != "none":
+        raise ValueError("gate_factory cannot be combined with gate_mode")
+    session = SessionState(policy)
     # 64 bits, not 32: sessions from one log get traced by id, and two
     # runs colliding would splice two unrelated incidents into one
     # convincing-looking causal chain
@@ -62,7 +69,9 @@ async def serve(
     audit = AuditLog(audit_path, session_id=session_id)
 
     gate: ApprovalGate | None = None
-    if gate_mode == "cli":
+    if gate_factory is not None:
+        gate = gate_factory(session)
+    elif gate_mode == "cli":
         gate = CliGate()
     elif gate_mode == "web":
         gate = WebGate(port=gate_port)
@@ -80,14 +89,13 @@ async def serve(
             "upstream": upstream_cmd,
             "tools": [t.name for t in upstream.tools],
             "enforce": policy.enforce,
-            "gate": gate_mode,
+            "gate": type(gate).__name__ if gate_factory is not None else gate_mode,
         },
     )
 
-    session = SessionState(policy)
     tx = TxExecutor(tx_db, session_id) if tx_db else None
-    server = build_server(Interceptor(policy, audit, upstream, session, gate=gate, tx=tx))
     try:
+        server = build_server(Interceptor(policy, audit, upstream, session, gate=gate, tx=tx))
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())
     finally:
@@ -95,5 +103,5 @@ async def serve(
         await upstream.aclose()
         if tx is not None:
             tx.close()
-        if isinstance(gate, (CliGate, WebGate)):
+        if isinstance(gate, (CliGate, WebGate, ReviewGate)):
             gate.close()
