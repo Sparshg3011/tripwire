@@ -7,7 +7,8 @@ text-normalization rules applied before any rule looks at an argument.
 A policy that doesn't validate doesn't run — `tripwire validate
 policy.yaml` tells you why, with the path to the offending key. Unknown
 keys are errors, not warnings: a typo in a security policy must fail
-loudly, not silently allow.
+loudly, not silently allow. So is a key given twice in one mapping,
+which plain YAML would settle by quietly keeping the last one.
 
 ## Shape
 
