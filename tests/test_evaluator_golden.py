@@ -1,6 +1,5 @@
-"""Worked examples pinning down evaluator behavior, all against
-examples/policy.yaml. This file is the contract: when these are green,
-the evaluator is done.
+"""Worked examples pinning down evaluator behavior, mostly against
+examples/policy.yaml. This file is the contract.
 """
 
 import re

@@ -63,10 +63,9 @@ set shadow=True on the verdict. The interceptor lets shadowed blocks
 through and logs what *would* have happened. The decision field always
 holds the real answer.
 
-The contract lives in tests/test_evaluator_golden.py (worked examples
-against examples/policy.yaml) and tests/test_evaluator_props.py
-(property tests: totality + determinism under garbage inputs). Delete
-the skip line at the top of each and make them green.
+The contract lives in tests/test_evaluator_golden.py (worked examples,
+mostly against examples/policy.yaml) and tests/test_evaluator_props.py
+(property tests: totality + determinism under garbage inputs).
 """
 
 from __future__ import annotations

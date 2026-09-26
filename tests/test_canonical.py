@@ -1,6 +1,5 @@
 """Worked examples pinning down canonicalize(), one group per rule in the
 canonical.py docstring. C3 is the evaluator's job and isn't tested here.
-When these are green, the canonicalizer is done.
 """
 
 import copy

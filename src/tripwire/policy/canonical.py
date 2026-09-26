@@ -86,8 +86,7 @@ transport hands us) pass through untouched rather than causing a raise.
 JSON in, JSON out — and since MCP args arrive as parsed JSON, that's
 every real call.
 
-The spec above is executable in tests/test_canonical.py. Delete the skip
-line there and make it green.
+The spec above is executable in tests/test_canonical.py.
 """
 
 from __future__ import annotations

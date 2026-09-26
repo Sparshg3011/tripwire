@@ -71,8 +71,7 @@ Contract: no clock games, no randomness, total over whatever args
 arrive. The only I/O in this module is the SQLite file. Same key in ->
 same row touched, forever.
 
-The spec is executable: tests/test_tx_executor.py. Delete the skip line
-and make it green.
+The spec is executable: tests/test_tx_executor.py.
 """
 
 from __future__ import annotations

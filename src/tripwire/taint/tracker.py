@@ -47,8 +47,7 @@ Contract: no I/O, no clock, no randomness. Total — observe_result takes
 whatever tool name arrives off the wire, including ones no policy has
 ever heard of, and must not raise.
 
-The spec is executable in tests/test_taint.py. Delete the skip line
-there and make it green.
+The spec is executable in tests/test_taint.py.
 """
 
 from __future__ import annotations
