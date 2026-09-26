@@ -4,7 +4,8 @@ Rules of this module — these are the invariants everything else leans on:
 
   * PURE. No I/O, no clock, no randomness, no mutation of inputs.
   * TOTAL. Every input produces a Verdict. Nothing raises. If something
-    unexpected happens in here, the answer is a block, not an exception.
+    unexpected happens in here, the answer is a block (rule_id
+    "evaluator_error"), not an exception.
   * DETERMINISTIC. Same inputs, same Verdict, forever.
 
 Evaluation order (stage number goes in front of nothing — rule_id is the
@@ -137,6 +138,20 @@ def _constraint_holds(value: Any, c: Constraint) -> bool:
 
 
 def evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
+    try:
+        return _evaluate(call, state, policy)
+    except Exception as e:
+        # calls and snapshots are typed, not checked, so a stage can trip
+        # over what it was handed; that is still an answer, and it's no
+        return Verdict(
+            decision="block",
+            rule_id="evaluator_error",
+            reason=f"policy evaluation failed: {e!r}",
+            shadow=not policy.enforce,
+        )
+
+
+def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
     shadow = not policy.enforce
 
     def verdict(decision: Decision, rule_id: str, reason: str) -> Verdict:

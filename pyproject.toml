@@ -83,3 +83,6 @@ extend-select = ["I"]
 # canonicalize() is total by contract: args arrive off the wire, so a
 # value it can't walk is a value it leaves alone, never an exception.
 "src/tripwire/policy/canonical.py" = ["BLE001"]
+# evaluate() is total by contract too: a stage that raises has answered,
+# and the answer is a block verdict rather than a traceback.
+"src/tripwire/policy/evaluator.py" = ["BLE001"]

@@ -343,6 +343,26 @@ def test_shadow_mode_same_decision_shadow_flag_set(reference_policy):
     assert enforced.shadow is False
 
 
+# --- totality ---------------------------------------------------------------
+
+
+def test_an_unexpected_error_is_a_block_not_a_raise(reference_policy):
+    # a snapshot is typed, not checked; a count that isn't a number trips
+    # stage 3, and an evaluator that trips has still answered: no
+    call = ToolCall("send_email", {"to": "a@mycompany.com", "body": "hi"})
+    broken = SessionSnapshot(tool_counts={"send_email": None})
+
+    v = evaluate(call, broken, reference_policy)
+    assert v.decision == "block"
+    assert v.rule_id == "evaluator_error"
+    assert "TypeError" in v.reason
+    assert v.shadow is False
+
+    shadowed = evaluate(call, broken, reference_policy.model_copy(update={"enforce": False}))
+    assert shadowed.decision == "block"
+    assert shadowed.shadow is True
+
+
 # --- case-insensitive constraints -------------------------------------------
 
 

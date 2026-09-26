@@ -62,6 +62,29 @@ def test_total_and_well_formed(reference_policy, call, state):
     assert isinstance(v.reason, str)
 
 
+# SessionSnapshot and ToolCall are typed, not checked: whatever builds
+# one can put anything at all in any field
+hostile_calls = st.builds(ToolCall, tool=st.one_of(tool_names, junk), args=junk)
+hostile_snapshots = st.builds(
+    SessionSnapshot,
+    turn=junk,
+    tainted=junk,
+    tool_counts=st.dictionaries(tool_names, junk, max_size=3),
+    tool_sums=st.dictionaries(tool_names, junk, max_size=3),
+    history=st.lists(junk, max_size=5).map(tuple),
+)
+
+
+@given(call=hostile_calls, state=hostile_snapshots)
+@settings(max_examples=300, suppress_health_check=[HealthCheck.function_scoped_fixture])
+def test_total_even_over_malformed_inputs(reference_policy, call, state):
+    v = evaluate(call, state, reference_policy)
+    assert isinstance(v, Verdict)
+    assert v.decision in ("allow", "gate", "block")
+    if v.rule_id == "evaluator_error":
+        assert v.decision == "block"
+
+
 @given(call=calls, state=snapshots)
 @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_deterministic(reference_policy, call, state):
