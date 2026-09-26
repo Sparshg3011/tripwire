@@ -97,6 +97,10 @@ or those calls are simply refused:
 - `--gate cli` — prompts on the controlling terminal. Only works when
   you started tripwire from a shell.
 
+Both list every argument and clip long values one by one. Only the web
+page can show a clipped value in full, so prefer it for tools whose
+arguments run long, like an email body or a file's contents.
+
 ## Operations
 
 **One audit log per proxy.** Enforced: a second process trying to write

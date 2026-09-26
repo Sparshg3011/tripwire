@@ -119,9 +119,16 @@ results unredacted; the db file deserves the same protection as the
 audit log.
 
 **The approval gate assumes the human reads.** Gate prompts show the
-tool, the exact arguments, the rule that fired, and the taint trail —
-context an approval box needs to be more than a click-yes box. It
-remains a human decision, and "make the human tired of saying yes" is a
+tool, every argument by name, the rule that fired, and the taint trail
+— context an approval box needs to be more than a click-yes box.
+Arguments are listed shortest first and JSON-encoded, so control
+characters and anything non-ASCII (lookalike letters included) show as
+escapes. Each value is clipped on its own, with a marker saying how
+much was cut, so a long body can't push the recipient out of view. The
+terminal gate shows at most 500 characters of each value, clipping a
+nested object as a whole; the web gate shows 1000 and keeps every
+clipped value on the page in full, escaped, a click away. It remains a
+human decision, and "make the human tired of saying yes" is a
 real attack family the benchmark exercises. The web gate binds to
 127.0.0.1 and requires a per-run token precisely because a browser will
 submit forms to localhost from any page: without the token, injected

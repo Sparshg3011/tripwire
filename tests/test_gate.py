@@ -1,20 +1,29 @@
 """Both gates against the real thing: actual HTTP for the web gate, an
 actual pty for the cli gate. No fakes here — the whole point of a gate
-is the wire a human sits on, so that wire is what gets exercised.
+is the wire a human sits on, so that wire is what gets exercised. The
+argument previews are also driven directly by hypothesis, since a real
+terminal per example would leave it too slow to search.
 """
 
+import html
 import http.client
+import json
 import os
 import pty
 import re
+from html.parser import HTMLParser
 from urllib.parse import urlencode
 
 import anyio
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 
-from tripwire.gate.base import ApprovalRequest, GateUnavailable
-from tripwire.gate.cli import CliGate
-from tripwire.gate.web import WebGate
+from tripwire.gate.base import ApprovalRequest, GateUnavailable, encode_args
+from tripwire.gate.cli import ARG_PREVIEW as CLI_PREVIEW
+from tripwire.gate.cli import CliGate, _arg_lines
+from tripwire.gate.web import ARG_PREVIEW as WEB_PREVIEW
+from tripwire.gate.web import WebGate, _args_html
 
 
 def req(tool="send_email", **kw):
@@ -22,6 +31,35 @@ def req(tool="send_email", **kw):
     kw.setdefault("rule_id", "flows.0")
     kw.setdefault("reason", "untrusted content in context")
     return ApprovalRequest(tool=tool, **kw)
+
+
+# --- argument previews ---
+
+# the long email body that used to push `to` off the end of the prompt
+LONG_BODY = {"body": "x" * 20_000, "to": "attacker@evil.example"}
+
+# what an attacker would put in an argument, names included: markup, an
+# entity, terminal escapes, line breaks, a bidi override, the clip
+# marker's own ellipsis. Random characters alone almost never spell a tag.
+tricks = st.sampled_from(
+    ["<b>", "</pre>", "<details>", "&amp;", '"', "\x00", "\x1b[2J", "\x7f", "\r\n", "\u202e", "…"]
+)
+nasty = st.lists(st.text(max_size=5) | tricks, max_size=5).map("".join)
+json_values = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.floats(allow_nan=False) | nasty,
+    lambda children: st.lists(children, max_size=3) | st.dictionaries(nasty, children, max_size=3),
+    max_leaves=8,
+)
+# long enough to be clipped by either gate
+long_text = (st.text(min_size=1, max_size=3) | tricks).map(lambda s: s * 1000)
+arg_dicts = st.dictionaries(nasty, json_values | long_text, min_size=1, max_size=6)
+
+DECODER = json.JSONDecoder()
+
+
+def test_short_scalars_come_before_long_strings():
+    args = {"body": "hello " * 50, "to": "boss@corp.com", "amount": 5, "cc": []}
+    assert [name for name, _ in encode_args(args)] == ['"cc"', '"amount"', '"to"', '"body"']
 
 
 # --- web gate ---
@@ -166,6 +204,89 @@ async def test_dangerous_arg_is_escaped_in_the_page(web):
         post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
 
+async def test_a_long_value_cannot_hide_the_recipient_on_the_page(web):
+    async def ask():
+        await web.request(req(args=LONG_BODY))
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(ask)
+        await anyio.sleep(0.05)
+        _, page = get(web, f"/?k={web.token}")
+        preview = html.unescape(re.search(r"<pre>(.*?)</pre>", page, re.DOTALL).group(1))
+        body = json.dumps(LONG_BODY["body"])
+        assert preview.split("\n") == [
+            '"to": "attacker@evil.example"',
+            f'"body": {body[:WEB_PREVIEW]}…[+{len(body) - WEB_PREVIEW} chars]',
+        ]
+        assert html.escape(body) in page  # clipped in the preview, not gone
+        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+
+
+async def test_the_page_holds_still_while_a_question_is_open(web):
+    _, idle = get(web, f"/?k={web.token}")
+    assert 'http-equiv="refresh"' in idle
+
+    async def ask():
+        await web.request(req(args=LONG_BODY))
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(ask)
+        await anyio.sleep(0.05)
+        _, page = get(web, f"/?k={web.token}")
+        # a reload would fold the full body away while the human reads it
+        assert "<details>" in page
+        assert 'http-equiv="refresh"' not in page
+        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+
+
+class Rendered(HTMLParser):
+    """The tags a browser would build from some markup, and the text it
+    would show inside each <pre> and <summary>."""
+
+    def __init__(self, markup):
+        super().__init__()
+        self.tags = []
+        self.text = {"pre": [], "summary": []}
+        self._inside = None
+        self.feed(markup)
+        self.close()
+
+    def handle_starttag(self, tag, attrs):
+        self.tags.append(tag)
+        if tag in self.text:
+            self._inside = tag
+            self.text[tag].append("")
+
+    def handle_endtag(self, tag):
+        self._inside = None
+
+    def handle_data(self, data):
+        if self._inside:
+            self.text[self._inside][-1] += data
+
+
+@given(args=arg_dicts)
+def test_the_page_names_every_arg_and_keeps_every_value_inert(args):
+    rendered = Rendered(_args_html(args))
+    assert set(rendered.tags) <= {"pre", "details", "summary"}
+
+    preview, *whole = rendered.text["pre"]
+    lines = preview.split("\n")
+    shown = {}
+    for line in lines:
+        name, end = DECODER.raw_decode(line)
+        assert line[end : end + 2] == ": "
+        shown[name] = line[end + 2 :]
+    assert len(lines) == len(args)
+    assert shown.keys() == args.keys()
+
+    for summary, value in zip(rendered.text["summary"], whole, strict=True):
+        name, _ = DECODER.raw_decode(summary)
+        assert shown[name] == f"{value[:WEB_PREVIEW]}…[+{len(value) - WEB_PREVIEW} chars]"
+        shown[name] = value
+    assert {name: json.loads(value) for name, value in shown.items()} == args
+
+
 async def test_two_pending_requests_are_decided_independently(web):
     decisions = {}
 
@@ -279,8 +400,53 @@ async def test_huge_args_are_truncated_not_dumped(tty):
         await gate.request(req(args={"body": "x" * 20_000}))
 
     prompt = drain(master)
-    assert "more chars" in prompt
+    assert f"…[+{20_002 - CLI_PREVIEW} chars]" in prompt
     assert len(prompt) < 2_000
+
+
+async def test_a_long_value_cannot_hide_the_recipient_at_the_terminal(tty):
+    master, gate = tty
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(type_after_prompt, master, "n\n")
+        await gate.request(req(args=LONG_BODY))
+
+    prompt = drain(master)
+    assert '"to": "attacker@evil.example"' in prompt
+    assert prompt.index('"to":') < prompt.index('"body":')
+
+
+async def test_control_characters_never_reach_the_terminal(tty):
+    master, gate = tty
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(type_after_prompt, master, "n\n")
+        await gate.request(
+            req(args={"to\x1b[2K": "boss@corp.com\r\x1b[1A", "body": "hi\x7f\u202e\nbcc: x"})
+        )
+
+    prompt = drain(master).replace("\r\n", "\n")  # the pty's own line endings
+    assert not {"\x1b", "\x7f", "\u202e", "\r"} & set(prompt)
+    args = prompt.split("  args:")[1].split("  rule:")[0]
+    assert len(args.strip().split("\n")) == 2  # an injected newline drew no extra line
+
+
+@given(args=arg_dicts)
+def test_the_terminal_names_every_arg_on_one_plain_line(args):
+    lines = _arg_lines(args)
+    assert len(lines) == len(args)
+    names = set()
+    for line in lines:
+        name, end = DECODER.raw_decode(line)
+        assert line[end : end + 2] == ": "
+        value, marker, cut = line[end + 2 :].partition("…")
+        # the clip marker is the only thing on the line the args didn't write
+        assert all(0x20 <= ord(c) < 0x7F for c in line[:end] + value)
+        if marker:
+            assert len(value) == CLI_PREVIEW
+            assert re.fullmatch(r"\[\+\d+ chars\]", cut)
+        else:
+            assert json.loads(value) == args[name]
+        names.add(name)
+    assert names == args.keys()
 
 
 def test_no_terminal_refuses_at_startup():

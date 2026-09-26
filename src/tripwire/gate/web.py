@@ -24,16 +24,17 @@ them — humans take seconds, so a 200ms poll is invisible.
 from __future__ import annotations
 
 import html
-import json
 import secrets
 import threading
+from collections.abc import Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import anyio
 
-from tripwire.gate.base import ApprovalRequest, GateUnavailable
+from tripwire.gate.base import ApprovalRequest, GateUnavailable, clip, encode_args
 
 POLL_SECONDS = 0.2
 
@@ -44,7 +45,7 @@ class _Pending:
     decision: bool | None = None
 
 
-ARGS_PREVIEW = 4000  # a 200k argument shouldn't be the approval page
+ARG_PREVIEW = 1000  # per value; the rest of a longer one sits folded below the preview
 
 
 class WebGate:
@@ -97,13 +98,13 @@ class WebGate:
 
 PAGE = """<!doctype html>
 <meta charset="utf-8">
-<meta http-equiv="refresh" content="2">
+{refresh}
 <title>tripwire approvals</title>
 <style>
   body {{ font: 15px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; }}
   .card {{ border: 1px solid #ccc; border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; }}
   .taint {{ color: #b00; font-weight: 600; }}
-  pre {{ background: #f6f6f6; padding: .6rem; border-radius: 6px; overflow-x: auto; }}
+  pre {{ background: #f6f6f6; padding: .6rem; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }}
   button {{ font: inherit; padding: .4rem 1.2rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }}
   form {{ display: inline; margin-right: .5rem; }}
 </style>
@@ -113,7 +114,7 @@ PAGE = """<!doctype html>
 
 CARD = """<div class="card">
 <b>{tool}</b> (turn {turn}) — {taint}
-<pre>{args}</pre>
+{args}
 <p>{rule}: {reason}</p>
 <form method="post" action="/decide"><input type="hidden" name="k" value="{k}">
 <input type="hidden" name="rid" value="{rid}"><input type="hidden" name="action" value="approve">
@@ -131,11 +132,19 @@ def _token_ok(given: str, expected: str) -> bool:
     return secrets.compare_digest(given, expected)
 
 
-def _preview(args: object) -> str:
-    text = json.dumps(dict(args), sort_keys=True, indent=2, default=str)  # type: ignore[arg-type]
-    if len(text) > ARGS_PREVIEW:
-        return f"{text[:ARGS_PREVIEW]}\n... ({len(text) - ARGS_PREVIEW} more chars)"
-    return text
+def _args_html(args: Mapping[str, Any]) -> str:
+    """One line per argument, then in full every value the preview clipped."""
+    lines: list[str] = []
+    whole: list[str] = []
+    for name, value in encode_args(args):
+        lines.append(f"{html.escape(name)}: {html.escape(clip(value, ARG_PREVIEW))}")
+        if len(value) > ARG_PREVIEW:
+            whole.append(
+                f"<details><summary>{html.escape(name)} in full</summary>"
+                f"<pre>{html.escape(value)}</pre></details>"
+            )
+    preview = "\n".join(lines) or "{}"
+    return f"<pre>{preview}</pre>" + "".join(whole)
 
 
 def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
@@ -170,7 +179,7 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                         tool=html.escape(req.tool),
                         turn=req.turn,
                         taint=taint,
-                        args=html.escape(_preview(req.args)),
+                        args=_args_html(req.args),
                         rule=html.escape(req.rule_id),
                         reason=html.escape(req.reason),
                         rid=html.escape(rid),
@@ -178,7 +187,12 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                     )
                 )
             body = "\n".join(cards) if cards else "<p>Nothing waiting for approval.</p>"
-            page = PAGE.format(body=body).encode()
+            # Refresh only while idle, to pick up the first request. With one
+            # open, a reload would snap shut the value the human expanded to
+            # read, and a card timing out above could slide another card's
+            # buttons under their cursor.
+            refresh = "" if cards else '<meta http-equiv="refresh" content="2">'
+            page = PAGE.format(refresh=refresh, body=body).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
