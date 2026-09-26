@@ -100,7 +100,7 @@ what runs:
 |---|------|
 | C2 | Invisible formatting characters are stripped: U+200B/200C/200D, U+2060, U+FEFF. A zero-width space inside `corp.com` comes out. |
 | C1 | Then Unicode NFKC: fullwidth `ａdmin` → `admin`, ligature `ﬁle` → `file`. (Invisibles first, then NFKC — the order makes the whole thing idempotent.) |
-| C3 | At comparison time, both sides are casefolded when a constraint sets `case_insensitive: true`. |
+| C3 | At comparison time, a constraint with `case_insensitive: true` matches its regex ignoring case (`re.IGNORECASE`). Nothing is rewritten: `\D` in the pattern still means `\D`, and the value is checked as it will be sent. A value containing `ı`, `İ`, `ſ` or the Kelvin sign U+212A (which Python counts as cases of `i`, `s` and `k`) is matched case-sensitively, so `admın` doesn't pass for `admin`. |
 | C4 | Host-like fields (`url`, `host`, `hostname`, `domain`, `to`, `recipient`, `email`, `address`) lose all trailing dots: `corp.com.` → `corp.com`. |
 | C5 | Fields constrained with `type: number` parse plain numeric strings: `"1e2"` → `100.0`, `" 42 "` → `42.0`. Only a strict pattern qualifies — `"1_000"`, `"nan"`, `"inf"`, and non-ASCII digits do not, and stay strings for the evaluator to block. |
 

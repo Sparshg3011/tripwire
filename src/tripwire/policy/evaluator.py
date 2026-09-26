@@ -20,8 +20,9 @@ dotted path of the deciding rule):
   2. Constraints, checked against the canonicalized args:
        - constraint on an argument the call didn't provide -> block
          (fail closed; rule_id "tools.<name>.constraints.<arg>")
-       - regex: full match required; casefold both sides if
-         case_insensitive is set
+       - regex: full match required; under re.IGNORECASE if
+         case_insensitive is set, unless the value contains one of
+         ASCII_CASE_ALIASES
        - max_length: len(str(value)) must be <=
        - type number: value must be a finite int/float (bool doesn't
          count, nor do NaN and +-inf); anything else -> block
@@ -79,6 +80,11 @@ AS_DECISION: dict[str, Decision] = {
     "require_approval": "gate",
 }
 
+# The only non-ASCII characters re.IGNORECASE treats as cases of ASCII
+# letters: dotted and dotless i, long s and the Kelvin sign. A value
+# carrying one is matched as written, or "admın" would pass for "admin".
+ASCII_CASE_ALIASES = frozenset("\u0130\u0131\u017f\u212a")
+
 
 def is_number(value: Any) -> TypeGuard[float]:
     # bool is an int in python; a policy that says "number" does not mean
@@ -97,12 +103,11 @@ def _constraint_holds(value: Any, c: Constraint) -> bool:
     if c.regex is not None:
         if not isinstance(value, str):
             return False
-        text, pattern = value, c.regex
-        if c.case_insensitive:
-            # casefold both sides rather than passing re.I: casefold
-            # handles cases re.I doesn't
-            text, pattern = text.casefold(), pattern.casefold()
-        if re.fullmatch(pattern, text) is None:
+        # A flag, not casefolding: the pattern is regex source, and
+        # casefold() turns \D into \d. The value stays as it is too, since
+        # casefolding it would check "strasse" and forward "straße".
+        ignore_case = c.case_insensitive and ASCII_CASE_ALIASES.isdisjoint(value)
+        if re.fullmatch(c.regex, value, re.IGNORECASE if ignore_case else 0) is None:
             return False
 
     if c.max_length is not None and len(str(value)) > c.max_length:

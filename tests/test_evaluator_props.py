@@ -8,6 +8,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from tripwire.policy.evaluator import evaluate
+from tripwire.policy.schema import Policy
 from tripwire.policy.types import SessionSnapshot, ToolCall, Verdict
 
 KNOWN_TOOLS = ["send_email", "issue_refund", "delete_file", "execute_code", "fetch_url"]
@@ -106,3 +107,32 @@ def test_shadow_flips_flag_not_decision(reference_policy, call, state):
     shadowed = evaluate(call, state, shadow_policy)
     assert shadowed.decision == enforced.decision
     assert shadowed.shadow is True and enforced.shadow is False
+
+
+# Nothing in these depends on case, so ignoring it must change nothing,
+# but casefolding their source changes what every one of them means.
+PATTERNS = [r"\D+", r"\S+", r"\W*", r"\w+\Z", r"\A\w+", r"[\D\s]+"]
+
+
+def lookup(regex, case_insensitive):
+    constraint = {"regex": regex, "case_insensitive": case_insensitive}
+    return Policy.model_validate(
+        {"version": 1, "tools": {"lookup": {"action": "allow", "constraints": {"q": constraint}}}}
+    )
+
+
+LOOKUPS = {(regex, ci): lookup(regex, ci) for regex in PATTERNS for ci in (False, True)}
+
+
+@given(
+    regex=st.sampled_from(PATTERNS),
+    value=st.text(
+        alphabet=st.sampled_from(list("aAzZ1 _-\u00df\u0131\u0130\u017f\u212a")), max_size=8
+    ),
+)
+@settings(max_examples=300)
+def test_case_insensitive_changes_nothing_on_a_caseless_pattern(regex, value):
+    call = ToolCall("lookup", {"q": value})
+    sensitive = evaluate(call, SessionSnapshot(), LOOKUPS[regex, False])
+    insensitive = evaluate(call, SessionSnapshot(), LOOKUPS[regex, True])
+    assert insensitive.decision == sensitive.decision

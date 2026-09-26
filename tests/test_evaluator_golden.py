@@ -208,8 +208,6 @@ def test_shadow_mode_same_decision_shadow_flag_set(reference_policy):
 
 
 def test_case_insensitive_regex():
-    from tripwire.policy.schema import Policy
-
     policy = Policy.model_validate(
         {
             "version": 1,
@@ -231,3 +229,45 @@ def test_case_insensitive_regex():
         evaluate(ToolCall("send_email", {"to": "other@corp.com"}), FRESH, policy).decision
         == "block"
     )
+
+
+def insensitive(regex):
+    return Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {
+                "lookup": {
+                    "action": "allow",
+                    "constraints": {"q": {"regex": regex, "case_insensitive": True}},
+                }
+            },
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("regex", "value", "decision"),
+    [
+        (r"\D+", "123", "block"),
+        (r"\D+", "ABC", "allow"),
+        (r"\d+\Z", "123", "allow"),
+        (r"\Aadmin", "ADMIN", "allow"),
+    ],
+)
+def test_case_insensitive_leaves_escapes_alone(regex, value, decision):
+    # casefolding the pattern source would read these as \d, \z and \a
+    v = evaluate(ToolCall("lookup", {"q": value}), FRESH, insensitive(regex))
+    assert v.decision == decision
+
+
+@pytest.mark.parametrize("spoof", ["adm\u0131n", "adm\u0130n", "\u017fam", "\u212aim"])
+def test_case_insensitive_does_not_fold_other_scripts_into_ascii(spoof):
+    # re.IGNORECASE counts dotless ı, dotted İ, long ſ and the Kelvin sign
+    # as cases of i, s and k, but "admın" names someone other than admin
+    v = evaluate(ToolCall("lookup", {"q": spoof}), FRESH, insensitive("[a-z]+"))
+    assert v.decision == "block"
+
+
+def test_case_insensitive_still_matches_non_ascii_text():
+    v = evaluate(ToolCall("lookup", {"q": "Işık"}), FRESH, insensitive(r"\w+"))
+    assert v.decision == "allow"

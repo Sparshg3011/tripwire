@@ -34,8 +34,9 @@ first, and that ordering is load-bearing.
       distinct keys into one ({"ａmount": 1, "amount": 2}) and silently
       drop a value, which is a worse bug than the one it would fix.
 
-  C3  (not here — comparison time, inside the evaluator) casefold both
-      sides when a constraint sets case_insensitive.
+  C3  (not here — comparison time, inside the evaluator) a constraint
+      that sets case_insensitive matches under re.IGNORECASE. Neither
+      the pattern nor the value is rewritten for it.
 
   C4  Strip *all* trailing dots from host-like top-level fields, so
       "corp.com." and "corp.com.." both become "corp.com". "Host-like"
