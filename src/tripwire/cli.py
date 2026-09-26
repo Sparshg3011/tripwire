@@ -74,8 +74,8 @@ def main(argv: list[str] | None = None) -> None:
     p_serve.add_argument(
         "--tx-db",
         help=(
-            "sqlite ledger for idempotency; with it a retried identical call "
-            "returns the first call's result instead of running the tool twice"
+            "sqlite ledger for idempotency; with it a retried identical call in the "
+            "same session returns the first call's result instead of running the tool twice"
         ),
     )
     p_serve.add_argument(

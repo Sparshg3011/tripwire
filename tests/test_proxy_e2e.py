@@ -18,6 +18,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from tripwire.tx import verify_log
+from tripwire.tx.executor import TxExecutor
 
 TOY = Path(__file__).parent / "toy_server.py"
 
@@ -220,3 +221,43 @@ async def test_a_session_id_is_stamped_on_every_record(allow_all):
     sessions = {r["session"] for r in records(audit)}
     assert len(sessions) == 1
     assert sessions != {""}
+
+
+# --- the ledger across a restart ---
+
+
+async def test_a_restarted_proxy_refuses_a_call_its_predecessor_never_finished(tmp_path):
+    # The predecessor wrote its intent and died before the outcome. The
+    # agent's retry can only land on a new proxy, which is a new session.
+    ledger = tmp_path / "ledger.db"
+    dead = TxExecutor(ledger, "dead-proxy")
+
+    async def killed():
+        raise RuntimeError("proxy killed mid-call")
+
+    with pytest.raises(RuntimeError):
+        await dead.run("add", {"a": 1, "b": 1}, killed)
+    dead.close()
+
+    params, audit = proxy(tmp_path, ALLOW_ALL, "ledger.yaml", "--tx-db", str(ledger))
+    retry, other = await talk(params, [("add", {"a": 1, "b": 1}), ("add", {"a": 2, "b": 1})])
+
+    assert retry.isError
+    assert "tx.duplicate_in_flight" in retry.content[0].text
+    assert other.content[0].text == "3"
+    duplicate = next(r for r in records(audit) if r["kind"] == "tx_duplicate")
+    assert "dead-proxy" in duplicate["data"]["error"]
+
+
+async def test_a_restarted_proxy_does_not_replay_what_its_predecessor_finished(tmp_path):
+    # replay is per session, and a restart is a new one: a new
+    # conversation gets fresh results, not the last one's
+    ledger = tmp_path / "ledger.db"
+    params, audit = proxy(tmp_path, ALLOW_ALL, "ledger.yaml", "--tx-db", str(ledger))
+    await talk(params, [("add", {"a": 1, "b": 1})])
+    (again,) = await talk(params, [("add", {"a": 1, "b": 1})])
+
+    assert again.content[0].text == "2"
+    kinds = [r["kind"] for r in records(audit)]
+    assert kinds.count("tool_result") == 2
+    assert "tx_replayed" not in kinds

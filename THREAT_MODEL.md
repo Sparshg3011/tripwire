@@ -31,8 +31,11 @@ bet on the model.
   unkeyed, it only catches an edit that leaves the rest of the chain
   alone (see below). If tripwire cannot write the log, it stops the
   world rather than act unrecorded.
-- **The retry hole.** A duplicated side-effectful call (agent retry,
-  transport hiccup) replays the first result instead of running twice.
+- **The retry hole.** Within one proxy session, a duplicated
+  side-effectful call replays the first result instead of running
+  twice. A call whose outcome was never recorded is refused in every
+  session, including the one a crashed proxy restarts as, until an
+  operator clears it.
 
 ## What tripwire does not defend
 
@@ -135,6 +138,14 @@ perform it again on retry. That is the tool lying about its own
 outcome — see "malicious upstream" above. The ledger also stores tool
 results unredacted; the db file deserves the same protection as the
 audit log.
+
+**The tx ledger replays within a session only.** A session is one proxy
+process, so a restart starts a new one. Replaying across sessions would
+serve every later conversation the first one's results, with no clock
+to expire them. The cost: a call that completed just before the proxy
+died, with its answer lost on the way to the agent, runs again when the
+retry reaches the restarted proxy. A call whose outcome was never
+recorded does not have that gap; it is refused across sessions.
 
 **The approval gate assumes the human reads.** Gate prompts show the
 tool, the exact arguments, the rule that fired, and the taint trail —

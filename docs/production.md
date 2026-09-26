@@ -141,6 +141,29 @@ isn't keyed. Neither kind notices lines cut from the end; the
 `TRIPWIRE_AUDIT_KEY_FILE`, and warn loudly if the chain is broken or
 can't be checked, but they still print — so read the warning.
 
+**Know what the ledger remembers.** With `--tx-db`, an identical call
+replays the first result instead of running again — within one session.
+A session is one proxy process, which is one agent connection, so a
+restarted proxy starts a new one and a call its predecessor completed
+runs again if the agent repeats it. That's deliberate: the ledger has no
+clock, and replaying across sessions would hand every later conversation
+the first one's answers. It does mean a call that completed just as the
+proxy died, before the agent got the answer, runs twice if retried; the
+audit log shows both.
+
+A call whose outcome was never recorded — the proxy died mid-call, the
+upstream dropped, the agent hung up — is different. Nobody knows whether
+it happened, so it's refused in every session that shares the database
+until someone decides. To clear one:
+
+```bash
+sqlite3 ledger.db "SELECT session, tool, key FROM intents WHERE state = 'in_flight'"
+tripwire trace ~/.tripwire/audit.jsonl <session>   # did it happen?
+sqlite3 ledger.db "DELETE FROM intents WHERE key = '<key>'"
+```
+
+Delete the row only once you're sure: the next identical call will run.
+
 **Watch the exit codes.** `2` means refused to start (bad policy, dead
 upstream, unwritable log, missing or wrong audit key, unusable gate).
 `70` means it started and then lost the audit log, and killed itself
