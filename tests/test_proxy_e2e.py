@@ -7,6 +7,7 @@ afterwards.
 """
 
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -65,6 +66,10 @@ def proxy(tmp_path, policy_text, name="policy.yaml"):
             "--audit",
             str(audit),
         ],
+        # left to the SDK the proxy gets a scrubbed environment with no
+        # PYTHONPATH, and quietly runs whichever tripwire is installed
+        # instead of the one under test
+        env=dict(os.environ),
     )
     return params, audit
 
