@@ -68,8 +68,22 @@ class Limits(StrictModel):
 class ToolRule(StrictModel):
     action: Action
     constraints: dict[str, Constraint] = {}
+    # When set, an argument named neither here nor in constraints blocks
+    # the call. Without it, arguments nothing constrains pass unchecked.
+    allowed_args: list[str] | None = None
     limits: Limits | None = None
     reason: str | None = None
+
+    @field_validator("allowed_args")
+    @classmethod
+    def allowed_args_are_distinct(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            repeated = sorted({name for name in v if v.count(name) > 1})
+            if repeated:
+                raise ValueError(
+                    f"allowed_args lists {', '.join(map(repr, repeated))} more than once"
+                )
+        return v
 
 
 class SequenceRule(StrictModel):

@@ -29,6 +29,7 @@ sources:                       # who taints the session
 tools:
   send_email:
     action: require_approval   # allow | block | require_approval
+    allowed_args: [subject]    # with to and body, the only arguments accepted
     constraints:
       to:   { regex: "^[^@]+@mycompany\\.com$" }
       body: { max_length: 10000 }
@@ -70,14 +71,19 @@ short-circuits; otherwise stages may only escalate the verdict
    while `allow` / `require_approval` have no constraints or limits to
    check but still go through sequences and flows, which may name
    tools that have no entry of their own.
-2. **Constraints**, on canonicalized arguments (below). A constraint on
-   an argument the call didn't provide **blocks** — absence is not a
-   free pass. `max_length` bounds `len()`, and is checked before
-   `regex`, so an over-long value never reaches the pattern; `regex`
-   must match the whole value; `type: number` accepts a finite int/float and nothing else
-   (not `True`, not NaN or ±Infinity); `min`/`max` are inclusive and
-   also refuse anything that isn't a finite number. The bounds
-   themselves must be finite, or the policy doesn't load.
+2. **Constraints**, on canonicalized arguments (below). If the tool
+   sets `allowed_args`, an argument named neither there nor under
+   `constraints` **blocks** (`tools.<name>.allowed_args`). Without it,
+   arguments nothing constrains pass unchecked, so an allowlist on `to`
+   alone still lets a `bcc` through. A constraint on an argument the
+   call didn't provide **blocks** — absence is not a free pass.
+   `max_length` bounds `len()`, and is checked before `regex`, so an
+   over-long value never reaches the pattern; `regex` must match the
+   whole value; `type: number` accepts a finite int/float and nothing
+   else (not `True`, not NaN or ±Infinity); `min`/`max` are inclusive
+   and also refuse anything that isn't a finite number. The bounds
+   themselves must be finite, and `allowed_args` may not name an
+   argument twice, or the policy doesn't load.
 3. **Limits**, counting the current call. `per_session: 3` means calls
    1–3 pass and call 4 blocks. `sum_per_session` adds the current
    call's `field` value to the running total; over `max` blocks,

@@ -133,6 +133,7 @@ tools:
   read_email: { action: allow }
   send_email:
     action: allow
+    allowed_args: [subject, body]   # and the constrained to; a bcc or anything else blocks
     constraints:
       to: { regex: "^[^@]+@mycompany\\.example$" }
     limits: { per_session: 3 }
@@ -203,6 +204,7 @@ tools:
 
   send_email:
     action: require_approval
+    allowed_args: [subject]      # plus the constrained to and body; anything else blocks
     constraints:
       to: { regex: "^[^@]+@mycompany\\.com$" }
       body: { max_length: 10000 }

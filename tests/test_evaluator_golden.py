@@ -113,6 +113,44 @@ def test_missing_constrained_arg_fails_closed(reference_policy):
     assert v.rule_id == "tools.send_email.constraints.to"
 
 
+def allowlisted_email():
+    # the README's send_email allowlist, with the arguments pinned down too
+    return Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {
+                "send_email": {
+                    "action": "allow",
+                    "allowed_args": ["subject", "body"],
+                    "constraints": {"to": {"regex": "^[^@]+@mycompany\\.example$"}},
+                }
+            },
+        }
+    )
+
+
+def test_argument_outside_allowed_args_blocks():
+    args = {"to": "alice@mycompany.example", "body": "hi", "bcc": "x@evil.example"}
+    v = evaluate(ToolCall("send_email", args), FRESH, allowlisted_email())
+    assert v.decision == "block"
+    assert v.rule_id == "tools.send_email.allowed_args"
+    assert "bcc" in v.reason
+
+
+def test_allowed_and_constrained_arguments_pass():
+    args = {"to": "alice@mycompany.example", "subject": "lunch", "body": "hi"}
+    v = evaluate(ToolCall("send_email", args), FRESH, allowlisted_email())
+    assert v.decision == "allow"
+
+
+def test_extra_arguments_pass_without_allowed_args(reference_policy):
+    # opt-in: a rule that doesn't list its arguments doesn't restrict them
+    args = {"to": "alice@mycompany.com", "body": "hi", "bcc": "x@evil.example"}
+    v = evaluate(ToolCall("send_email", args), FRESH, reference_policy)
+    assert v.decision == "gate"
+    assert v.rule_id == "tools.send_email.action"
+
+
 def test_max_length_blocks(reference_policy):
     call = ToolCall("send_email", {"to": "a@mycompany.com", "body": "x" * 10_001})
     v = evaluate(call, FRESH, reference_policy)

@@ -21,6 +21,9 @@ dotted path of the deciding rule):
      (allow / gate) and evaluation continues.
 
   2. Constraints, checked against the canonicalized args:
+       - if the rule sets allowed_args, an argument named neither there
+         nor in constraints -> block, before any constraint is checked
+         (rule_id "tools.<name>.allowed_args")
        - constraint on an argument the call didn't provide -> block
          (fail closed; rule_id "tools.<name>.constraints.<arg>")
        - max_length: len(str(value)) must be <=; checked before the
@@ -166,6 +169,15 @@ def evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
         )
 
     # --- 2. constraints, on the canonicalized args ---
+    if rule.allowed_args is not None:
+        for arg in call.args:
+            if arg not in rule.allowed_args and arg not in rule.constraints:
+                return verdict(
+                    "block",
+                    f"tools.{call.tool}.allowed_args",
+                    f"{call.tool} doesn't take an argument called {arg!r}.",
+                )
+
     for arg, constraint in rule.constraints.items():
         rule_id = f"tools.{call.tool}.constraints.{arg}"
         if arg not in call.args:

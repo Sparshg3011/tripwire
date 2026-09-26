@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from tripwire.policy.schema import Constraint, FlowRule, Policy, SumLimit
+from tripwire.policy.schema import Constraint, FlowRule, Policy, SumLimit, ToolRule
 
 
 def test_reference_policy_validates(reference_policy):
@@ -50,6 +50,11 @@ def test_non_finite_bounds_rejected(value):
         Constraint.model_validate({"max": value})
     with pytest.raises(ValidationError, match="finite"):
         SumLimit.model_validate({"field": "amount", "max": value})
+
+
+def test_allowed_args_must_not_repeat():
+    with pytest.raises(ValidationError, match="'subject' more than once"):
+        ToolRule.model_validate({"action": "allow", "allowed_args": ["subject", "body", "subject"]})
 
 
 def test_flow_rules_cannot_allow():
