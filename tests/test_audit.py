@@ -1,8 +1,20 @@
 import json
+import subprocess
+import sys
 
 import pytest
 
 from tripwire.tx import AuditLog, AuditWriteError, verify_log
+
+
+def cli(*argv):
+    return subprocess.run(
+        [sys.executable, "-m", "tripwire", *argv],
+        check=False,
+        capture_output=True,
+        encoding="utf-8",
+        timeout=60,
+    )
 
 
 def test_append_and_verify(tmp_path):
@@ -75,6 +87,28 @@ def test_rewritten_bytes_detected_even_if_content_matches(tmp_path):
 
     result = verify_log(path)
     assert not result.ok
+
+
+@pytest.mark.parametrize("line", ["[1]", "42", "null", '"text"'])
+def test_json_that_is_not_a_record_is_a_bad_line(tmp_path, line):
+    path = tmp_path / "audit.jsonl"
+    log = AuditLog(path)
+    log.append("event", {})
+    log.close()
+    with open(path, "a") as fh:
+        fh.write(line + "\n")
+
+    result = verify_log(path)
+    assert not result.ok
+    assert result.bad_line == 2
+    assert result.why == "not a record object"
+
+
+def test_verify_says_so_when_it_cannot_read_the_log(tmp_path):
+    done = cli("verify", str(tmp_path / "missing.jsonl"))
+    assert done.returncode == 1
+    assert "cannot verify" in done.stderr
+    assert "line None" not in done.stderr
 
 
 def test_corrupt_tail_refuses_to_continue(tmp_path):

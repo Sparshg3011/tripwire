@@ -29,8 +29,9 @@ def check_chain(path: str) -> None:
     """
     result = verify_log(path)
     if not result.ok:
+        where = "" if result.bad_line is None else f" at line {result.bad_line}"
         print(
-            f"WARNING: {path} fails its integrity check at line {result.bad_line} "
+            f"WARNING: {path} fails its integrity check{where} "
             f"({result.why}). Everything below is UNVERIFIED and may have been "
             f"altered. Run `tripwire verify` for detail.\n",
             file=sys.stderr,
@@ -97,6 +98,9 @@ def main(argv: list[str] | None = None) -> None:
         result = verify_log(args.log)
         if result.ok:
             print(f"ok: chain intact, {result.records} records")
+        elif result.bad_line is None:
+            print(f"cannot verify {args.log}: {result.why}", file=sys.stderr)
+            sys.exit(1)
         else:
             print(
                 f"BROKEN at line {result.bad_line}: {result.why} "

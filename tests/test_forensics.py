@@ -563,3 +563,15 @@ def test_a_malformed_log_is_reported_without_a_traceback(log_path, command):
     assert done.returncode == 1
     assert "not valid json" in done.stderr
     assert "Traceback" not in done.stderr
+
+
+@pytest.mark.parametrize("command", ["trace", "report"])
+def test_json_that_is_not_a_record_is_reported_without_a_traceback(log_path, command):
+    # the chain check runs before the reader, so it has to survive this too
+    emit(log_path, "s1", [verdict("add"), *ran("add")])
+    log_path.write_text(log_path.read_text() + "[1]\n")
+
+    done = cli(command, str(log_path))
+    assert done.returncode == 1
+    assert "not a record object" in done.stderr
+    assert "Traceback" not in done.stderr

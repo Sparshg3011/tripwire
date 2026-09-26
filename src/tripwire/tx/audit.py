@@ -152,7 +152,9 @@ class AuditLog:
 class VerifyResult:
     ok: bool
     records: int
-    bad_line: int | None = None  # 1-based line number of first bad line
+    # 1-based line number of the first bad line; None when the log
+    # couldn't be checked at all
+    bad_line: int | None = None
     why: str | None = None
 
 
@@ -172,6 +174,8 @@ def verify_log(path: str | Path) -> VerifyResult:
             record = json.loads(line)
         except json.JSONDecodeError:
             return VerifyResult(ok=False, records=n, bad_line=i, why="not valid json")
+        if not isinstance(record, dict):
+            return VerifyResult(ok=False, records=n, bad_line=i, why="not a record object")
         if record.get("seq") != n:
             return VerifyResult(
                 ok=False, records=n, bad_line=i, why=f"expected seq {n}, got {record.get('seq')}"
