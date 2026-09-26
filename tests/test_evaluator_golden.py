@@ -3,6 +3,8 @@ examples/policy.yaml. This file is the contract: when these are green,
 the evaluator is done.
 """
 
+import re
+
 import pytest
 
 from tripwire.policy.evaluator import evaluate
@@ -69,6 +71,30 @@ def test_max_length_blocks(reference_policy):
     v = evaluate(call, FRESH, reference_policy)
     assert v.decision == "block"
     assert v.rule_id == "tools.send_email.constraints.body"
+
+
+def test_max_length_is_checked_before_the_regex(monkeypatch):
+    # the length bound is what keeps a megabyte away from a pattern that
+    # backtracks, so an over-long value must never reach the regex
+    policy = Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {
+                "search": {
+                    "action": "allow",
+                    "constraints": {"q": {"regex": "a+", "max_length": 64}},
+                }
+            },
+        }
+    )
+    matched = []
+    fullmatch = re.fullmatch
+    monkeypatch.setattr(re, "fullmatch", lambda p, s, f=0: matched.append(s) or fullmatch(p, s, f))
+
+    v = evaluate(ToolCall("search", {"q": "a" * 65}), FRESH, policy)
+    assert v.decision == "block"
+    assert v.rule_id == "tools.search.constraints.q"
+    assert matched == []
 
 
 def test_numeric_bounds(reference_policy):

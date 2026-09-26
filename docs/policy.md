@@ -68,8 +68,9 @@ short-circuits; otherwise stages may only escalate the verdict
    evaluation continues.
 2. **Constraints**, on canonicalized arguments (below). A constraint on
    an argument the call didn't provide **blocks** — absence is not a
-   free pass. `regex` must match the whole value; `max_length` bounds
-   `len()`; `type: number` accepts a finite int/float and nothing else
+   free pass. `max_length` bounds `len()`, and is checked before
+   `regex`, so an over-long value never reaches the pattern; `regex`
+   must match the whole value; `type: number` accepts a finite int/float and nothing else
    (not `True`, not NaN or ±Infinity); `min`/`max` are inclusive and
    also refuse anything that isn't a finite number. The bounds
    themselves must be finite, or the policy doesn't load.

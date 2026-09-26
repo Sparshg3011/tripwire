@@ -20,10 +20,11 @@ dotted path of the deciding rule):
   2. Constraints, checked against the canonicalized args:
        - constraint on an argument the call didn't provide -> block
          (fail closed; rule_id "tools.<name>.constraints.<arg>")
+       - max_length: len(str(value)) must be <=; checked before the
+         regex, so an over-long value never gets matched
        - regex: full match required; under re.IGNORECASE if
          case_insensitive is set, unless the value contains one of
          ASCII_CASE_ALIASES
-       - max_length: len(str(value)) must be <=
        - type number: value must be a finite int/float (bool doesn't
          count, nor do NaN and +-inf); anything else -> block
        - min/max: numeric bounds, inclusive, on a finite value
@@ -100,6 +101,10 @@ def is_number(value: Any) -> TypeGuard[float]:
 
 
 def _constraint_holds(value: Any, c: Constraint) -> bool:
+    # before the regex, so a huge value never reaches a pattern that backtracks
+    if c.max_length is not None and len(str(value)) > c.max_length:
+        return False
+
     if c.regex is not None:
         if not isinstance(value, str):
             return False
@@ -109,9 +114,6 @@ def _constraint_holds(value: Any, c: Constraint) -> bool:
         ignore_case = c.case_insensitive and ASCII_CASE_ALIASES.isdisjoint(value)
         if re.fullmatch(c.regex, value, re.IGNORECASE if ignore_case else 0) is None:
             return False
-
-    if c.max_length is not None and len(str(value)) > c.max_length:
-        return False
 
     if c.type == "number" and not is_number(value):
         return False
