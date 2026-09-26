@@ -11,6 +11,11 @@ deliberate: if we checked one form and sent another, the check would be
 theatre. The cost is that we hand the tool a lightly-rewritten string,
 which is why the rewrites below are small, boring, and enumerated.
 
+The rewrites only touch what the policy checks: the tool's constraint
+keys and the field its budget sums (checked_fields()). Everything else
+is forwarded exactly as it arrived. Rewriting a body or an address no
+rule reads protects nothing and still changes what the tool receives.
+
 Rules for v1 — each one gets attacked in the gym. They are numbered in
 policy-doc order, but note the application order in C1/C2: invisibles go
 first, and that ordering is load-bearing.
@@ -19,7 +24,7 @@ first, and that ordering is load-bearing.
       U+200C, U+200D, U+2060 word joiner, U+FEFF BOM. A zero-width space
       wedged into "corp.com" comes back out.
 
-  C1  Then Unicode NFKC over every string value, anywhere in the args
+  C1  Then Unicode NFKC over every string value in a checked field
       (including inside nested dicts and lists). Folds compatibility
       forms: fullwidth "ａdmin" -> "admin", ligature "ﬁle" -> "file".
 
@@ -38,7 +43,7 @@ first, and that ordering is load-bearing.
       that sets case_insensitive matches under re.IGNORECASE. Neither
       the pattern nor the value is rewritten for it.
 
-  C4  Strip *all* trailing dots from host-like top-level fields, so
+  C4  Strip *all* trailing dots from host-like checked fields, so
       "corp.com." and "corp.com.." both become "corp.com". "Host-like"
       is a fixed field-name list: url, host, hostname, domain, to,
       recipient, email, address. A DNS name with a trailing dot resolves
@@ -119,7 +124,7 @@ def _clean(text: str) -> str:
 
 
 def _walk(value: Any) -> Any:
-    """C1/C2 over every string anywhere in the args.
+    """C1/C2 over every string anywhere in a checked field's value.
 
     Keys are left alone — normalizing them can collide two distinct keys
     into one and silently drop a value, which is worse than the problem
@@ -134,6 +139,18 @@ def _walk(value: Any) -> Any:
     return value
 
 
+def checked_fields(tool: str, policy: Policy) -> frozenset[str]:
+    """The top-level args the policy reads for this tool: its constraint
+    keys and the field its budget sums. Only these are canonicalized."""
+    rule = policy.tools.get(tool)
+    if rule is None:
+        return frozenset()
+    fields = set(rule.constraints)
+    if rule.limits is not None and rule.limits.sum_per_session is not None:
+        fields.add(rule.limits.sum_per_session.field)
+    return frozenset(fields)
+
+
 def _numeric_fields(tool: str, policy: Policy) -> set[str]:
     rule = policy.tools.get(tool)
     if rule is None:
@@ -142,8 +159,9 @@ def _numeric_fields(tool: str, policy: Policy) -> set[str]:
 
 
 def canonicalize(tool: str, args: Mapping[str, Any], policy: Policy) -> dict[str, Any]:
+    checked = checked_fields(tool, policy)
     try:
-        out = {key: _walk(value) for key, value in args.items()}
+        out = {key: _walk(value) if key in checked else value for key, value in args.items()}
     except Exception:
         # Total by contract: args come off the wire, so anything at all
         # can be in there. A value we can't walk is a value we leave.
@@ -153,7 +171,7 @@ def canonicalize(tool: str, args: Mapping[str, Any], policy: Policy) -> dict[str
     for key, value in list(out.items()):
         # C4: host-like fields lose every trailing dot. Stripping only
         # one would leave "corp.com.." dotted and make this non-idempotent.
-        if key in HOST_FIELDS and isinstance(value, str):
+        if key in HOST_FIELDS and key in checked and isinstance(value, str):
             value = value.rstrip(".")
             out[key] = value
 

@@ -79,7 +79,8 @@ against encodings we don't fold** — write allowlists.
 canonicalized form it evaluated, not the original bytes. Checking one
 form and sending another would make the check theatre. The cost: tools
 receive a lightly rewritten string, which is why the rewrites are
-small, enumerated, and tested.
+small, enumerated, and tested. Only arguments the policy checks are
+rewritten; the rest reach the tool byte for byte.
 
 **The audit chain does not protect the tail.** Two related gaps, both
 inherent to a chain with no external anchor:
