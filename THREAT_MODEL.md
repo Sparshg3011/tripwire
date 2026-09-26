@@ -59,11 +59,14 @@ Named plainly, because a security tool that oversells is a hazard:
 
 **Session taint is sticky and session-wide (v0.1).** One untrusted
 result taints the session until it ends; nothing washes it off. This is
-the sound direction — it can over-block, never under-block — and the
-over-blocking is real: after one `fetch_url`, every flow-guarded tool
-needs a human for the rest of the session. The benchmark measures that
-cost as lost task completion instead of hiding it. Per-message taint
-and declassification are v0.2 design work, not v0.1 promises.
+the sound direction — within a session it can over-block, never
+under-block — and the over-blocking is real: after one `fetch_url`,
+every flow-guarded tool needs a human for the rest of the session. The
+benchmark measures that cost as lost task completion instead of hiding
+it. Per-message taint and declassification are v0.2 design work, not
+v0.1 promises. Taint lives in the proxy's memory, so restarting the
+proxy starts a clean session, even if the agent still carries the text
+that tainted the old one.
 
 **Canonicalization stops where stated.** NFKC, invisible-character
 stripping, trailing-dot hosts, numeric-string parsing — and nothing
