@@ -3,10 +3,19 @@ examples/policy.yaml. This file is the contract: when these are green,
 the evaluator is done.
 """
 
+import pytest
+
 from tripwire.policy.evaluator import evaluate
+from tripwire.policy.schema import Policy
 from tripwire.policy.types import SessionSnapshot, ToolCall
 
 FRESH = SessionSnapshot()
+
+NON_FINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+def refunds(**rule):
+    return Policy.model_validate({"version": 1, "tools": {"refund": {"action": "allow", **rule}}})
 
 
 # --- stage 1: tool lookup ---------------------------------------------------
@@ -82,6 +91,16 @@ def test_bool_is_not_a_number(reference_policy):
     assert v.decision == "block"
 
 
+@pytest.mark.parametrize("amount", NON_FINITE)
+@pytest.mark.parametrize("constraint", [{"type": "number"}, {"min": 0}, {"max": 100}])
+def test_non_finite_value_fails_number_constraints(constraint, amount):
+    # every comparison with NaN is False, so a bare bounds check waves it through
+    policy = refunds(constraints={"amount": constraint})
+    v = evaluate(ToolCall("refund", {"amount": amount}), FRESH, policy)
+    assert v.decision == "block"
+    assert v.rule_id == "tools.refund.constraints.amount"
+
+
 # --- stage 3: limits (count the current call!) ------------------------------
 
 
@@ -108,6 +127,23 @@ def test_sum_limit_one_over_blocks(reference_policy):
     v = evaluate(ToolCall("issue_refund", {"amount": 21}), state, reference_policy)
     assert v.decision == "block"
     assert v.rule_id == "tools.issue_refund.limits.sum_per_session"
+
+
+BUDGET_ONLY = {"limits": {"sum_per_session": {"field": "amount", "max": 500}}}
+
+
+@pytest.mark.parametrize("amount", [*NON_FINITE, 10**400], ids=["nan", "inf", "-inf", "10**400"])
+def test_budget_refuses_values_it_cannot_add(amount):
+    v = evaluate(ToolCall("refund", {"amount": amount}), FRESH, refunds(**BUDGET_ONLY))
+    assert v.decision == "block"
+    assert v.rule_id == "tools.refund.limits.sum_per_session"
+
+
+def test_a_nan_running_total_fails_the_budget():
+    state = SessionSnapshot(tool_sums={"refund": {"amount": float("nan")}})
+    v = evaluate(ToolCall("refund", {"amount": 1}), state, refunds(**BUDGET_ONLY))
+    assert v.decision == "block"
+    assert v.rule_id == "tools.refund.limits.sum_per_session"
 
 
 # --- stage 4: sequences -----------------------------------------------------

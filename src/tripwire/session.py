@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from tripwire.policy.evaluator import is_number
 from tripwire.policy.schema import Policy
 from tripwire.policy.types import SessionSnapshot
 from tripwire.taint import TaintTracker
@@ -73,7 +74,9 @@ class SessionState:
         field = self._summed.get(tool)
         if field is not None:
             value = args.get(field)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            # shadow mode records calls the budget check refused, and one
+            # NaN would leave the total NaN, under every cap, for good
+            if is_number(value):
                 totals = self._sums.setdefault(tool, {})
                 totals[field] = totals.get(field, 0.0) + float(value)
 

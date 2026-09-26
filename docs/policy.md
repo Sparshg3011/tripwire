@@ -69,12 +69,15 @@ short-circuits; otherwise stages may only escalate the verdict
 2. **Constraints**, on canonicalized arguments (below). A constraint on
    an argument the call didn't provide **blocks** — absence is not a
    free pass. `regex` must match the whole value; `max_length` bounds
-   `len()`; `type: number` accepts int/float and nothing else (not
-   `True`); `min`/`max` are inclusive.
+   `len()`; `type: number` accepts a finite int/float and nothing else
+   (not `True`, not NaN or ±Infinity); `min`/`max` are inclusive and
+   also refuse anything that isn't a finite number. The bounds
+   themselves must be finite, or the policy doesn't load.
 3. **Limits**, counting the current call. `per_session: 3` means calls
    1–3 pass and call 4 blocks. `sum_per_session` adds the current
    call's `field` value to the running total; over `max` blocks,
-   exactly `max` is fine. A missing or non-numeric `field` blocks.
+   exactly `max` is fine. A missing, non-numeric or non-finite `field`
+   blocks, and a non-finite value is never added to the total.
 4. **Sequences.** `deny: X within_turns_after: Y turns: N` blocks X
    when Y ran at turn *t* and the current turn is within *t + N*.
 5. **Flows.** With `when: context_tainted`, once the session has seen

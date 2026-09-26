@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from tripwire.policy.schema import Constraint, FlowRule, Policy
+from tripwire.policy.schema import Constraint, FlowRule, Policy, SumLimit
 
 
 def test_reference_policy_validates(reference_policy):
@@ -41,6 +41,15 @@ def test_bad_regex_rejected_at_load_time():
 def test_empty_constraint_rejected():
     with pytest.raises(ValidationError, match="no conditions"):
         Constraint.model_validate({})
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_bounds_rejected(value):
+    # a NaN bound compares False against everything, so it would bound nothing
+    with pytest.raises(ValidationError, match="finite"):
+        Constraint.model_validate({"max": value})
+    with pytest.raises(ValidationError, match="finite"):
+        SumLimit.model_validate({"field": "amount", "max": value})
 
 
 def test_flow_rules_cannot_allow():

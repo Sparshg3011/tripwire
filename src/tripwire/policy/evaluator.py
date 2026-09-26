@@ -23,9 +23,9 @@ dotted path of the deciding rule):
        - regex: full match required; casefold both sides if
          case_insensitive is set
        - max_length: len(str(value)) must be <=
-       - type number: value must be int/float (bool doesn't count);
-         anything else -> block
-       - min/max: numeric bounds, inclusive
+       - type number: value must be a finite int/float (bool doesn't
+         count, nor do NaN and +-inf); anything else -> block
+       - min/max: numeric bounds, inclusive, on a finite value
      First failed constraint blocks and short-circuits.
 
   3. Limits, *including the current call*:
@@ -33,8 +33,8 @@ dotted path of the deciding rule):
          (rule_id "tools.<name>.limits.per_session")
        - sum_per_session: running sum + this call's value; > max blocks,
          == max is fine (rule_id "tools.<name>.limits.sum_per_session").
-         If the field is missing or not numeric on this call -> block
-         (fail closed).
+         If the field is missing or not a finite number on this call,
+         or the new total isn't finite -> block (fail closed).
 
   4. Sequences: for each rule, if history contains (t, within_turns_after)
      with 0 <= snapshot.turn - t <= turns and call.tool == deny -> block
@@ -63,6 +63,7 @@ the skip line at the top of each and make them green.
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Any, TypeGuard
 
@@ -79,10 +80,17 @@ AS_DECISION: dict[str, Decision] = {
 }
 
 
-def _is_number(value: Any) -> TypeGuard[float]:
+def is_number(value: Any) -> TypeGuard[float]:
     # bool is an int in python; a policy that says "number" does not mean
     # True, and letting it through makes `amount: true` a valid amount
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    # NaN compares False against every bound and turns any sum it joins
+    # into NaN. An int too big for a float can't be added to a total.
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _constraint_holds(value: Any, c: Constraint) -> bool:
@@ -100,13 +108,13 @@ def _constraint_holds(value: Any, c: Constraint) -> bool:
     if c.max_length is not None and len(str(value)) > c.max_length:
         return False
 
-    if c.type == "number" and not _is_number(value):
+    if c.type == "number" and not is_number(value):
         return False
     if c.type == "string" and not isinstance(value, str):
         return False
 
     if c.min is not None or c.max is not None:
-        if not _is_number(value):
+        if not is_number(value):
             return False
         if c.min is not None and value < c.min:
             return False
@@ -169,7 +177,7 @@ def evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
         if summed is not None:
             rule_id = f"tools.{call.tool}.limits.sum_per_session"
             raw = call.args.get(summed.field)
-            if not _is_number(raw):
+            if not is_number(raw):
                 return verdict(
                     "block",
                     rule_id,
@@ -177,11 +185,12 @@ def evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
                 )
             value = float(raw)
             running = state.tool_sums.get(call.tool, {}).get(summed.field, 0.0)
-            if running + value > summed.max:
+            total = running + value
+            if not math.isfinite(total) or total > summed.max:
                 return verdict(
                     "block",
                     rule_id,
-                    f"{call.tool} would take {summed.field} to {running + value}, "
+                    f"{call.tool} would take {summed.field} to {total}, "
                     f"over the session limit of {summed.max}.",
                 )
 

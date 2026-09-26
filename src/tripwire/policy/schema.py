@@ -2,7 +2,8 @@
 
 Everything here is deliberately strict (extra="forbid" throughout): a
 misspelled key in a security policy must kill startup, not get silently
-ignored and leave a hole.
+ignored and leave a hole. Numbers must be finite for the same reason:
+every comparison with a NaN bound is False, so it would bound nothing.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ TrustClass = Literal["trusted", "untrusted"]
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class Defaults(StrictModel):
