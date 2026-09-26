@@ -253,8 +253,10 @@ and failure direction.
 
 These guarantees are deliberately narrow. Tripwire mediates MCP tool calls; it is not a sandbox and
 does not control shell access, raw HTTP, reply text, a compromised host, or a malicious upstream
-server. The audit chain is tamper-evident, not externally anchored: truncating its tail remains a
-documented limit. Read the complete [threat model](THREAT_MODEL.md) before production use.
+server. Unkeyed, the audit chain catches an edited or deleted line but not a rewrite; keyed with
+`--audit-key-file`, it can't be rewritten without the key. Neither is externally anchored, so
+truncating its tail remains a documented limit. Read the complete [threat model](THREAT_MODEL.md)
+before production use.
 
 ---
 

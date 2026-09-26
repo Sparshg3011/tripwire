@@ -49,7 +49,7 @@ tools:
 SHADOWED = "version: 1\nenforce: false\n" + GUARDED.split("version: 1\n", 1)[1]
 
 
-def proxy(tmp_path, policy_text, name="policy.yaml"):
+def proxy(tmp_path, policy_text, name="policy.yaml", *extra):
     policy = tmp_path / name
     policy.write_text(policy_text)
     audit = tmp_path / f"{name}.audit.jsonl"
@@ -65,6 +65,7 @@ def proxy(tmp_path, policy_text, name="policy.yaml"):
             UPSTREAM_CMD,
             "--audit",
             str(audit),
+            *extra,
         ],
         # left to the SDK the proxy gets a scrubbed environment with no
         # PYTHONPATH, and quietly runs whichever tripwire is installed
@@ -198,6 +199,18 @@ async def test_the_log_is_a_verifiable_chain(allow_all):
     kinds = [r["kind"] for r in records(audit)]
     assert kinds[0] == "proxy_start"
     assert kinds.count("tool_result") == 2
+
+
+async def test_a_keyed_log_verifies_only_under_its_key(tmp_path):
+    key_file = tmp_path / "audit.key"
+    key_file.write_text("e2e-audit-key-0123456789abcdef\n")
+    params, audit = proxy(tmp_path, ALLOW_ALL, "keyed.yaml", "--audit-key-file", str(key_file))
+    await talk(params, [("add", {"a": 1, "b": 1})])
+
+    assert verify_log(audit, key=b"e2e-audit-key-0123456789abcdef").ok
+    assert not verify_log(audit).ok
+    assert {r["chain"] for r in records(audit)} == {"hmac-sha256"}
+    assert "e2e-audit-key" not in audit.read_text()
 
 
 async def test_a_session_id_is_stamped_on_every_record(allow_all):

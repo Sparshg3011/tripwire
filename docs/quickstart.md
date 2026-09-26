@@ -159,12 +159,16 @@ tripwire verify ~/.tripwire/audit.jsonl
 ```
 
 ```
-ok: chain intact, 137 records
+ok: chain intact, 137 records (unkeyed)
+  catches: a line edited or deleted in the middle of the log
+  misses:  a rewrite by anyone who can write the file; lines cut from the end
+  serve and verify with --audit-key-file to catch rewrites
 ```
 
 Every record carries the hash of the one before it, so an edited or
 deleted line breaks the chain from that point on and `verify` says
-exactly where.
+exactly where. To hold up against someone who could rewrite the whole
+file, give the log a key — see [docs/production.md](production.md).
 
 ## Where to go next
 
