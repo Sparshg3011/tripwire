@@ -276,6 +276,35 @@ def test_sequence_window_boundary(reference_policy):
     assert evaluate(ToolCall("execute_code"), past, reference_policy).decision == "allow"
 
 
+def test_numeric_window_can_be_padded(reference_policy):
+    # every executed call is a turn, so three harmless ones age the fetch
+    # out of a three-turn window. This is what `turns: session` is for.
+    history = ((2, "fetch_url"), (3, "read_calendar"), (4, "read_calendar"), (5, "read_calendar"))
+    padded = SessionSnapshot(turn=6, history=history)
+    assert evaluate(ToolCall("execute_code"), padded, reference_policy).decision == "allow"
+
+
+def test_session_long_sequence_cannot_be_padded():
+    policy = Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {"execute_code": {"action": "allow"}},
+            "sequences": [
+                {"deny": "execute_code", "within_turns_after": "fetch_url", "turns": "session"}
+            ],
+        }
+    )
+    padding = tuple((turn, "read_calendar") for turn in range(3, 500))
+    state = SessionSnapshot(turn=500, history=((2, "fetch_url"), *padding))
+    v = evaluate(ToolCall("execute_code"), state, policy)
+    assert v.decision == "block"
+    assert v.rule_id == "sequences[0]"
+    assert "rest of the session" in v.reason
+
+    before = SessionSnapshot(turn=500, history=padding)
+    assert evaluate(ToolCall("execute_code"), before, policy).decision == "allow"
+
+
 # --- stage 5: flows ---------------------------------------------------------
 
 

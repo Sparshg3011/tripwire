@@ -46,7 +46,7 @@ dotted path of the deciding rule):
 
   4. Sequences: for each rule, if history contains (t, within_turns_after)
      with 0 <= snapshot.turn - t <= turns and call.tool == deny -> block
-     (rule_id "sequences[i]").
+     (rule_id "sequences[i]"). turns=session has no upper bound.
 
   5. Flows: if when=context_tainted and snapshot.tainted and call.tool in
      rule.tools -> escalate the provisional decision to the rule's action
@@ -223,12 +223,18 @@ def evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
     for i, seq in enumerate(policy.sequences):
         if call.tool != seq.deny:
             continue
+        if isinstance(seq.turns, int):
+            window: float = seq.turns
+            span = f"within {seq.turns} turns of"
+        else:
+            window = math.inf
+            span = "for the rest of the session after"
         for turn, tool in state.history:
-            if tool == seq.within_turns_after and 0 <= state.turn - turn <= seq.turns:
+            if tool == seq.within_turns_after and 0 <= state.turn - turn <= window:
                 return verdict(
                     "block",
                     f"sequences[{i}]",
-                    f"{seq.deny} is denied within {seq.turns} turns of {seq.within_turns_after}.",
+                    f"{seq.deny} is denied {span} {seq.within_turns_after}.",
                 )
 
     # --- 5. flows: may tighten, never relax ---

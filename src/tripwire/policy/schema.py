@@ -9,7 +9,7 @@ every comparison with a NaN bound is False, so it would bound nothing.
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -87,11 +87,17 @@ class ToolRule(StrictModel):
 
 
 class SequenceRule(StrictModel):
-    """Deny `deny` if `within_turns_after` was called in the last `turns` turns."""
+    """Deny `deny` if `within_turns_after` was called in the last `turns`
+    turns, or at any earlier point in the session with `turns: session`.
+
+    Every executed call is a turn, so a numeric window can be padded: a
+    caller who gets a few harmless calls allowed ages the trigger out of
+    it. A session-long rule has no window to push anything out of.
+    """
 
     deny: str
     within_turns_after: str
-    turns: int = Field(gt=0)
+    turns: Annotated[int, Field(gt=0)] | Literal["session"]
 
 
 class FlowRule(StrictModel):

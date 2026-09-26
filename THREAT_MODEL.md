@@ -139,7 +139,9 @@ gate, latency for queued calls; the benchmark's benign twins price it.
 1. **Multi-step attacks that stay inside policy.** Each call
    individually legal, the harm in the composition. Sequence rules
    catch the shapes you anticipated; they do not catch the ones you
-   didn't.
+   didn't. A numeric window also counts every executed call, so
+   harmless allowed calls can pad the trigger out of it; only
+   `turns: session` can't be outwaited.
 2. **Gate social-engineering.** Content that coaches the model to make
    the request look routine or urgent to the approving human.
 3. **Policy gaps.** Unknown-tool defaults and `"*"` taint classes are

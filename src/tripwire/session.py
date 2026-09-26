@@ -5,7 +5,9 @@ A blocked call leaves nothing behind: no count, no history entry, no
 turn. That asymmetry is on purpose — if refused calls moved the state,
 an attacker could spend your per-session budget with calls that never
 ran, or fire three junk calls to push a fetch_url out of a sequence
-window. Refusing a call should never help the caller.
+window. Refusing a call should never help the caller. (Allowed calls do
+move the turn, so a numeric window can still be padded with harmless
+ones. `turns: session` is the sequence rule that can't be.)
 """
 
 from __future__ import annotations

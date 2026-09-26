@@ -49,7 +49,7 @@ tools:
 sequences:                     # order-of-operations rules
   - deny: execute_code
     within_turns_after: fetch_url
-    turns: 3
+    turns: 3                   # or session: for the rest of the session
 
 flows:                         # information-flow rules; tighten only
   - when: context_tainted
@@ -91,6 +91,11 @@ short-circuits; otherwise stages may only escalate the verdict
    blocks, and a non-finite value is never added to the total.
 4. **Sequences.** `deny: X within_turns_after: Y turns: N` blocks X
    when Y ran at turn *t* and the current turn is within *t + N*.
+   `turns: session` blocks X for the rest of the session once Y has
+   run. Every executed call is a turn, so a numeric window can be
+   padded: a caller who gets N harmless calls allowed after Y has aged
+   Y out of the window before calling X. Use `session` when no amount
+   of distance should make X safe.
 5. **Flows.** With `when: context_tainted`, once the session has seen
    any result from an `untrusted` source, listed tools escalate to the
    flow's action. Flows cannot allow — the schema rejects it.
