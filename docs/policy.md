@@ -62,10 +62,13 @@ Every call is judged in five stages. The first hard **block**
 short-circuits; otherwise stages may only escalate the verdict
 (allow → gate → block), never relax it.
 
-1. **Tool lookup.** No entry in `tools:` → the verdict is
-   `defaults.unknown_tools`. An entry with `action: block` ends it
+1. **Tool lookup.** An entry in `tools:` with `action: block` ends it
    here. `allow` / `require_approval` set the provisional verdict and
-   evaluation continues.
+   evaluation continues. A tool with no entry gets
+   `defaults.unknown_tools` as its action: `block` ends it here too,
+   while `allow` / `require_approval` have no constraints or limits to
+   check but still go through sequences and flows, which may name
+   tools that have no entry of their own.
 2. **Constraints**, on canonicalized arguments (below). A constraint on
    an argument the call didn't provide **blocks** — absence is not a
    free pass. `max_length` bounds `len()`, and is checked before

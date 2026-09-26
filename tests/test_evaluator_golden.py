@@ -49,6 +49,53 @@ def test_plain_allow(reference_policy):
     assert v.rule_id == "tools.issue_refund.action"
 
 
+def unlisted(default, **rules):
+    return Policy.model_validate({"version": 1, "defaults": {"unknown_tools": default}, **rules})
+
+
+SHELL_AFTER_FETCH = [{"deny": "run_shell", "within_turns_after": "fetch_url", "turns": 3}]
+
+
+@pytest.mark.parametrize("default", ["allow", "require_approval"])
+def test_sequences_still_apply_to_unlisted_tools(default):
+    # neither tool has an entry, and neither needs one for the rule to mean something
+    state = SessionSnapshot(turn=3, history=((2, "fetch_url"),))
+    v = evaluate(ToolCall("run_shell"), state, unlisted(default, sequences=SHELL_AFTER_FETCH))
+    assert v.decision == "block"
+    assert v.rule_id == "sequences[0]"
+
+
+@pytest.mark.parametrize(
+    ("default", "action", "decision"),
+    [
+        ("allow", "require_approval", "gate"),
+        ("allow", "block", "block"),
+        ("require_approval", "block", "block"),
+    ],
+)
+def test_flows_still_escalate_unlisted_tools(default, action, decision):
+    flows = [{"when": "context_tainted", "tools": ["http_post"], "action": action}]
+    policy = unlisted(default, flows=flows)
+    v = evaluate(ToolCall("http_post"), SessionSnapshot(tainted=True), policy)
+    assert v.decision == decision
+    assert v.rule_id == "flows[0]"
+
+
+def test_unlisted_tool_keeps_the_default_when_nothing_objects():
+    flows = [{"when": "context_tainted", "tools": ["http_post"], "action": "require_approval"}]
+    policy = unlisted("require_approval", flows=flows, sequences=SHELL_AFTER_FETCH)
+    v = evaluate(ToolCall("http_post"), SessionSnapshot(tainted=True), policy)
+    assert v.decision == "gate"
+    assert v.rule_id == "defaults.unknown_tools"
+
+
+def test_blocked_unlisted_tool_still_short_circuits():
+    state = SessionSnapshot(turn=3, history=((2, "fetch_url"),))
+    v = evaluate(ToolCall("run_shell"), state, unlisted("block", sequences=SHELL_AFTER_FETCH))
+    assert v.decision == "block"
+    assert v.rule_id == "defaults.unknown_tools"
+
+
 # --- stage 2: constraints ---------------------------------------------------
 
 

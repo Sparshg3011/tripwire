@@ -10,9 +10,12 @@ Rules of this module — these are the invariants everything else leans on:
 Evaluation order (stage number goes in front of nothing — rule_id is the
 dotted path of the deciding rule):
 
-  1. Tool lookup. If the tool has no entry in policy.tools, the verdict
-     comes from defaults.unknown_tools (rule_id "defaults.unknown_tools").
-     If it does: action=block short-circuits right here (rule_id
+  1. Tool lookup. If the tool has no entry in policy.tools,
+     defaults.unknown_tools stands in for its action (rule_id
+     "defaults.unknown_tools"): block short-circuits right here, and
+     allow / require_approval skip stages 2-3, having nothing to check,
+     but still face stages 4-5, which may name a tool with no entry.
+     If it has one: action=block short-circuits right here (rule_id
      "tools.<name>.action", reason from the rule's `reason` if set).
      action=allow / require_approval set the provisional decision
      (allow / gate) and evaluation continues.
@@ -69,7 +72,7 @@ import math
 import re
 from typing import Any, TypeGuard
 
-from tripwire.policy.schema import Constraint, Policy
+from tripwire.policy.schema import Constraint, Policy, ToolRule
 from tripwire.policy.types import Decision, SessionSnapshot, ToolCall, Verdict
 
 SEVERITY: dict[Decision, int] = {"allow": 0, "gate": 1, "block": 2}
@@ -140,24 +143,27 @@ def evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
     # --- 1. tool lookup ---
     rule = policy.tools.get(call.tool)
     if rule is None:
-        return verdict(
-            AS_DECISION[policy.defaults.unknown_tools],
-            "defaults.unknown_tools",
-            f"No policy rule for {call.tool!r}; unknown tools are {policy.defaults.unknown_tools}.",
-        )
-
-    if rule.action == "block":
+        unknown = policy.defaults.unknown_tools
+        provisional = AS_DECISION[unknown]
+        decided_by = "defaults.unknown_tools"
+        reason = f"No policy rule for {call.tool!r}; unknown tools are {unknown}."
+        if provisional == "block":
+            return verdict(provisional, decided_by, reason)
+        # nothing of its own for stages 2-3 to check, but a sequence or
+        # flow can still name a tool that has no entry
+        rule = ToolRule(action=unknown)
+    elif rule.action == "block":
         return verdict(
             "block", f"tools.{call.tool}.action", rule.reason or f"{call.tool} is blocked."
         )
-
-    provisional = AS_DECISION[rule.action]
-    decided_by = f"tools.{call.tool}.action"
-    reason = (
-        f"{call.tool} requires approval."
-        if provisional == "gate"
-        else f"{call.tool} is allowed and no rule objected."
-    )
+    else:
+        provisional = AS_DECISION[rule.action]
+        decided_by = f"tools.{call.tool}.action"
+        reason = (
+            f"{call.tool} requires approval."
+            if provisional == "gate"
+            else f"{call.tool} is allowed and no rule objected."
+        )
 
     # --- 2. constraints, on the canonicalized args ---
     for arg, constraint in rule.constraints.items():
