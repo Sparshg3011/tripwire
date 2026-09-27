@@ -50,7 +50,7 @@ would occur.
 | **Sequence rules** | Deny risky actions shortly after untrusted reads or other sensitive steps. |
 | **Information flow** | Mark sessions tainted after untrusted tool results and tighten selected actions. |
 | **Human approval** | Pause high-risk calls at a terminal or token-protected localhost gate. |
-| **Transactional dedupe** | With `--tx-db`, return the first result when an identical side effect is retried. |
+| **Transactional dedupe** | With `--tx-db`, return the first result when an identical side effect is retried in the same session, and refuse one whose first attempt has no recorded outcome. |
 | **Forensic evidence** | Explain every verdict in a hash-chained audit log; trace, verify, report, and replay it. |
 
 The policy engine is pure and deterministic: no model call, classifier, network request, clock, or
