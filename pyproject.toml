@@ -102,3 +102,6 @@ extend-select = ["I"]
 # evaluate() is total by contract too: a stage that raises has answered,
 # and the answer is a block verdict rather than a traceback.
 "src/tripwire/policy/evaluator.py" = ["BLE001"]
+# normalize() as well: a value it can't read is Invalid, and an Invalid
+# target blocks.
+"src/tripwire/policy/values.py" = ["BLE001"]
