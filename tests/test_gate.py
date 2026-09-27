@@ -380,9 +380,9 @@ async def test_the_page_updates_itself_instead_of_reloading(web):
         _, page = get(web, f"/?k={web.token}")
         rid = CARD_RE.search(page).group(2)
         # a reload would fold the full body away while the human reads it,
-        # so only a browser without scripts gets one
+        # scripts or not
         assert "<details>" in page
-        assert page.count("http-equiv") == page.count('<noscript><meta http-equiv="refresh"') == 1
+        assert "http-equiv" not in page
         # what the poller matches cards by, and where it puts new ones
         assert f'<div class="card" data-rid="{rid}">' in page
         assert '<div id="cards">' in page
@@ -392,6 +392,8 @@ async def test_the_page_updates_itself_instead_of_reloading(web):
     _, idle = get(web, f"/?k={web.token}")
     assert '<p id="idle">' in idle
     assert "setInterval(poll" in idle
+    # with nothing open to fold, a browser without scripts reloads instead
+    assert '<noscript><meta http-equiv="refresh" content="2"></noscript>' in idle
 
 
 async def test_an_answer_after_the_question_closed_says_it_changed_nothing(web):

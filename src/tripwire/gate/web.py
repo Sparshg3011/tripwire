@@ -135,7 +135,7 @@ class WebGate:
 
 PAGE = """<!doctype html>
 <meta charset="utf-8">
-<noscript><meta http-equiv="refresh" content="2"></noscript>
+{refresh}
 <title>tripwire approvals</title>
 <style>
   body {{ font: 15px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; }}
@@ -156,7 +156,8 @@ PAGE = """<!doctype html>
 # away a value the human opened to read, and a card leaving would slide
 # the next one's buttons under their cursor. So a card whose question
 # closed stays where it is, greyed out with its buttons off, and a new
-# one joins the end. Without scripts the page falls back to reloading.
+# one joins the end. Without scripts reloading is all there is, so the
+# page does it only while idle, to pick up the first question.
 POLL = """
 async function poll() {
   let fresh;
@@ -180,6 +181,8 @@ async function poll() {
 }
 setInterval(poll, 2000);
 """
+
+RELOAD = '<noscript><meta http-equiv="refresh" content="2"></noscript>'
 
 LATE = '<p class="late">That answer did not reach its request in time, so it changed nothing.</p>'
 
@@ -278,7 +281,8 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
             cards = [_card(rid, req, gate.token) for rid, req in gate._snapshot()]
             body = "\n".join(cards) if cards else '<p id="idle">Nothing waiting for approval.</p>'
             notice = LATE if "late" in query else ""
-            page = PAGE.format(notice=notice, body=body, script=POLL).encode()
+            refresh = "" if cards else RELOAD
+            page = PAGE.format(refresh=refresh, notice=notice, body=body, script=POLL).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
