@@ -6,6 +6,7 @@ plumbing: who gets called, in what order, and what the agent is handed back.
 """
 
 import json
+import sqlite3
 
 import anyio
 import pytest
@@ -16,6 +17,7 @@ from tripwire.policy.types import Verdict
 from tripwire.proxy.interceptor import Interceptor
 from tripwire.session import SessionState
 from tripwire.tx import AuditLog
+from tripwire.tx.executor import TxExecutor
 
 OK = types.CallToolResult(content=[types.TextContent(type="text", text="ok")])
 
@@ -100,7 +102,7 @@ def audit_path(tmp_path):
 
 @pytest.fixture
 def make(audit_path):
-    def build(evaluate, canonicalize=passthrough, enforce=True, upstream=None, taint=None):
+    def build(evaluate, canonicalize=passthrough, enforce=True, upstream=None, taint=None, tx=None):
         policy = Policy(version=1, enforce=enforce)
         session = SessionState(policy, taint=taint if taint is not None else FakeTaint())
         return Interceptor(
@@ -108,6 +110,7 @@ def make(audit_path):
             AuditLog(audit_path),
             upstream if upstream is not None else FakeUpstream(),
             session,
+            tx=tx,
             canonicalize=canonicalize,
             evaluate=evaluate,
         )
@@ -294,6 +297,40 @@ async def test_shadow_mode_lets_a_fail_closed_verdict_through_too(make, records)
     decision = records()[0]["data"]
     assert decision["rule"] == "evaluator_error"
     assert decision["shadow"] is True
+
+
+async def test_shadow_mode_goes_past_the_ledger(make, records, tmp_path):
+    # an earlier session died mid-call; enforcing, the retry is refused
+    # in every later session, but shadow mode stops nothing
+    ledger = tmp_path / "ledger.db"
+    earlier = TxExecutor(ledger, "earlier")
+
+    async def dies():
+        raise RuntimeError("upstream dropped")
+
+    with pytest.raises(RuntimeError):
+        await earlier.run("add", {"a": 1}, dies)
+    earlier.close()
+
+    itc = make(
+        returns(Verdict("allow", "tools.add", "fine", shadow=True)),
+        enforce=False,
+        tx=TxExecutor(ledger, "shadow"),
+    )
+    first = await itc.handle("add", {"a": 1})
+    again = await itc.handle("add", {"a": 1})
+    itc.tx.close()
+
+    assert first is again is itc.upstream.result
+    assert itc.upstream.calls == [("add", {"a": 1})] * 2  # run each time, never replayed
+    kinds = [row["kind"] for row in records()]
+    assert "tx_duplicate" not in kinds
+    assert "tx_replayed" not in kinds
+    # and nothing written, so shadow traffic never strands a call either
+    db = sqlite3.connect(ledger)
+    sessions = db.execute("SELECT session FROM intents").fetchall()
+    db.close()
+    assert sessions == [("earlier",)]
 
 
 # --- upstream trouble ---

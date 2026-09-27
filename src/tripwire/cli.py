@@ -102,7 +102,8 @@ def main(argv: list[str] | None = None) -> None:
         "--tx-db",
         help=(
             "sqlite ledger for idempotency; with it a retried identical call in the "
-            "same session returns the first call's result instead of running the tool twice"
+            "same session returns the first call's result instead of running the tool twice "
+            "(shadow mode doesn't use it)"
         ),
     )
     p_serve.add_argument(

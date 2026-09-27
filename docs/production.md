@@ -178,6 +178,12 @@ A row left by a version of tripwire from before sessions were recorded
 has no session and can't say which call it was, so until it's cleared it
 refuses every call to its tool.
 
+Shadow mode leaves the ledger alone: every call goes straight to the
+tool, nothing is replayed or refused, and nothing is written. A call an
+enforcing session left unresolved doesn't stop a shadow session, and
+shadow traffic never leaves one behind for the enforcing sessions that
+follow.
+
 **Watch the exit codes.** `2` means refused to start (bad policy, dead
 upstream, unwritable log, missing or wrong audit key, unusable gate).
 `70` means it started and then lost the audit log, and killed itself

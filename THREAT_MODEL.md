@@ -31,11 +31,11 @@ bet on the model.
   unkeyed, it only catches an edit that leaves the rest of the chain
   alone (see below). If tripwire cannot write the log, it stops the
   world rather than act unrecorded.
-- **The retry hole.** Within one proxy session, a duplicated
+- **The retry hole.** Within one enforcing proxy session, a duplicated
   side-effectful call replays the first result instead of running
   twice. A call whose outcome was never recorded is refused in every
-  session, including the one a crashed proxy restarts as, until an
-  operator clears it.
+  enforcing session, including the one a crashed proxy restarts as,
+  until an operator clears it.
 
 ## What tripwire does not defend
 
@@ -150,7 +150,9 @@ serve every later conversation the first one's results, with no clock
 to expire them. The cost: a call that completed just before the proxy
 died, with its answer lost on the way to the agent, runs again when the
 retry reaches the restarted proxy. A call whose outcome was never
-recorded does not have that gap; it is refused across sessions.
+recorded does not have that gap; it is refused across sessions. Shadow
+mode bypasses the ledger entirely, so under `enforce: false` a retry
+runs again exactly as it would without tripwire.
 
 **Interactive approval assumes the human reads.** Gate prompts show the
 tool, every argument by name, the rule that fired, and the taint trail
