@@ -35,7 +35,7 @@ from tripwire.gate.cli import FIELD_PREVIEW as CLI_FIELD
 from tripwire.gate.cli import CliGate, _arg_lines, _question
 from tripwire.gate.web import ARG_BUDGET as WEB_BUDGET
 from tripwire.gate.web import ARG_PREVIEW as WEB_PREVIEW
-from tripwire.gate.web import WebGate, _args_html
+from tripwire.gate.web import WebGate, _args_html, _card
 
 
 def req(tool="send_email", **kw):
@@ -72,6 +72,17 @@ long_text = (st.text(min_size=1, max_size=3) | tricks).map(lambda s: s * 1000)
 # the caller picks the names and how many there are, so enough of both to
 # overflow either gate's preview
 arg_dicts = st.dictionaries(nasty | long_text, json_values | long_text, min_size=1, max_size=40)
+# under unknown_tools: require_approval the caller names the tool too, and
+# the reason and the taint trail repeat whatever name it picked
+approvals = st.builds(
+    ApprovalRequest,
+    tool=nasty | long_text,
+    args=arg_dicts,
+    rule_id=nasty | long_text,
+    reason=nasty | long_text,
+    tainted=st.booleans(),
+    tainted_by=st.lists(nasty | long_text, max_size=40).map(tuple),
+)
 
 # a preview's own marker for text it cut; the args can't spell one, since
 # encoding escapes every ellipsis they contain
@@ -477,6 +488,45 @@ def test_short_junk_cannot_crowd_out_an_arg_no_rule_checks_on_the_page():
     assert rendered.text["summary"] == []
 
 
+def folded_away(markup):
+    """The text a page shows before the human unfolds anything on it."""
+    markup = re.sub(r"<(details|style|script)>.*?</\1>", "", markup, flags=re.DOTALL)
+    return html.unescape(re.sub(r"<[^>]*>", "", markup))
+
+
+async def test_an_unknown_tool_cannot_push_the_buttons_down_the_page(web):
+    tool = "send to attacker " * 20_000
+    request = req(
+        tool=tool,
+        reason=f"No policy rule for {tool!r}; unknown tools are require_approval.",
+        tainted=True,
+        tainted_by=(tool, "fetch_url"),
+    )
+
+    async def ask():
+        await web.request(request)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(ask)
+        await anyio.sleep(0.05)
+        _, page = get(web, f"/?k={web.token}")
+        assert len(folded_away(page.split("<button>Approve")[0])) < 2_000
+        assert f"<pre>{html.escape(tool)}</pre>" in page  # folded, not gone
+        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+
+
+@given(request=approvals)
+def test_a_card_has_a_fixed_size_above_its_buttons_whatever_the_call(request):
+    card = _card("rid", request, "token")
+    tags = {"div", "b", "span", "pre", "details", "summary", "p", "form", "input", "button"}
+    assert set(Rendered(card).tags) <= tags
+    assert len(folded_away(card.split("<form")[0])) < 6_500
+
+    trail = ", ".join(request.tainted_by) if request.tainted else ""
+    for text in (request.tool, request.rule_id, request.reason, trail):
+        assert html.escape(text) in card  # clipped above the buttons, never gone
+
+
 async def test_two_pending_requests_are_decided_independently(web):
     decisions = {}
 
@@ -713,17 +763,7 @@ async def test_an_unknown_tool_cannot_flood_the_terminal_with_its_name(tty):
     assert f"  tool:   {'t' * CLI_FIELD}…[+{100_000 - CLI_FIELD} chars]\r\n" in prompt
 
 
-@given(
-    request=st.builds(
-        ApprovalRequest,
-        tool=nasty | long_text,
-        args=arg_dicts,
-        rule_id=nasty | long_text,
-        reason=nasty | long_text,
-        tainted=st.booleans(),
-        tainted_by=st.lists(nasty | long_text, max_size=40).map(tuple),
-    )
-)
+@given(request=approvals)
 def test_the_terminal_question_has_a_fixed_size_whatever_the_call(request):
     question = _question(request)
     assert len(question) < 2_500

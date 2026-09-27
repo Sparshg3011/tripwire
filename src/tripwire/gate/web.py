@@ -58,6 +58,10 @@ ARG_PREVIEW = 1000  # per value; the rest of a longer one sits folded below the 
 # a long scroll away; the arguments that don't fit are folded below as well.
 ARG_BUDGET = 4000
 ARG_WIDTH = 70  # short args share a line this long; the preview box holds 71 a row
+# The tool, rule, reason and taint trail, above the buttons as well. An
+# unknown tool's name is the caller's to pick, and the reason and the
+# trail can repeat it.
+FIELD_PREVIEW = 500
 
 
 class WebGate:
@@ -164,7 +168,7 @@ LATE = '<p class="late">That answer came after its request had closed, so it cha
 CARD = """<div class="card" data-rid="{rid}">
 <b>{tool}</b> (turn {turn}) — {taint}
 {args}
-<p>{rule}: {reason}</p>
+<p>{rule}: {reason}</p>{fields}
 <form method="post" action="/decide"><input type="hidden" name="k" value="{k}">
 <input type="hidden" name="rid" value="{rid}"><input type="hidden" name="action" value="approve">
 <button>Approve</button></form>
@@ -203,6 +207,35 @@ def _args_html(args: Mapping[str, Any], checked: Collection[str] = frozenset()) 
     return "".join(parts)
 
 
+def _card(rid: str, req: ApprovalRequest, token: str) -> str:
+    """One open question. The text the caller could have written is
+    clipped, like the arguments, and folded below the rule in full."""
+    trail = ", ".join(req.tainted_by) if req.tainted else ""
+    taint = "<span class=taint>tainted session</span>" if req.tainted else "clean session"
+    if trail:
+        taint += f" (via {_field(trail)})"
+    fields = {"tool": req.tool, "rule": req.rule_id, "reason": req.reason, "taint trail": trail}
+    return CARD.format(
+        tool=_field(req.tool),
+        turn=req.turn,
+        taint=taint,
+        args=_args_html(req.args, req.checked),
+        rule=_field(req.rule_id),
+        reason=_field(req.reason),
+        fields="".join(
+            f"<details><summary>{label} in full</summary><pre>{html.escape(text)}</pre></details>"
+            for label, text in fields.items()
+            if len(text) > FIELD_PREVIEW
+        ),
+        rid=html.escape(rid),
+        k=html.escape(token),
+    )
+
+
+def _field(text: str) -> str:
+    return html.escape(clip(text, FIELD_PREVIEW))
+
+
 def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *args: object) -> None:
@@ -224,25 +257,7 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                 self._forbidden()
                 return
 
-            cards = []
-            for rid, req in gate._snapshot():
-                taint = (
-                    "<span class=taint>tainted session</span>" if req.tainted else "clean session"
-                )
-                if req.tainted and req.tainted_by:
-                    taint += f" (via {html.escape(', '.join(req.tainted_by))})"
-                cards.append(
-                    CARD.format(
-                        tool=html.escape(req.tool),
-                        turn=req.turn,
-                        taint=taint,
-                        args=_args_html(req.args, req.checked),
-                        rule=html.escape(req.rule_id),
-                        reason=html.escape(req.reason),
-                        rid=html.escape(rid),
-                        k=html.escape(gate.token),
-                    )
-                )
+            cards = [_card(rid, req, gate.token) for rid, req in gate._snapshot()]
             body = "\n".join(cards) if cards else '<p id="idle">Nothing waiting for approval.</p>'
             notice = LATE if "late" in query else ""
             page = PAGE.format(notice=notice, body=body, script=POLL).encode()
