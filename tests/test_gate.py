@@ -786,11 +786,15 @@ def test_a_dozen_one_letter_args_cannot_crowd_out_an_arg_no_rule_checks():
 
 async def test_the_args_the_policy_checks_come_before_shorter_junk(tty):
     master, gate = tty
-    args = {"to": "attacker@evil.example"} | {f"a{i}": 0 for i in range(300)}
+    junk = {f"a{i}": 0 for i in range(300)}
+    args = {"to": "attacker@evil.example"} | junk
     prompt = await prompt_for(master, gate, req(args=args, checked=frozenset({"to"})))
 
     assert '  args:   "to": "attacker@evil.example"\r\n' in prompt
-    assert "  hidden: " in prompt  # there was more junk than room
+    section = prompt.split("  args:")[1].split("  hidden:")[0]
+    shown = sum(len(split_line(line.strip(), CLI_PREVIEW)) for line in section.split("\r\n")[:-1])
+    # the junk that didn't fit, counted exactly: there was more than room
+    assert f"  hidden: {left_out(junk, shown - 1)}, not shown here" in prompt
 
 
 async def test_an_unknown_tool_cannot_flood_the_terminal_with_its_name(tty):
