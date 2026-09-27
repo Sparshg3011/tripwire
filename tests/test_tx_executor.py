@@ -300,6 +300,47 @@ async def test_a_second_executor_replays_what_the_first_completed(db):
     b.close()
 
 
+def _attempt(db, session_id, start, decided, outcomes):
+    ex = TxExecutor(db, session_id)
+
+    async def forward():
+        outcomes.append("forwarded")
+        # stay in flight until the other session has made its choice
+        decided.wait(timeout=10)
+        return ok()
+
+    async def attempt():
+        try:
+            await ex.run("send_payment", {"to": "bob", "amount": 100}, forward)
+        except DuplicateInFlight:
+            outcomes.append("refused")
+            decided.wait(timeout=10)
+
+    start.wait()
+    anyio.run(attempt)
+    ex.close()
+
+
+def test_two_sessions_racing_on_one_call_forward_it_once(tmp_path):
+    # the look for an unresolved row and the insert are two statements,
+    # and two sessions both looking before either inserts is the race
+    for trial in range(5):
+        db = tmp_path / f"ledger-{trial}.db"
+        TxExecutor(db, "setup").close()
+        start, decided = threading.Barrier(2), threading.Barrier(2)
+        outcomes = []
+        sessions = [
+            threading.Thread(target=_attempt, args=(db, sid, start, decided, outcomes))
+            for sid in ("a", "b")
+        ]
+        for session in sessions:
+            session.start()
+        for session in sessions:
+            session.join()
+
+        assert sorted(outcomes) == ["forwarded", "refused"]
+
+
 # --- the file itself --------------------------------------------------------
 
 

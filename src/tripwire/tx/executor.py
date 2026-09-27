@@ -47,8 +47,9 @@ run(tool, args, forward) -> (result, replayed):
     DuplicateInFlight too. This is the proxy that died mid-call and came
     back as a new session, and its retry is the duplicate the ledger
     exists to stop. It also refuses a second live session that shares
-    the db and happens to be mid-call on the identical thing; once that
-    one finishes, the call runs.
+    the db and happens to be mid-call on the identical thing, even one
+    that arrives at the same instant: the ledger holds one unresolved
+    row per call. Once that one finishes, the call runs.
 
   * forward returns isError=True -> the intent row is DELETED and the
     error result returned, (result, False). The tool itself told us it
@@ -158,7 +159,13 @@ class TxExecutor:
                 for column in LATER_COLUMNS:
                     if column not in have:
                         self._db.execute(f"ALTER TABLE intents ADD COLUMN {column} TEXT")
-                self._db.execute("CREATE INDEX IF NOT EXISTS intents_by_call ON intents (call_key)")
+                # one unresolved row per call across every session; the
+                # look in run() and the insert after it are two statements,
+                # and this is what keeps two sessions from both passing
+                self._db.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS intents_in_flight "
+                    "ON intents (call_key) WHERE state = 'in_flight'"
+                )
         except sqlite3.Error as e:
             raise TxError(f"cannot open the ledger at {self.path}: {e}") from e
 
@@ -194,11 +201,19 @@ class TxExecutor:
 
         # intent first, always: a side effect with no prior record is the
         # one thing this class exists to prevent
-        self._write(
-            "INSERT INTO intents (key, tool, state, call_key, session) "
-            "VALUES (?, ?, 'in_flight', ?, ?)",
-            (key, tool, call, self.session_id),
-        )
+        try:
+            self._db.execute(
+                "INSERT INTO intents (key, tool, state, call_key, session) "
+                "VALUES (?, ?, 'in_flight', ?, ?)",
+                (key, tool, call, self.session_id),
+            )
+        except sqlite3.IntegrityError as e:
+            raise DuplicateInFlight(
+                f"{tool} with these arguments was started by another session at the same "
+                f"moment; inspect {self.path} before retrying"
+            ) from e
+        except sqlite3.Error as e:
+            raise TxError(f"ledger write failed: {e}") from e
 
         result = await forward()
 
