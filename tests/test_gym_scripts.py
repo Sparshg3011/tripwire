@@ -7,6 +7,7 @@ nothing else: what is under test is the shell, not the benchmark.
 """
 
 import os
+import shlex
 import subprocess
 from pathlib import Path
 
@@ -73,6 +74,25 @@ def test_setup_builds_its_environments_with_the_python_it_is_given(tmp_path, fak
 
     # the fake makes no environment, so the script stops at the next step
     assert calls()[:1] == [["-m", "venv", ".venv-agentdyn"]]
+
+
+def test_leave_one_out_prints_an_aggregation_command_that_pastes(tmp_path, fake_python):
+    python, _ = fake_python
+    out = tmp_path / "loo results"
+    env = {**os.environ, "PY": str(python)}
+
+    done = run("run_ablation_loo.sh", "scripted", "1", "", "1", str(out), cwd=tmp_path, env=env)
+
+    assert done.returncode == 0, done.stderr
+    assert shlex.split(done.stdout.splitlines()[-1]) == [
+        str(python),
+        "-m",
+        "tripwire_gym.publication",
+        "--root",
+        str(out),
+        "--out",
+        f"{out}/summary",
+    ]
 
 
 @pytest.mark.parametrize("resume", [False, True])

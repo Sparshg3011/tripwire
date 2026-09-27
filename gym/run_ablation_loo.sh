@@ -44,4 +44,4 @@ done
 
 echo "Generated the full-versus-minus-one runs under $OUT."
 echo "Aggregate them with:"
-echo "$PY -m tripwire_gym.publication --root $OUT --out $OUT/summary"
+printf '%q -m tripwire_gym.publication --root %q --out %q\n' "$PY" "$OUT" "$OUT/summary"
