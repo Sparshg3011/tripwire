@@ -28,13 +28,15 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Hashable, Any]:
         seen = set()
         for key_node, _ in node.value:
-            # keys pulled in by a `<<` merge may be overridden; that's
-            # what a merge is for
             if key_node.tag == "tag:yaml.org,2002:merge":
-                continue
-            key = self.construct_object(key_node, deep=deep)
-            if not isinstance(key, Hashable):
-                continue  # super() reports it
+                # keys pulled in by a merge may be overridden; that's what
+                # a merge is for. But a second `<<` is a repeat like any
+                # other key: yaml applies both, and the later one wins.
+                key: Hashable = "<<"
+            else:
+                key = self.construct_object(key_node, deep=deep)
+                if not isinstance(key, Hashable):
+                    continue  # super() reports it
             if key in seen:
                 raise yaml.constructor.ConstructorError(
                     "while constructing a mapping",

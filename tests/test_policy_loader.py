@@ -69,6 +69,38 @@ def test_merge_keys_may_still_be_overridden(tmp_path):
     assert policy.tools["http_post"].limits.per_session == 3
 
 
+def test_second_merge_key_rejected(tmp_path):
+    # yaml applies both and the later one wins, so the strict rule a reader
+    # sees first is not the one in force
+    p = write(
+        tmp_path,
+        "version: 1\n"
+        "tools:\n"
+        "  send_email: &strict {action: require_approval}\n"
+        "  read_email: &loose {action: allow}\n"
+        "  forward_email:\n"
+        "    <<: *strict\n"
+        "    <<: *loose\n",
+    )
+    with pytest.raises(PolicyError, match=r"(?s)duplicate key '<<'.*line 7, column 5"):
+        load_policy(p)
+
+
+def test_one_merge_key_may_merge_several_mappings(tmp_path):
+    # a list is how to merge more than one, and the first one listed wins
+    p = write(
+        tmp_path,
+        "version: 1\n"
+        "tools:\n"
+        "  send_email: &strict {action: require_approval}\n"
+        "  read_email: &loose {action: allow, reason: fine}\n"
+        "  forward_email: {<<: [*strict, *loose]}\n",
+    )
+    rule = load_policy(p).tools["forward_email"]
+    assert rule.action == "require_approval"
+    assert rule.reason == "fine"
+
+
 def test_validation_error_names_the_path(tmp_path):
     p = write(tmp_path, "version: 1\ntools:\n  send_email: {action: maybe}\n")
     with pytest.raises(PolicyError, match="tools.send_email.action"):
