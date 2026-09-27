@@ -6,11 +6,14 @@ noise; for a payment it's the incident report. The executor makes a
 duplicate call return the first call's result instead of running the
 tool a second time.
 
-The key: SHA-256 over (session_id, tool, canonical args serialized as
-compact sorted json). Same intent -> same key. Args are the
-*canonicalized* form, so two spellings of one value can't dodge the
-dedup. Keys include the session id, so nothing replays across sessions
-— a fresh session gets fresh results even against the same db file.
+The key: SHA-256 over (session_id, tool, args serialized as compact
+sorted json). Same intent -> same key. Args are the form the proxy
+forwards: the arguments the policy checks are *canonicalized*, so two
+spellings of a checked value can't dodge the dedup, and the rest are
+keyed as they arrived, since two spellings of those reach the tool as
+two different calls. Keys include the session id, so nothing replays
+across sessions — a fresh session gets fresh results even against the
+same db file.
 
 In the proxy a session is one process, i.e. one agent connection, so a
 restarted proxy is a new session: a call its predecessor completed runs
