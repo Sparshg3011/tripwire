@@ -165,24 +165,25 @@ take the preview past 1000 characters (web: 4000) they are left out,
 with a line saying exactly how many arguments and encoded characters
 that was. So a long body can't push the recipient out of view, and junk
 can't push out an argument a rule checks. It can push out one no rule
-checks, which is every argument when a flow or sequence rule fired, but
-only by filling the preview; the prompt then says what it left out, and
-the terminal adds that approving forwards it anyway. Both gates clip
-the tool, rule, reason and taint trail as well, at 200 characters each
-(web: 500), because an unknown tool's name comes from the caller too,
-so nothing the caller sends can grow a question past a fixed size. A
-nested object is clipped as a whole, with its members shortest first,
-so a long member can't hide a short one. Enough short members can still
-push a longer one past the clip, though, since only the top-level
-arguments get a budget; and a list keeps its order, so a long first
-item can hide the ones after it. The marker says how much was cut, and the web gate
-keeps everything it clipped or left out on the page in full, escaped, a
-click away. It remains a human decision, and "make the human tired of
-saying yes" is a real attack family the benchmark exercises. The web
-gate binds to 127.0.0.1 and requires a per-run token precisely because
-a browser will submit forms to localhost from any page: without the
-token, injected content could steer the user's own browser into
-approving the attacker's call.
+checks, which is every argument of a tool with no constraints or
+budget, such as an unknown tool, but only by filling the preview; the
+prompt then says what it left out, and the terminal adds that approving
+forwards it anyway. Both gates clip the tool, rule, reason and taint
+trail as well, at 200 characters each (web: 500), because an unknown
+tool's name comes from the caller too, so nothing the caller sends can
+grow a question past a fixed size. A nested object is clipped as a
+whole, with its members shortest first, so a long member can't hide a
+short one. Enough short members can still push a longer one past the
+clip, though, since only the top-level arguments get a budget; and a
+list keeps its order, so a long first item can hide the ones after it.
+The marker says how much was cut, and the web gate keeps everything it
+clipped or left out on the page in full, escaped, a click away. It
+remains a human decision, and "make the human tired of saying yes" is a
+real attack family the benchmark exercises. The web gate binds to
+127.0.0.1 and requires a per-run token precisely because a browser will
+submit forms to localhost from any page: without the token, injected
+content could steer the user's own browser into approving the
+attacker's call.
 
 **Exact pre-approvals trust the host's authorization, not the agent's plan.**
 The experimental library gate can spend a host-issued approval for one complete

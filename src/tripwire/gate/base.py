@@ -107,14 +107,14 @@ def preview_args(
     called, and plenty of upstreams ignore the ones they don't know. So a
     few hundred junk arguments, each under the value clip, would bury the
     ones that matter. The arguments the policy checks are shown first,
-    one to a line, and always: they are what the rule that fired was
-    about, and their names come from the policy. The rest follow shortest
-    first while the preview, read as one list, stays within `budget`
-    characters, and share lines up to `width`. Capping the lines instead
-    would let a dozen one-letter arguments push out the one a flow rule
-    stopped, since those rules check none. The first that doesn't fit is
-    left out along with everything after it, so a flood costs the prompt
-    one line saying how much it left out.
+    one to a line, and always: the tool's rule reads them, and their
+    names come from the policy. The rest follow shortest first while the
+    preview, read as one list, stays within `budget` characters, and
+    share lines up to `width`. Capping the lines instead would let a
+    dozen one-letter arguments push out every argument of a tool with no
+    constraints, like the code of an execute_code a flow rule stopped.
+    The first that doesn't fit is left out along with everything after
+    it, so a flood costs the prompt one line saying how much it left out.
     """
     shown = encode_args({k: v for k, v in args.items() if k in checked})
     lines = [preview_arg(name, value, limit) for name, value in shown]
