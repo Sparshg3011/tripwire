@@ -141,7 +141,8 @@ def _walk(value: Any) -> Any:
 
 def checked_fields(tool: str, policy: Policy) -> frozenset[str]:
     """The top-level args the policy reads for this tool: its constraint
-    keys and the field its budget sums. Only these are canonicalized."""
+    keys and the field its budget sums. Only these are canonicalized, and
+    allowed_args admits them without listing them."""
     rule = policy.tools.get(tool)
     if rule is None:
         return frozenset()

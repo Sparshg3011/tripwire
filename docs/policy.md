@@ -73,8 +73,9 @@ short-circuits; otherwise stages may only escalate the verdict
    check but still go through sequences and flows, which may name
    tools that have no entry of their own.
 2. **Constraints**, on canonicalized arguments (below). If the tool
-   sets `allowed_args`, an argument named neither there nor under
-   `constraints` **blocks** (`tools.<name>.allowed_args`). Without it,
+   sets `allowed_args`, an argument named neither there, nor under
+   `constraints`, nor as the `field` its `sum_per_session` adds up
+   **blocks** (`tools.<name>.allowed_args`). Without it,
    arguments nothing constrains pass unchecked, so an allowlist on `to`
    alone still lets a `bcc` through. A constraint on an argument the
    call didn't provide **blocks** — absence is not a free pass.

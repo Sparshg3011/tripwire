@@ -81,8 +81,9 @@ class Limits(StrictModel):
 class ToolRule(StrictModel):
     action: Action
     constraints: dict[str, Constraint] = {}
-    # When set, an argument named neither here nor in constraints blocks
-    # the call. Without it, arguments nothing constrains pass unchecked.
+    # When set, an argument named neither here, nor in constraints, nor as
+    # the field sum_per_session adds up blocks the call. Without it,
+    # arguments nothing constrains pass unchecked.
     allowed_args: list[str] | None = None
     limits: Limits | None = None
     reason: str | None = None

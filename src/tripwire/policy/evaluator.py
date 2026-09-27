@@ -22,9 +22,10 @@ dotted path of the deciding rule):
      (allow / gate) and evaluation continues.
 
   2. Constraints, checked against the canonicalized args:
-       - if the rule sets allowed_args, an argument named neither there
-         nor in constraints -> block, before any constraint is checked
-         (rule_id "tools.<name>.allowed_args")
+       - if the rule sets allowed_args, an argument neither named there
+         nor read by the rule (checked_fields(): its constraint keys and
+         the field its budget sums) -> block, before any constraint is
+         checked (rule_id "tools.<name>.allowed_args")
        - constraint on an argument the call didn't provide -> block
          (fail closed; rule_id "tools.<name>.constraints.<arg>")
        - max_length: len(str(value)) must be <=; checked before the
@@ -75,6 +76,7 @@ import math
 import re
 from typing import Any, TypeGuard
 
+from tripwire.policy.canonical import checked_fields
 from tripwire.policy.schema import REGEX_FLAGS, Constraint, Policy, ToolRule
 from tripwire.policy.types import Decision, SessionSnapshot, ToolCall, Verdict
 
@@ -188,8 +190,9 @@ def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict
 
     # --- 2. constraints, on the canonicalized args ---
     if rule.allowed_args is not None:
+        read = checked_fields(call.tool, policy)
         for arg in call.args:
-            if arg not in rule.allowed_args and arg not in rule.constraints:
+            if arg not in rule.allowed_args and arg not in read:
                 return verdict(
                     "block",
                     f"tools.{call.tool}.allowed_args",

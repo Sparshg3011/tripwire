@@ -256,6 +256,18 @@ def test_a_nan_running_total_fails_the_budget():
     assert v.rule_id == "tools.refund.limits.sum_per_session"
 
 
+def test_allowed_args_need_not_list_the_budgeted_field():
+    # the budget reads amount the way a constraint would; refusing it as
+    # unlisted would leave no call that both rules let through
+    policy = refunds(allowed_args=["memo"], **BUDGET_ONLY)
+    call = ToolCall("refund", {"amount": 10, "memo": "x"})
+    assert evaluate(call, FRESH, policy).decision == "allow"
+
+    v = evaluate(ToolCall("refund", {"amount": 10, "memo": "x", "to": "x"}), FRESH, policy)
+    assert v.decision == "block"
+    assert v.rule_id == "tools.refund.allowed_args"
+
+
 # --- stage 4: sequences -----------------------------------------------------
 
 

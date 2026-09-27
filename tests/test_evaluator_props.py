@@ -95,6 +95,29 @@ def test_total_even_over_a_malformed_policy(call, state, policy):
     assert (v.decision, v.rule_id, v.shadow) == ("block", "evaluator_error", False)
 
 
+PICKY = Policy.model_validate(
+    {
+        "version": 1,
+        "tools": {
+            "refund": {
+                "action": "allow",
+                "allowed_args": ["memo"],
+                "constraints": {"to": {"max_length": 100}},
+                "limits": {"sum_per_session": {"field": "amount", "max": 500}},
+            }
+        },
+    }
+)
+
+
+@given(names=st.sets(st.sampled_from(["memo", "to", "amount", "bcc", "note"])), value=junk)
+def test_allowed_args_refuses_only_arguments_the_rule_never_reads(names, value):
+    # memo is listed, to is constrained, and amount is what the budget sums
+    v = evaluate(ToolCall("refund", dict.fromkeys(names, value)), SessionSnapshot(), PICKY)
+    unread = names - {"memo", "to", "amount"}
+    assert (v.rule_id == "tools.refund.allowed_args") == bool(unread)
+
+
 @given(call=calls, state=snapshots)
 @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_deterministic(reference_policy, call, state):
