@@ -600,6 +600,22 @@ def test_verify_authenticates_a_keyed_log_with_the_key_file(tmp_path, key_file):
     assert KEY.decode() not in done.stdout + done.stderr
 
 
+@pytest.mark.parametrize("key", [None, KEY], ids=["unkeyed", "keyed"])
+def test_verify_says_it_misses_a_cut_a_restart_carried_on_past(tmp_path, key_file, key):
+    # the gap is mid-log by then, so "cut from the end" alone reads as a
+    # promise about the middle that the chain can't keep
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 5, key=key)
+    path.write_text("\n".join(path.read_text().splitlines()[:2]) + "\n")
+    write_log(path, 1, key=key)
+
+    key_args = ["--audit-key-file", str(key_file)] if key else []
+    done = cli("verify", *key_args, str(path))
+    assert done.returncode == 0
+    assert "even once a restart carries on past the cut" in done.stdout
+    assert "deletion" not in done.stdout
+
+
 def test_verify_takes_the_key_file_from_the_environment(tmp_path, key_file):
     path = tmp_path / "audit.jsonl"
     write_log(path, 2, key=KEY)

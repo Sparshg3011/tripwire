@@ -161,7 +161,8 @@ tripwire verify ~/.tripwire/audit.jsonl
 ```
 ok: chain intact, 137 records (unkeyed)
   catches: a line edited or deleted in the middle of the log
-  misses:  a rewrite by anyone who can write the file; lines cut from the end
+  misses:  a rewrite by anyone who can write the file; lines cut from the end,
+           even once a restart carries on past the cut
   serve and verify with --audit-key-file to catch rewrites
 ```
 

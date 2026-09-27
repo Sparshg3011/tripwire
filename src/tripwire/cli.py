@@ -161,12 +161,14 @@ def main(argv: list[str] | None = None) -> None:
         if result.ok and key is None:
             print(f"ok: chain intact, {result.records} records (unkeyed)")
             print("  catches: a line edited or deleted in the middle of the log")
-            print("  misses:  a rewrite by anyone who can write the file; lines cut from the end")
+            print("  misses:  a rewrite by anyone who can write the file; lines cut from the end,")
+            print("           even once a restart carries on past the cut")
             print("  serve and verify with --audit-key-file to catch rewrites")
         elif result.ok:
             print(f"ok: chain intact, {result.records} records (keyed, all authenticated)")
-            print("  catches: any edit, deletion or rewrite made without the key")
-            print("  misses:  lines cut from the end")
+            print("  catches: any edit, insertion or rewrite made without the key, and a line")
+            print("           deleted in the middle of the log")
+            print("  misses:  lines cut from the end, even once a restart carries on past the cut")
         elif result.bad_line is None:
             print(f"cannot verify {args.log}: {result.why}", file=sys.stderr)
             sys.exit(1)
