@@ -5,6 +5,7 @@ refused, and a tool-reported error stays retryable.
 
 import sqlite3
 import tempfile
+import threading
 from pathlib import Path
 
 import anyio
@@ -45,6 +46,17 @@ def broken_forward(exc):
 @pytest.fixture
 def db(tmp_path):
     return tmp_path / "ledger.db"
+
+
+def old_ledger(db):
+    """A ledger as written before sessions were recorded, still open."""
+    old = sqlite3.connect(db, isolation_level=None)
+    old.execute("PRAGMA journal_mode=WAL")
+    old.execute(
+        "CREATE TABLE intents (key TEXT PRIMARY KEY, tool TEXT NOT NULL, "
+        "state TEXT NOT NULL, result TEXT)"
+    )
+    return old
 
 
 # --- intent_key -------------------------------------------------------------
@@ -223,11 +235,7 @@ async def test_an_operator_clearing_the_row_lets_the_retry_run(db):
 
 
 async def test_a_ledger_from_before_sessions_were_recorded_still_works(db):
-    old = sqlite3.connect(db, isolation_level=None)
-    old.execute(
-        "CREATE TABLE intents (key TEXT PRIMARY KEY, tool TEXT NOT NULL, "
-        "state TEXT NOT NULL, result TEXT)"
-    )
+    old = old_ledger(db)
     old.execute(
         "INSERT INTO intents VALUES (?, 'add', 'done', ?)",
         (intent_key("s1", "add", {"a": 1}), ok("from before").model_dump_json()),
@@ -244,6 +252,34 @@ async def test_a_ledger_from_before_sessions_were_recorded_still_works(db):
     assert forward.calls == 1
     assert replayed is False
     ex.close()
+
+
+def _open_when_released(db, barrier, session_id, failures):
+    barrier.wait()
+    try:
+        TxExecutor(db, session_id).close()
+    except TxError as e:
+        failures.append(e)
+
+
+def test_proxies_opening_an_old_ledger_together_all_start(tmp_path):
+    # an MCP client starts every server at once, so the first launch after
+    # an upgrade is exactly this; one proxy per thread is enough contention
+    failures = []
+    for trial in range(10):
+        db = tmp_path / f"ledger-{trial}.db"
+        old_ledger(db).close()
+        barrier = threading.Barrier(6)
+        proxies = [
+            threading.Thread(target=_open_when_released, args=(db, barrier, f"s{i}", failures))
+            for i in range(6)
+        ]
+        for proxy in proxies:
+            proxy.start()
+        for proxy in proxies:
+            proxy.join()
+
+    assert failures == []
 
 
 # --- two executors, one db --------------------------------------------------

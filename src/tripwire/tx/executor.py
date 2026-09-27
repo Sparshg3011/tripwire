@@ -148,12 +148,17 @@ class TxExecutor:
             # instead of failing the call
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("PRAGMA busy_timeout=5000")
-            self._db.execute(SCHEMA)
-            have = {row[1] for row in self._db.execute("PRAGMA table_info(intents)")}
-            for column in LATER_COLUMNS:
-                if column not in have:
-                    self._db.execute(f"ALTER TABLE intents ADD COLUMN {column} TEXT")
-            self._db.execute("CREATE INDEX IF NOT EXISTS intents_by_call ON intents (call_key)")
+            # one write transaction, or proxies opening an old ledger
+            # together all see a column missing and all but one fail to
+            # add it
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._db.execute(SCHEMA)
+                have = {row[1] for row in self._db.execute("PRAGMA table_info(intents)")}
+                for column in LATER_COLUMNS:
+                    if column not in have:
+                        self._db.execute(f"ALTER TABLE intents ADD COLUMN {column} TEXT")
+                self._db.execute("CREATE INDEX IF NOT EXISTS intents_by_call ON intents (call_key)")
         except sqlite3.Error as e:
             raise TxError(f"cannot open the ledger at {self.path}: {e}") from e
 
