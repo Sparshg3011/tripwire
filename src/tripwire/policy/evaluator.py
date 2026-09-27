@@ -29,9 +29,9 @@ dotted path of the deciding rule):
          (fail closed; rule_id "tools.<name>.constraints.<arg>")
        - max_length: len(str(value)) must be <=; checked before the
          regex, so an over-long value never gets matched
-       - regex: full match required; under re.IGNORECASE if
-         case_insensitive is set, unless the value contains one of
-         ASCII_CASE_ALIASES
+       - regex: full match required, in ASCII mode (REGEX_FLAGS), and
+         under re.IGNORECASE if case_insensitive is set, which then
+         folds ASCII letters and nothing else
        - type number: value must be a finite int/float (bool doesn't
          count, nor do NaN and +-inf); anything else -> block
        - min/max: numeric bounds, inclusive, on a finite value
@@ -75,7 +75,7 @@ import math
 import re
 from typing import Any, TypeGuard
 
-from tripwire.policy.schema import Constraint, Policy, ToolRule
+from tripwire.policy.schema import REGEX_FLAGS, Constraint, Policy, ToolRule
 from tripwire.policy.types import Decision, SessionSnapshot, ToolCall, Verdict
 
 SEVERITY: dict[Decision, int] = {"allow": 0, "gate": 1, "block": 2}
@@ -86,11 +86,6 @@ AS_DECISION: dict[str, Decision] = {
     "block": "block",
     "require_approval": "gate",
 }
-
-# The only non-ASCII characters re.IGNORECASE treats as cases of ASCII
-# letters: dotted and dotless i, long s and the Kelvin sign. A value
-# carrying one is matched as written, or "admın" would pass for "admin".
-ASCII_CASE_ALIASES = frozenset("\u0130\u0131\u017f\u212a")
 
 
 def is_number(value: Any) -> TypeGuard[float]:
@@ -117,8 +112,8 @@ def _constraint_holds(value: Any, c: Constraint) -> bool:
         # A flag, not casefolding: the pattern is regex source, and
         # casefold() turns \D into \d. The value stays as it is too, since
         # casefolding it would check "strasse" and forward "straße".
-        ignore_case = c.case_insensitive and ASCII_CASE_ALIASES.isdisjoint(value)
-        if re.fullmatch(c.regex, value, re.IGNORECASE if ignore_case else 0) is None:
+        flags = REGEX_FLAGS | (re.IGNORECASE if c.case_insensitive else 0)
+        if re.fullmatch(c.regex, value, flags) is None:
             return False
 
     if c.type == "number" and not is_number(value):

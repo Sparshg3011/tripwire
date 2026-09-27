@@ -45,6 +45,19 @@ def test_bad_regex_rejected_at_load_time():
         Constraint.model_validate({"regex": "([unclosed"})
 
 
+@pytest.mark.parametrize(
+    "regex", ["(?u)admin", "(?iu)admin", "(?u:admin)", "a(?iu:dmin)", "a(?u-i:dmin)", r"\\(?u:x)"]
+)
+def test_regex_cannot_switch_to_unicode_rules(regex):
+    # under Unicode rules, ignoring case lets "admın" pass for "admin"
+    with pytest.raises(ValidationError, match="u flag"):
+        Constraint.model_validate({"regex": regex})
+
+
+def test_an_escaped_paren_before_a_u_is_not_a_flag():
+    assert Constraint.model_validate({"regex": r"\(?user\)?"}).regex == r"\(?user\)?"
+
+
 def test_empty_constraint_rejected():
     with pytest.raises(ValidationError, match="no conditions"):
         Constraint.model_validate({})

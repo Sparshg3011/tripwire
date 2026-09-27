@@ -16,6 +16,17 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 Action = Literal["allow", "block", "require_approval"]
 TrustClass = Literal["trusted", "untrusted"]
 
+# Policy regexes match in ASCII mode. Under Unicode rules, ignoring case
+# makes ı and İ cases of i, ſ of s and the Kelvin sign of k, so "admın"
+# passes for "admin" — and an inline (?i) ignores case whether or not the
+# constraint asks. It also keeps \d to 0-9, where Unicode rules admit
+# digits like "١٢" that NFKC leaves alone and int() reads as 12.
+REGEX_FLAGS = re.ASCII
+
+# (?u) or (?u:...) would switch back to Unicode rules. Escapes are matched
+# too, only so that they're skipped: \(?u is an optional paren, then a u.
+_UNICODE_FLAG = re.compile(r"\\.|\(\?[a-zA-Z-]*u", re.DOTALL)
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -42,8 +53,10 @@ class Constraint(StrictModel):
     @classmethod
     def regex_must_compile(cls, v: str | None) -> str | None:
         if v is not None:
+            if any(m[0].startswith("(") for m in _UNICODE_FLAG.finditer(v)):
+                raise ValueError("regex may not use the u flag; policy regexes are ASCII-only")
             try:
-                re.compile(v)
+                re.compile(v, REGEX_FLAGS)
             except re.error as e:
                 raise ValueError(f"regex does not compile: {e}")
         return v

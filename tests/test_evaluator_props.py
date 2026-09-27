@@ -4,6 +4,8 @@ attacker can too — and an evaluator that crashes is an evaluator that
 didn't say "block".
 """
 
+import string
+
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
@@ -159,3 +161,45 @@ def test_case_insensitive_changes_nothing_on_a_caseless_pattern(regex, value):
     sensitive = evaluate(call, SessionSnapshot(), LOOKUPS[regex, False])
     insensitive = evaluate(call, SessionSnapshot(), LOOKUPS[regex, True])
     assert insensitive.decision == sensitive.decision
+
+
+# Unicode case rules count these as cases of i, s and k
+CASE_ALIASES = {"i": "\u0131\u0130", "s": "\u017f", "k": "\u212a"}
+ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
+
+# (pattern, case_insensitive, the same pattern not ignoring case)
+FOLDING = [
+    ("kiss", True, "kiss"),
+    ("(?i)kiss", False, "kiss"),
+    ("(?i:kiss)", False, "kiss"),
+    ("[a-z]+", True, "[a-z]+"),
+    ("(?!kiss).*", True, "(?!kiss).*"),
+]
+
+
+def respellings(word):
+    # each letter as written, upper-cased, or swapped for a Unicode case alias
+    letters = [st.sampled_from([c, c.upper(), *CASE_ALIASES.get(c, "")]) for c in word]
+    return st.tuples(*letters).map("".join)
+
+
+@given(
+    folding=st.sampled_from(FOLDING),
+    word=respellings("kiss"),
+    tail=st.text(alphabet=st.sampled_from(list("kiS\u0131\u0130\u017f\u212a\u00e9")), max_size=3),
+)
+@settings(max_examples=300)
+def test_ignoring_case_folds_ascii_letters_and_nothing_else(folding, word, tail):
+    # whether the flag or an inline (?i) asks for it, ignoring case may do
+    # what lower-casing the ASCII letters by hand does, and no more
+    regex, case_insensitive, plain = folding
+    value = word + tail
+    folded = evaluate(
+        ToolCall("lookup", {"q": value}), SessionSnapshot(), lookup(regex, case_insensitive)
+    )
+    by_hand = evaluate(
+        ToolCall("lookup", {"q": value.translate(ASCII_LOWER)}),
+        SessionSnapshot(),
+        lookup(plain, False),
+    )
+    assert folded.decision == by_hand.decision

@@ -390,18 +390,15 @@ def test_case_insensitive_regex():
     )
 
 
-def insensitive(regex):
+def matching(regex, **options):
+    constraint = {"regex": regex, **options}
     return Policy.model_validate(
-        {
-            "version": 1,
-            "tools": {
-                "lookup": {
-                    "action": "allow",
-                    "constraints": {"q": {"regex": regex, "case_insensitive": True}},
-                }
-            },
-        }
+        {"version": 1, "tools": {"lookup": {"action": "allow", "constraints": {"q": constraint}}}}
     )
+
+
+def insensitive(regex):
+    return matching(regex, case_insensitive=True)
 
 
 @pytest.mark.parametrize(
@@ -421,12 +418,45 @@ def test_case_insensitive_leaves_escapes_alone(regex, value, decision):
 
 @pytest.mark.parametrize("spoof", ["adm\u0131n", "adm\u0130n", "\u017fam", "\u212aim"])
 def test_case_insensitive_does_not_fold_other_scripts_into_ascii(spoof):
-    # re.IGNORECASE counts dotless ı, dotted İ, long ſ and the Kelvin sign
-    # as cases of i, s and k, but "admın" names someone other than admin
+    # Unicode case rules count dotless ı, dotted İ, long ſ and the Kelvin
+    # sign as cases of i, s and k, but "admın" names someone other than admin
     v = evaluate(ToolCall("lookup", {"q": spoof}), FRESH, insensitive("[a-z]+"))
     assert v.decision == "block"
 
 
-def test_case_insensitive_still_matches_non_ascii_text():
-    v = evaluate(ToolCall("lookup", {"q": "Işık"}), FRESH, insensitive(r"\w+"))
-    assert v.decision == "allow"
+@pytest.mark.parametrize(
+    "value",
+    [
+        "JAVASCRIPT:alert(1)//\u0131",
+        "https://EVIL.EXAMPLE/x?q=\u0131",
+        "https://EVIL.EXAMPLE/x?q=\u0130",
+    ],
+)
+def test_other_scripts_in_a_value_do_not_turn_case_folding_off(value):
+    # a blocklist written in lower case needs the whole value folded, and a
+    # dotless i anywhere in it used to make the match case-sensitive
+    policy = insensitive(r"(?!javascript:)(?!https?://evil\.example)[^ ]+")
+    assert evaluate(ToolCall("lookup", {"q": value}), FRESH, policy).decision == "block"
+
+
+@pytest.mark.parametrize("value", ["Ayd\u0131n@MyCompany.com", "\u0130lker@MyCompany.com"])
+def test_case_insensitive_matches_mixed_case_around_other_scripts(value):
+    call = ToolCall("lookup", {"q": value})
+    assert evaluate(call, FRESH, insensitive(r"[^@]+@mycompany\.com")).decision == "allow"
+    assert evaluate(call, FRESH, matching(r"[^@]+@mycompany\.com")).decision == "block"
+
+
+@pytest.mark.parametrize("case_insensitive", [False, True])
+def test_an_inline_ignore_case_folds_only_ascii(case_insensitive):
+    policy = matching(r"(?i)[^@]+@corp\.link", case_insensitive=case_insensitive)
+    assert evaluate(ToolCall("lookup", {"q": "BOB@CORP.LINK"}), FRESH, policy).decision == "allow"
+    spoof = ToolCall("lookup", {"q": "bob@corp.l\u0131nk"})
+    assert evaluate(spoof, FRESH, policy).decision == "block"
+
+
+def test_digits_are_ascii_digits():
+    # int() reads "١٢٣" as 123, and NFKC leaves it as it is
+    policy = matching(r"\d+")
+    assert evaluate(ToolCall("lookup", {"q": "123"}), FRESH, policy).decision == "allow"
+    arabic_indic = ToolCall("lookup", {"q": "\u0661\u0662\u0663"})
+    assert evaluate(arabic_indic, FRESH, policy).decision == "block"
