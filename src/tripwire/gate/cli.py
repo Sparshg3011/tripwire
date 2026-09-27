@@ -40,10 +40,8 @@ def _flatten(text: str) -> str:
 
 
 def _arg_lines(args: Mapping[str, Any]) -> list[str]:
-    return [
-        f"{_flatten(name)}: {clip(_flatten(value), ARG_PREVIEW)}"
-        for name, value in encode_args(args)
-    ]
+    # no _flatten: encode_args already escapes everything outside SAFE
+    return [f"{name}: {clip(value, ARG_PREVIEW)}" for name, value in encode_args(args)]
 
 
 class CliGate:

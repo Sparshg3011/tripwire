@@ -62,6 +62,14 @@ def test_short_scalars_come_before_long_strings():
     assert [name for name, _ in encode_args(args)] == ['"cc"', '"amount"', '"to"', '"body"']
 
 
+@given(args=arg_dicts)
+def test_encoded_args_are_plain_printable_text(args):
+    # the terminal prints these as they are, so this is what keeps an
+    # escape sequence in an argument from acting on the screen
+    for name, value in encode_args(args):
+        assert all(0x20 <= ord(c) < 0x7F for c in name + value)
+
+
 @given(value=json_values)
 def test_every_nested_object_lists_its_members_shortest_first(value):
     def members_in_order(pairs):
