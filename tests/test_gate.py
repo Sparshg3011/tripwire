@@ -30,7 +30,8 @@ from tripwire.gate.base import (
 from tripwire.gate.cli import ARG_BUDGET as CLI_BUDGET
 from tripwire.gate.cli import ARG_LINES as CLI_LINES
 from tripwire.gate.cli import ARG_PREVIEW as CLI_PREVIEW
-from tripwire.gate.cli import CliGate, _arg_lines
+from tripwire.gate.cli import FIELD_PREVIEW as CLI_FIELD
+from tripwire.gate.cli import CliGate, _arg_lines, _question
 from tripwire.gate.web import ARG_BUDGET as WEB_BUDGET
 from tripwire.gate.web import ARG_LINES as WEB_LINES
 from tripwire.gate.web import ARG_PREVIEW as WEB_PREVIEW
@@ -625,6 +626,40 @@ async def test_the_args_the_policy_checks_come_before_shorter_junk(tty):
 
     assert '  args:   "to": "attacker@evil.example"\r\n' in prompt
     assert f"  hidden: {len(args) - CLI_LINES} more arguments" in prompt
+
+
+async def test_an_unknown_tool_cannot_flood_the_terminal_with_its_name(tty):
+    # under unknown_tools: require_approval the caller names the tool, and
+    # the reason and a later taint trail repeat whatever name it picked
+    master, gate = tty
+    tool = "t" * 100_000
+    request = req(
+        tool=tool,
+        reason=f"No policy rule for {tool!r}; unknown tools are require_approval.",
+        tainted=True,
+        tainted_by=(tool, "fetch_url"),
+    )
+    prompt = await prompt_for(master, gate, request)
+
+    assert len(prompt) < 2_000
+    assert f"  tool:   {'t' * CLI_FIELD}…[+{100_000 - CLI_FIELD} chars]\r\n" in prompt
+
+
+@given(
+    request=st.builds(
+        ApprovalRequest,
+        tool=nasty | long_text,
+        args=arg_dicts,
+        rule_id=nasty | long_text,
+        reason=nasty | long_text,
+        tainted=st.booleans(),
+        tainted_by=st.lists(nasty | long_text, max_size=40).map(tuple),
+    )
+)
+def test_the_terminal_question_has_a_fixed_size_whatever_the_call(request):
+    question = _question(request)
+    assert len(question) < 2_500
+    assert all(0x20 <= ord(c) < 0x7F or c == "\n" for c in CLIP.sub("", question))
 
 
 def split_line(line):

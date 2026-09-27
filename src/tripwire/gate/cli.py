@@ -27,6 +27,7 @@ except ImportError:  # windows: there is no controlling terminal to ask
 from tripwire.gate.base import (
     ApprovalRequest,
     GateUnavailable,
+    clip,
     more_args,
     preview_args,
     preview_line,
@@ -37,6 +38,9 @@ ARG_PREVIEW = 500  # per value: a 10k email body shouldn't flood the terminal
 # print first, and scrollback loses whatever scrolls out of it.
 ARG_LINES = 12
 ARG_BUDGET = 1000  # characters of preview, all lines together
+# The tool, rule, reason and taint trail. An unknown tool's name is the
+# caller's to pick, and the reason and the trail can repeat it.
+FIELD_PREVIEW = 200
 
 # Args reach this prompt from tool calls the attacker may have authored.
 # Anything that can move the cursor, clear the screen, or recolour text
@@ -49,6 +53,10 @@ def _flatten(text: str) -> str:
     return "".join(c if ord(c) in SAFE else f"\\x{ord(c):02x}" for c in text)
 
 
+def _field(text: str) -> str:
+    return clip(_flatten(text), FIELD_PREVIEW)
+
+
 def _arg_lines(
     args: Mapping[str, Any], checked: Collection[str] = frozenset()
 ) -> tuple[list[str], str]:
@@ -57,6 +65,30 @@ def _arg_lines(
     # no _flatten: encode_args already escapes everything outside SAFE
     lines = [preview_line(name, value, ARG_PREVIEW) for name, value in shown]
     return lines, more_args(hidden) if hidden else ""
+
+
+def _question(req: ApprovalRequest) -> str:
+    lines, left_out = _arg_lines(req.args, req.checked)
+    args = "\n          ".join(lines) or "{}"
+    if left_out:
+        # The terminal has no way to show the rest, so the human is
+        # told outright that a yes covers arguments they haven't read.
+        args += f"\n  hidden: {left_out}, not shown here but forwarded if you approve"
+
+    taint = "clean session"
+    if req.tainted:
+        trail = ", ".join(req.tainted_by) if req.tainted_by else "unknown source"
+        taint = f"TAINTED session (untrusted content from: {_field(trail)})"
+
+    return (
+        f"\ntripwire: approval needed (turn {req.turn})\n"
+        f"  tool:   {_field(req.tool)}\n"
+        f"  args:   {args}\n"
+        f"  rule:   {_field(req.rule_id)}\n"
+        f"  reason: {_field(req.reason)}\n"
+        f"  taint:  {taint}\n"
+        f"approve? [y/N] "
+    )
 
 
 class CliGate:
@@ -83,18 +115,6 @@ class CliGate:
         return await anyio.to_thread.run_sync(self._prompt, req, abandon_on_cancel=True)
 
     def _prompt(self, req: ApprovalRequest) -> bool:
-        lines, left_out = _arg_lines(req.args, req.checked)
-        args = "\n          ".join(lines) or "{}"
-        if left_out:
-            # The terminal has no way to show the rest, so the human is
-            # told outright that a yes covers arguments they haven't read.
-            args += f"\n  hidden: {left_out}, not shown here but forwarded if you approve"
-
-        taint = "clean session"
-        if req.tainted:
-            trail = ", ".join(req.tainted_by) if req.tainted_by else "unknown source"
-            taint = f"TAINTED session (untrusted content from: {_flatten(trail)})"
-
         fd = self._tty.fileno()
         # Discard anything already typed. Without this, a keystroke made
         # before the question appeared would answer it — including an
@@ -105,15 +125,7 @@ class CliGate:
         except termios.error:
             pass  # not a real terminal (a pipe in tests); nothing buffered to drop
 
-        self._tty.write(
-            f"\ntripwire: approval needed (turn {req.turn})\n"
-            f"  tool:   {_flatten(req.tool)}\n"
-            f"  args:   {args}\n"
-            f"  rule:   {_flatten(req.rule_id)}\n"
-            f"  reason: {_flatten(req.reason)}\n"
-            f"  taint:  {taint}\n"
-            f"approve? [y/N] "
-        )
+        self._tty.write(_question(req))
 
         line = self._read_line(fd)
         if line is None:

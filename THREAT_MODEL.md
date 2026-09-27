@@ -156,7 +156,7 @@ tool, the arguments, the rule that fired, and the taint trail — context
 an approval box needs to be more than a click-yes box. Arguments are
 JSON-encoded, so control characters and anything non-ASCII (lookalike
 letters included) show as escapes. The caller writes their names and
-picks how many there are, so the preview has a fixed size. Each name is
+picks how many there are, so the preview is capped. Each name is
 clipped at 60 characters and each value at 500 (web: 1000), with a
 marker saying how much was cut. The arguments the policy checks come
 first and are always shown. The rest follow shortest first, and from
@@ -166,9 +166,12 @@ exactly how many arguments and encoded characters that was. So a long
 body can't push the recipient out of view, and junk can't push out an
 argument a rule checks. It can push out one no rule checks; the prompt
 then says what it left out, and the terminal adds that approving
-forwards it anyway. A nested object is clipped as a whole, with its
-members shortest first; a list keeps its order, so a long first item
-can still hide the ones after it. The web gate keeps everything it
+forwards it anyway. The terminal clips the tool, rule, reason and taint
+trail at 200 characters each as well, because an unknown tool's name
+comes from the caller too, so nothing the caller sends can grow its
+question past a fixed size. A nested object is clipped as a whole, with
+its members shortest first; a list keeps its order, so a long first
+item can still hide the ones after it. The web gate keeps everything it
 clipped or left out on the page in full, escaped, a click away. It
 remains a human decision, and "make the human tired of saying yes" is a
 real attack family the benchmark exercises. The web gate binds to
