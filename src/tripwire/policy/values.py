@@ -83,9 +83,11 @@ key back. TaskIndex.anchors() leans on that to refuse hand-built keys.
 Extraction runs in two directions and is asymmetric on purpose:
 
   TaskIndex    conservative. Maximal tokens bounded on both sides, so a
-               token that is part of something longer anchors nothing; ids
-               only at 6+ characters or next to a label; names only as
-               whole phrases.
+               token that is part of something longer anchors nothing; a
+               mark or format character left inside a token after NFKC
+               joins it. Ids only at 6+ characters or next to a label;
+               names only as whole phrases, not glued by -./@#' and the
+               like to a longer token.
   scan_poison  greedy. The same extractors with every limit removed, plus
                the text itself in two forms for is_poisoned()'s text rule.
                Whatever the task extractors find in a text, that text
@@ -172,8 +174,52 @@ def _pinned(name: str) -> frozenset[str]:
 TLDS = frozenset(tld.lower() for tld in _pinned("tlds.txt"))
 CONTROL_SEGMENTS = frozenset(_fold(segment) for segment in _pinned("control_paths.txt"))
 
-# a bare host ending in one of these, without www., is usually a file name
-FILE_EXT_TLDS = frozenset({"md", "zip", "mov", "sh", "rs", "py", "pl", "ps"})
+# A bare host ending in one of these, without www., is usually a file name:
+# common file extensions that are also delegated TLDs. Not "com": a DOS
+# executable is rarer than a bare .com host by far.
+FILE_EXT_TLDS = frozenset(
+    {
+        # source and build files
+        "ac",
+        "am",
+        "cc",
+        "cl",
+        "cr",
+        "gs",
+        "in",
+        "java",
+        "la",
+        "mk",
+        "ml",
+        "mm",
+        "pl",
+        "pm",
+        "py",
+        "re",
+        "rs",
+        "sc",
+        "sh",
+        "so",
+        "st",
+        "sv",
+        "tf",
+        # configuration
+        "cf",
+        "fish",
+        "work",
+        # documents, data and bundles
+        "ai",
+        "app",
+        "md",
+        "mo",
+        "mov",
+        "nc",
+        "ps",
+        "pt",
+        "pub",
+        "zip",
+    }
+)
 
 RESERVED_NAMES = frozenset(
     {
@@ -614,39 +660,66 @@ def is_under(path: str, prefix: str) -> bool:
 
 # Each pattern takes maximal tokens: the lookbehind refuses to start inside
 # a longer token and the lookahead refuses to stop inside one, so
-# "xalice@corp.com" yields nothing rather than "alice@corp.com".
+# "xalice@corp.com" yields nothing rather than "alice@corp.com". A
+# backslash joins a token as a slash does: C:\repo\evil.com is a path.
+#
+# An address doesn't start after any RFC 5322 atext character either, so
+# "o'brien@corp.com" and "r&d@corp.com" yield nothing; a quote or backtick
+# starts one only where it doesn't follow atext itself ("'a@corp.com'").
 _T_EMAIL = re.compile(
-    r"(?<![\w.%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,63}"
-    r"(?![\w@-]|\.[\w-])"
+    r"(?<![\w.!#$%&*+/=?^{|}~\\-])(?<![\w.!#$%&'*+/=?^`{|}~-]['`])"
+    r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,63}"
+    r"(?![\w@\\-]|\.[\w-])"
 )
 # no path character before it either, so a masked URL never splits a path
-_T_URL = re.compile(r"(?<![\w.~/+-])(?i:https?)://[^\s<>\"'`]+")
+_T_URL = re.compile(r"(?<![\w.~/\\+-])(?i:https?)://[^\s<>\"'`]+")
 # not after / either: "src/a.py" and "/srv/example.com/x" are paths
 _T_HOST = re.compile(
-    r"(?<![\w@./-])(?>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)(?>(?::[0-9]+)?)(?![\w@-]|\.[\w-])"
+    r"(?<![\w@./\\-])(?>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)(?>(?::[0-9]+)?)(?![\w@\\-]|\.[\w-])"
 )
 # unspaced, or the printed form in groups of four
 _T_IBAN = re.compile(
     r"(?<!\w)[A-Z]{2}[0-9]{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)(?!\w)"
 )
+# A number doesn't start inside a run either, past a digit and one or two
+# separators: the rest of a run is no number of its own, and restarting at
+# each of its digits after the lookahead fails would be quadratic.
 _T_PHONE = re.compile(
-    r"(?<![\w+.:/#@%-])(?:\+|\()?[0-9](?:[ ().-]{0,2}[0-9])*+(?![\w@%]|[.:/#-]\w)"
+    r"(?<![\w+.:/\\#@%-])(?<![0-9][ ().-])(?<![0-9][ ().-]{2})"
+    r"(?:\+|\()?[0-9](?:[ ().-]{0,2}[0-9])*+(?![\w@%\\]|[.:/#-]\w)"
 )
-_T_PATH = re.compile(r"(?<![\w.~/@-])[\w.~/-]++(?!@)")
+_T_PATH = re.compile(r"(?<![\w.~/\\@-])[\w.~/-]++(?![@\\])")
 _STEM_EXT = re.compile(r"[\w-][\w.-]*\.[A-Za-z0-9]{1,8}")
-_T_ID = re.compile(r"(?<![\w@%+.:/#-])[A-Za-z0-9_.:/#-]++(?![\w@%+])")
+_T_ID = re.compile(r"(?<![\w@%+.:/\\#-])[A-Za-z0-9_.:/#-]++(?![\w@%+\\])")
 
 # Label words an id may follow: "id 13", "ID: 13", "no. 13", "number 13".
 # "#13" needs no word. Callers add words of their own (an argument's noun).
 _ID_LABELS = (r"id", r"no\.", r"number")
 _ID_SEPARATOR = r"(?i:\#|no\.?|number|:)"
+# not a fragment, an entity or a path: "x.io/#13", "&#13;", "a/#13"
+_ID_HASH = r"(?<![\w&#/.:?=@%+-])\#\s*"
 # the id ends where its token ends; sentence dots and colons may follow
-_ID_END = r"(?=[.:]*+(?![\w.:/#@%+-]))"
+_ID_END = r"(?=[.:]*+(?![\w.:/\\#@%+-]))"
+
+# A mark or format character left after NFKC renders inside the token
+# around it ("ab\u0301cd.com", "co\u00adrp.com"), but \w matches neither.
+# The extractors see this letter in its place instead: it joins the token
+# and is in no ASCII key, and a path holding it is dropped.
+_JOINER = "\u02b0"
+_JOINING = frozenset({"Mn", "Mc", "Me", "Cf"})
+# what joins the words on either side into one token, for names
+_GLUE = frozenset("-./\\:'\u2019+&=~%")
 
 
 def _text(text: str) -> str:
     # lone surrogates can't be encoded; U+FFFD matches no key character
     return _SURROGATE.sub("\ufffd", _clean(text))
+
+
+def _plain(text: str) -> str:
+    if text.isascii():
+        return text
+    return "".join(_JOINER if unicodedata.category(c) in _JOINING else c for c in text)
 
 
 def _mask(text: str, spans: Sequence[tuple[int, int]]) -> str:
@@ -662,11 +735,43 @@ def _mask(text: str, spans: Sequence[tuple[int, int]]) -> str:
     return "".join(parts)
 
 
+def _wordlike(c: str) -> bool:
+    # a sigil too: "#random" is not the name "random"
+    return c.isalnum() or c in "_@#" or unicodedata.category(c) in _JOINING
+
+
+def _starts(text: str, i: int) -> bool:
+    before = text[i - 1 : i]
+    return not before or (
+        not _wordlike(before) and (before not in _GLUE or i == 1 or not _wordlike(text[i - 2]))
+    )
+
+
+def _ends(text: str, i: int) -> bool:
+    after = text[i : i + 1]
+    return not after or (
+        not _wordlike(after) and (after not in _GLUE or not _wordlike(text[i + 1 : i + 2] or " "))
+    )
+
+
 def _has_phrase(folded: str, phrase: str) -> bool:
-    return re.search(r"(?<!\w)" + re.escape(phrase) + r"(?!\w)", folded) is not None
+    """Whether phrase occurs in folded as a whole token: next to no word
+    character, sigil or mark, and not glued to one ("acme-labs/widgets",
+    "alice.smith@corp.com", "o'brien"). A possessive 's may follow."""
+    start = folded.find(phrase)
+    while start >= 0:
+        end = start + len(phrase)
+        if _starts(folded, start) and (
+            _ends(folded, end)
+            or folded[end : end + 2] in ("'s", "\u2019s")
+            and _ends(folded, end + 2)
+        ):
+            return True
+        start = folded.find(phrase, start + 1)
+    return False
 
 
-def _task_keys(text: str) -> tuple[set[Key], set[Key]]:
+def _task_keys(text: str) -> tuple[set[Key], set[Key], str]:
     keys: set[Key] = set()
     mentioned: set[Key] = set()
 
@@ -708,6 +813,8 @@ def _task_keys(text: str) -> tuple[set[Key], set[Key]]:
 
     for m in _T_PATH.finditer(masked):
         token = m.group().rstrip(".")
+        if _JOINER in token:
+            continue
         if "/" in token or _STEM_EXT.fullmatch(token):
             outcome = _path(token, ())
             # a lone "/" in prose is not the root directory
@@ -719,7 +826,7 @@ def _task_keys(text: str) -> tuple[set[Key], set[Key]]:
         if len(token) >= 6:
             add(_id(token))
 
-    return keys, mentioned
+    return keys, mentioned, masked
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -732,7 +839,8 @@ class TaskIndex:
     mentioned: frozenset[Key] = frozenset()
     # task paths of 2+ components, sorted: prefixes for `match: under`
     under_prefixes: tuple[str, ...] = ()
-    # NFKC, whitespace-collapsed: for labelled ids
+    # NFKC, URLs blanked, marks as _JOINER, whitespace-collapsed: for
+    # labelled ids
     text: str = ""
     # NFKC, lowercased, whitespace-collapsed: for names
     folded: str = ""
@@ -747,16 +855,15 @@ class TaskIndex:
         if not isinstance(text, str):
             return cls()
         source = _text(str.__str__(text))
-        keys, mentioned = _task_keys(source)
+        keys, mentioned, masked = _task_keys(_plain(source))
         prefixes = sorted(
             k.key for k in keys if k.vtype == "path" and sum(1 for s in k.key.split("/") if s) >= 2
         )
-        collapsed = " ".join(source.split())
         return cls(
             keys=frozenset(keys),
             mentioned=frozenset(mentioned - keys),
             under_prefixes=tuple(prefixes),
-            text=collapsed,
+            text=" ".join(masked.split()),
             folded=" ".join(source.lower().split()),
         )
 
@@ -781,11 +888,11 @@ class TaskIndex:
         words = list(_ID_LABELS)
         for label in labels:
             if isinstance(label, str):
-                parts = _clean(str.__str__(label)).split()
+                parts = _plain(_clean(str.__str__(label))).split()
                 if parts:
                     words.append(r"\s+".join(re.escape(part) for part in parts))
         alternatives = "|".join(words)
-        head = rf"(?<!\w)(?:(?i:{alternatives})(?!\w)\s*{_ID_SEPARATOR}?\s*|\#\s*)"
+        head = rf"(?:(?<!\w)(?i:{alternatives})(?!\w)\s*{_ID_SEPARATOR}?\s*|{_ID_HASH})"
         return re.search(head + re.escape(key) + _ID_END, self.text) is not None
 
 

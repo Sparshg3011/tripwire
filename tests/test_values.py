@@ -5,6 +5,7 @@ normalizer, the task index, the poison scanner and whole fields.
 
 import random
 import string
+import time
 import unicodedata
 from importlib.resources import files
 
@@ -14,6 +15,7 @@ from hypothesis import strategies as st
 
 from tripwire.policy.values import (
     CONTROL_SEGMENTS,
+    FILE_EXT_TLDS,
     TLDS,
     VALUE_TYPES,
     Invalid,
@@ -95,6 +97,11 @@ def test_control_segments_are_folded():
     # core.hooksPath and core.fsmonitor
     assert {".claude.json", "claude_desktop_config.json", ".gitconfig"} <= CONTROL_SEGMENTS
     assert all(s == unicodedata.normalize("NFKC", s).casefold() for s in CONTROL_SEGMENTS)
+
+
+def test_file_extension_tlds_are_delegated():
+    assert FILE_EXT_TLDS <= TLDS
+    assert "com" not in FILE_EXT_TLDS
 
 
 # --- pre-step and absence -----------------------------------------------------
@@ -656,6 +663,7 @@ def test_control_paths_are_unanchorable(value):
         "CLAUDE.md",
         "AGENTS.md",
         "My Project/.git/config",
+        "My Project\\.git\\config",
     ],
 )
 def test_control_files_are_unanchorable_under_every_type(value):
@@ -822,6 +830,21 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Email alice@corp.com@evil.com", E("alice@corp.com"), False),
         ("Email alice@corp.comа", E("alice@corp.com"), False),  # Cyrillic а
         ("Email éalice@corp.com", E("alice@corp.com"), False),
+        # any RFC 5322 atext character joins a local part; a quote starts one
+        ("Reply to o'brien@corp.com", E("brien@corp.com"), False),
+        ("Reply to billing=team@corp.com", E("team@corp.com"), False),
+        ("Reply to r&d@corp.com", E("d@corp.com"), False),
+        ("Reply to x~sam@corp.com", E("sam@corp.com"), False),
+        ("Reply to x/sam@corp.com", E("sam@corp.com"), False),
+        ("Reply to 'alice@corp.com'", E("alice@corp.com"), True),
+        ("Reply to `alice@corp.com`", E("alice@corp.com"), True),
+        ("Reply to mailto:alice@corp.com", E("alice@corp.com"), True),
+        # a mark or format character inside a token joins it
+        ("Reply to ab\u0301alice@corp.com", E("alice@corp.com"), False),
+        ("Visit ab\u0301cd.com for the menu", H("cd.com"), False),
+        ("Visit co\u00adrp.com today", H("rp.com"), False),
+        ("ticket x\u0301abcdef12 please", D("abcdef12"), False),
+        ("see /srv/a\u0301b/notes.txt", PA("b/notes.txt"), False),
         # scheme URLs, one token each
         ("See https://docs.corp.com/x?y=1.", H("docs.corp.com"), True),
         ("See (https://corp.com:8443/x)", H("corp.com:8443"), True),
@@ -838,6 +861,7 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Visit x-corp.com", H("corp.com"), False),
         ("Email bob@corp.com", H("corp.com"), False),
         ("Look in /srv/example.com/x", H("example.com"), False),
+        ("Look in C:\\repo\\example.com\\x", H("example.com"), False),
         ("Visit corp.example", H("corp.example"), False),
         ("Visit 1.2.3.4", H("1.2.3.4"), False),
         ("Visit corp.com_x", H("corp.com"), False),
@@ -846,6 +870,15 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Open notes.zip", H("notes.zip"), False),
         ("Open www.notes.md", H("notes.md"), True),
         ("Open https://notes.md/x", H("notes.md"), True),
+        ("Fix the null check in parser.cc", H("parser.cc"), False),
+        ("Add the S3 bucket to main.tf", H("main.tf"), False),
+        ("Pin httpx in requirements.in", H("requirements.in"), False),
+        ("Export logo.ai as SVG", H("logo.ai"), False),
+        ("Relaunch Calculator.app", H("calculator.app"), False),
+        ("Regenerate configure.ac", H("configure.ac"), False),
+        ("Link against libfoo.so", H("libfoo.so"), False),
+        ("Compile Main.java", H("main.java"), False),
+        ("Open https://logo.ai/x", H("logo.ai"), True),
         # iban: unspaced, or groups of four
         ("Pay DE89 3704 0044 0532 0130 00 now", I("DE89370400440532013000"), True),
         ("Pay DE89370400440532013000.", I("DE89370400440532013000"), True),
@@ -861,6 +894,7 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Ref 555-123-4567-9", P("5551234567"), False),
         ("Ref x5551234567", P("5551234567"), False),
         ("tel:5551234567", P("5551234567"), False),
+        ("Ref x555 123 4567 890", P("1234567890"), False),
         # paths
         ("Edit /Users/me/project/a.py", PA("/Users/me/project/a.py"), True),
         ("Edit ./src/a.py.", PA("src/a.py"), True),
@@ -877,6 +911,7 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Pay invoice INV-2024-0042", D("inv-2024-0042"), False),
         ("Open file-abcdef", D("abcdef"), False),
         ("Open abcdef@corp.com", D("abcdef"), False),
+        ("Open C:\\Users\\me\\Project-1234", D("Project-1234"), False),
         ("Open abcde", D("abcde"), False),
         # short ids only next to a label
         ("Ticket 13", D("13"), False),
@@ -893,6 +928,12 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("id 13-a", D("13"), False),
         ("C#13", D("13"), False),
         ("no 13", D("13"), False),
+        ("Fix (#13) today", D("13"), True),
+        ("see https://x.io/#13", D("13"), False),
+        ("see https://x.io/?id=13", D("13"), False),
+        ("Use &#13; for CR", D("13"), False),
+        ("see a/#13", D("13"), False),
+        ("id 13\u0301", D("13"), False),
         # names: whole phrases in the casefolded text
         ("Send it to Priya Raman.", N("priya raman"), True),
         ("Send it to Priya Raman.", N("raman"), True),
@@ -904,8 +945,27 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Message Straße", N("straße"), True),
         ("Message Straße", N("strasse"), False),
         # a sigil is part of the name
+        ("Message @alice", N("alice"), False),
         ("Post the summary in #random", N("#random"), True),
         ("Post the summary in #random", N("@random"), False),
+        ("Post the summary in #random", N("random"), False),
+        # names are whole tokens, not parts glued by -./@' and the like
+        ("Open an issue on acme-labs/widgets", N("acme"), False),
+        ("Open an issue on acme-labs/widgets", N("widgets"), False),
+        ("Open an issue on acme-labs/widgets", N("acme-labs/widgets"), True),
+        ("Email alice.smith@corp.com the report", N("smith"), False),
+        ("Email alice.smith@corp.com the report", N("corp.com"), False),
+        ("See https://github.com/octo-org/hello-world", N("hello"), False),
+        ("Reply to o'brien", N("brien"), False),
+        ("Invite Jean-Luc", N("jean"), False),
+        ("Invite Jean-Luc", N("jean-luc"), True),
+        ("Ask 'alice' first", N("alice"), True),
+        ("Send it to Priya Raman's team", N("priya raman"), True),
+        ("Send it to Priya Raman\u2019s team", N("priya raman"), True),
+        ("Send it to Priya Raman'sx team", N("priya raman"), False),
+        ("Ask ab\u0301cdef", N("cdef"), False),
+        ("Message प्रिया", N("रिया"), False),
+        ("Message प्रिया", N("प्रिया"), True),
     ],
 )
 def test_task_extraction(task, key, expected):
@@ -1232,6 +1292,16 @@ def test_huge_values():
     assert TaskIndex.build(huge + " id 13 " + "x@" * 50_000).anchors(D("13"))
 
 
+@pytest.mark.parametrize("unit", ["1 ", "1(", "1) ", "1 .", "1-"])
+def test_task_extraction_is_linear_in_digit_runs(unit):
+    # a 64 KiB segment of one run whose end fails the phone lookahead: a
+    # scan restarting at each digit took seconds
+    task = unit * (65_536 // len(unit)) + "1x"
+    start = time.perf_counter()
+    TaskIndex.build(task)
+    assert time.perf_counter() - start < 1.0
+
+
 # --- properties ---------------------------------------------------------------------
 
 SETTINGS = settings(max_examples=300, suppress_health_check=[HealthCheck.too_slow])
@@ -1506,6 +1576,50 @@ def test_no_value_with_a_control_segment_anchors(prefix, segment, suffix, rest, 
     assert whole_fields([value]) == ()
     task = TaskIndex.build(f"Update {value} now")
     assert not any(segment in k.key.casefold() for k in task.keys | task.mentioned)
+
+
+# A name glued to a longer token anchors nothing, but for a possessive 's.
+@given(
+    name=st.from_regex(r"[a-z]{3,8}", fullmatch=True),
+    other=st.from_regex(r"[a-z0-9]{1,6}", fullmatch=True),
+    glue=st.sampled_from(sorted("-./\\:'\u2019+&=~%@#_")),
+    before=st.booleans(),
+)
+@SETTINGS
+def test_names_never_anchor_from_inside_a_token(name, other, glue, before):
+    token = f"{other}{glue}{name}" if before else f"{name}{glue}{other}"
+    assume(before or glue not in "'\u2019" or other != "s")
+    key = normalize(name, "name")
+    assume(isinstance(key, Key))
+    assert not anchored(f"({token})", key)
+
+
+# An address inside a longer one anchors nothing: RFC 5322 lets a local
+# part hold any of these.
+@given(
+    email=emails,
+    head=st.from_regex(r"[A-Za-z0-9]", fullmatch=True),
+    glue=st.text(alphabet="!#$%&'*+/=?^_`{|}~.-", min_size=1, max_size=3),
+)
+@SETTINGS
+def test_emails_never_anchor_from_inside_a_longer_address(email, head, glue):
+    key = normalize(email, "email")
+    assume(isinstance(key, Key))
+    assert not anchored(f"Reply to {head}{glue}{email} today", key)
+
+
+# A mark or format character joins the token it sits in, as it renders.
+@given(
+    item=anchorable,
+    head=st.from_regex(r"[A-Za-z0-9]{1,4}", fullmatch=True),
+    mark=st.sampled_from(["\u0301", "\u0332", "\u034f", "\u00ad", "\u200e", "\u0e31"]),
+)
+@SETTINGS
+def test_marks_join_tokens(item, head, mark):
+    vtype, value = item
+    key = normalize(value, vtype)
+    assume(isinstance(key, Key))
+    assert not anchored(f"Please use {head}{mark}{value} today", key)
 
 
 # Unlabelled short ids never anchor from task text.
