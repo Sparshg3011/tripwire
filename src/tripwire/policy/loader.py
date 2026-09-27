@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from collections.abc import Hashable
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -25,7 +24,21 @@ class _UniqueKeyLoader(yaml.SafeLoader):
     the last one, and in a policy the last one can be the looser rule
     that nobody reading from the top expects to be in force."""
 
-    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Hashable, Any]:
+    def __init__(self, stream: str) -> None:
+        super().__init__(stream)
+        self._checked: set[yaml.MappingNode] = set()
+
+    def flatten_mapping(self, node: yaml.MappingNode) -> None:
+        # Every mapping passes through here, merge sources included, which
+        # yaml copies into their target without constructing them. Each is
+        # checked once, before flattening rewrites it in place: after, a
+        # merged key and the key overriding it would look like a repeat.
+        if node not in self._checked:
+            self._checked.add(node)
+            self._refuse_repeats(node)
+        super().flatten_mapping(node)
+
+    def _refuse_repeats(self, node: yaml.MappingNode) -> None:
         seen = set()
         for key_node, _ in node.value:
             if key_node.tag == "tag:yaml.org,2002:merge":
@@ -34,9 +47,9 @@ class _UniqueKeyLoader(yaml.SafeLoader):
                 # other key: yaml applies both, and the later one wins.
                 key: Hashable = "<<"
             else:
-                key = self.construct_object(key_node, deep=deep)
+                key = self.construct_object(key_node)
                 if not isinstance(key, Hashable):
-                    continue  # super() reports it
+                    continue  # construct_mapping reports it
             if key in seen:
                 raise yaml.constructor.ConstructorError(
                     "while constructing a mapping",
@@ -45,7 +58,6 @@ class _UniqueKeyLoader(yaml.SafeLoader):
                     key_node.start_mark,
                 )
             seen.add(key)
-        return super().construct_mapping(node, deep=deep)
 
 
 def load_policy(path: str | Path) -> Policy:
