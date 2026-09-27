@@ -259,26 +259,28 @@ class VerifyResult:
     why: str | None = None
 
 
-def _refusal(chain: object) -> str:
+def _refusal(chain: str) -> str:
     if chain == HMAC_SHA256:
         return "the log is keyed (hmac-sha256) and no key was given"
-    if chain == SHA256:
-        return (
-            "the log is not keyed, so a key vouches for nothing: anyone who can "
-            "write the file could have produced this chain"
-        )
-    return f"unknown chain {chain!r}"
+    return (
+        "the log is not keyed, so a key vouches for nothing: anyone who can "
+        "write the file could have produced this chain"
+    )
 
 
 def verify_log(path: str | Path, key: bytes | None = None) -> VerifyResult:
     """Walk the chain and recompute every link.
 
-    With `key`, every record must be hmac-sha256 and authenticate under
-    it. Without one, a keyed log is refused outright rather than
-    reported as a broken hash chain. Either way a log that switches
-    chain partway through is broken where it switches.
+    A log is the chain its first record names, and one that switches
+    chain partway through is broken where it switches. With `key`, the
+    log must be hmac-sha256 and every record authenticate under it;
+    without one, sha256. A log wholly of the other kind can't be checked
+    at all, so it is refused (bad_line None) rather than reported as
+    broken: a keyed log without its key, or, given a key, a log that
+    isn't keyed.
     """
     wanted = SHA256 if key is None else HMAC_SHA256
+    claimed: str | None = None
     prev = GENESIS
     n = 0
     try:
@@ -300,10 +302,16 @@ def verify_log(path: str | Path, key: bytes | None = None) -> VerifyResult:
         if not isinstance(record, dict):
             return VerifyResult(ok=False, records=n, bad_line=i, why="not a record object")
         chain = record.get("chain", SHA256)
-        if chain != wanted:
-            if n == 0:
-                return VerifyResult(ok=False, records=0, why=_refusal(chain))
+        if claimed is None:
+            if chain not in (SHA256, HMAC_SHA256):
+                return VerifyResult(ok=False, records=0, bad_line=i, why=f"unknown chain {chain!r}")
+            claimed = chain
+        elif chain != claimed:
             return VerifyResult(ok=False, records=n, bad_line=i, why=f"chain changes to {chain!r}")
+        if claimed != wanted:
+            # no link here can be checked, but a line that breaks the
+            # file itself is broken whoever holds the key
+            continue
         if record.get("seq") != n:
             return VerifyResult(
                 ok=False, records=n, bad_line=i, why=f"expected seq {n}, got {record.get('seq')}"
@@ -326,4 +334,6 @@ def verify_log(path: str | Path, key: bytes | None = None) -> VerifyResult:
                 )
             prev = mac
         n += 1
+    if claimed is not None and claimed != wanted:
+        return VerifyResult(ok=False, records=0, why=_refusal(claimed))
     return VerifyResult(ok=True, records=n)

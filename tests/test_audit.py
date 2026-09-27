@@ -451,6 +451,51 @@ def test_a_chain_that_switches_partway_is_broken_where_it_switches(tmp_path):
     assert result.bad_line == 3
 
 
+@pytest.mark.parametrize("key", [None, KEY], ids=["unkeyed", "keyed"])
+def test_a_keyed_log_with_its_first_record_relabelled_is_broken_not_unverifiable(tmp_path, key):
+    # "cannot verify" would tell an operator nothing was wrong that a key
+    # couldn't fix, and here no key fixes it
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 3, key=KEY)
+    lines = path.read_text().splitlines()
+    first = json.loads(lines[0])
+    first["chain"] = "sha256"
+    lines[0] = dump(first)
+    path.write_text("\n".join(lines) + "\n")
+
+    result = verify_log(path, key=key)
+    assert not result.ok
+    assert result.bad_line == 2
+    assert result.why == "chain changes to 'hmac-sha256'"
+
+
+@pytest.mark.parametrize("key", [None, KEY], ids=["unkeyed", "keyed"])
+def test_an_unknown_chain_is_broken_where_it_first_appears(tmp_path, key):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2)
+
+    def relabel(records):
+        records[0]["chain"] = "rot13"
+
+    rechain(path, 0, relabel)
+
+    result = verify_log(path, key=key)
+    assert not result.ok
+    assert result.bad_line == 1
+    assert "unknown chain 'rot13'" in result.why
+
+
+def test_a_keyed_log_is_still_broken_at_a_bad_line_without_its_key(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+    with open(path, "a") as fh:
+        fh.write("{torn\n")
+
+    result = verify_log(path)
+    assert not result.ok
+    assert result.bad_line == 3
+
+
 def test_a_log_from_before_chains_were_named_still_verifies_and_continues(tmp_path):
     # what earlier versions wrote: plain sha256 links, no `chain` field
     path = tmp_path / "audit.jsonl"
