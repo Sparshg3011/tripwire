@@ -18,9 +18,15 @@ refused to start.
   and run the same CI and dependency audit for tags as for pull requests.
 - Preserve all five leave-one-out policy conditions across both approval
   brackets in the ablation runner.
+- Run the gym scripts from a checkout whose path contains a space, and the
+  held-out AgentDojo script under macOS's bash 3.2 without
+  `ALLOW_TRANSPORT_RESUME=1`.
+- Quote the paths in the aggregation command the leave-one-out ablation
+  prints, so it can be pasted as shown.
 
 ### Added
 
+- Python 3.14 support, with CI running the test suite on macOS as well.
 - Experimental library-only exact pre-approvals: host-authorized full calls,
   one use, live-session binding, expiry, and revocation; no default-policy
   relaxation and no claim of improved AgentDojo utility yet.
