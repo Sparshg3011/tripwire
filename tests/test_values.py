@@ -650,6 +650,18 @@ def test_hosts_named_as_control_files_are_unanchorable():
         ("/var/twx/y", ["/var/tw"], PA("/var/twx/y")),
         ("/var/tw", ["/var/tw/policy.yaml"], PA("/var/tw")),
         ("/var/tw/x", ["", "/other"], PA("/var/tw/x")),
+        # relative and symlinked spellings: only the last segment is certain
+        ("tripwire.yaml", ["/private/tmp/proj/tripwire.yaml"], Unanchorable("protected_path")),
+        (
+            "/tmp/proj/tripwire.yaml",
+            ["/private/tmp/proj/tripwire.yaml"],
+            Unanchorable("protected_path"),
+        ),
+        ("./audit.jsonl", ["/Users/me/proj/audit.jsonl"], Unanchorable("protected_path")),
+        ("proj/audit.jsonl", ["/Users/me/proj/audit.jsonl"], Unanchorable("protected_path")),
+        ("/tmp/tw-state/ledger.bin", ["/private/tmp/tw-state"], Unanchorable("protected_path")),
+        ("/var/tw/Audit.log.", ["/var/tw/audit.log"], Unanchorable("protected_path")),
+        ("/srv/audit.jsonl.bak", ["/Users/me/proj/audit.jsonl"], PA("/srv/audit.jsonl.bak")),
     ],
 )
 def test_protected_paths(value, protected, outcome):

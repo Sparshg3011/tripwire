@@ -50,8 +50,7 @@ Normalizers:
   phone  drop " ().-", a leading 00 becomes +; Invalid unless 7-15 digits
   path   POSIX, case-sensitive: drop empty and . segments, keep a leading
          /. Invalid with a backslash. Unanchorable: `..` anywhere, a
-         leading ~, a control segment (data/control_paths.txt, compared
-         after NFKC and casefolding), or at or under a protected path.
+         leading ~, a control segment, or a protected path (below).
   id     as given, [A-Za-z0-9_.:/#-]{1,128}, case-sensitive
   name   casefold, collapse whitespace, strip one leading @ or #. Invalid
          over 128 characters or 8 words. Unanchorable under 3 characters,
@@ -63,6 +62,12 @@ NTFS read a segment: NFKC and casefolded, without an NTFS stream suffix
 A segment shaped like an 8.3 short name ("GIT~1") can alias any of them and
 counts as one. A path, id or name with a control segment, split at slashes
 and backslashes, is Unanchorable under every type, auto included.
+
+A protected path (the policy file, the audit log, the tx db) makes a path
+Unanchorable when the path is at or under it, or when any segment of the
+path is the protected path's last one. Relative spellings and symlinked
+prefixes (/tmp for /private/tmp) reach the same file, and nothing here may
+resolve them.
 
 Every key is a fixed point: normalizing key.key under key.vtype gives the
 key back. TaskIndex.anchors() leans on that to refuse hand-built keys.
@@ -396,6 +401,23 @@ def _protected_root(entry: object) -> str | None:
     return root or None
 
 
+def _is_protected(key: str, protected_paths: Sequence[str]) -> bool:
+    folded = _fold(key)
+    segments = {_segment(segment) for segment in key.split("/")}
+    for entry in protected_paths:
+        root = _protected_root(entry)
+        if root is None:
+            continue
+        if folded == root or is_under(folded, root):
+            return True
+        # "tripwire.yaml", "./audit.jsonl" and "/tmp/x/audit.jsonl" may all
+        # be /private/tmp/x/audit.jsonl; only its last segment is certain
+        base = _segment(root.rpartition("/")[2])
+        if base and base in segments:
+            return True
+    return False
+
+
 def _path(text: str, protected_paths: Sequence[str]) -> Outcome:
     if "\\" in text:
         return Invalid("backslash")
@@ -408,11 +430,8 @@ def _path(text: str, protected_paths: Sequence[str]) -> Outcome:
         return Unanchorable("empty")
     if _is_control(key):
         return Unanchorable("control_path")
-    folded = _fold(key)
-    for entry in protected_paths:
-        root = _protected_root(entry)
-        if root is not None and (folded == root or is_under(folded, root)):
-            return Unanchorable("protected_path")
+    if _is_protected(key, protected_paths):
+        return Unanchorable("protected_path")
     return Key("path", key)
 
 
