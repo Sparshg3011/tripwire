@@ -363,6 +363,29 @@ def test_an_unexpected_error_is_a_block_not_a_raise(reference_policy):
     assert shadowed.shadow is True
 
 
+def test_a_malformed_policy_is_a_block_not_a_raise():
+    v = evaluate(ToolCall("send_email"), FRESH, None)
+    assert v.decision == "block"
+    assert v.rule_id == "evaluator_error"
+    assert v.shadow is False
+
+
+class Unprintable(Exception):
+    def __repr__(self):
+        raise RuntimeError("no repr either")
+
+
+class Unreadable(dict):
+    def __contains__(self, key):
+        raise Unprintable()
+
+
+def test_an_error_that_cannot_be_shown_is_still_a_block(reference_policy):
+    v = evaluate(ToolCall("send_email", Unreadable(to="a@mycompany.com")), FRESH, reference_policy)
+    assert v.decision == "block"
+    assert v.rule_id == "evaluator_error"
+
+
 # --- case-insensitive constraints -------------------------------------------
 
 

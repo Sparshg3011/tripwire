@@ -136,14 +136,23 @@ def evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
     try:
         return _evaluate(call, state, policy)
     except Exception as e:
-        # calls and snapshots are typed, not checked, so a stage can trip
-        # over what it was handed; that is still an answer, and it's no
-        return Verdict(
-            decision="block",
-            rule_id="evaluator_error",
-            reason=f"policy evaluation failed: {e!r}",
-            shadow=not policy.enforce,
-        )
+        # arguments are typed, not checked, so a stage can trip over what
+        # it was handed; that is still an answer, and it's no
+        return _failed(e, policy)
+
+
+def _failed(error: Exception, policy: Policy) -> Verdict:
+    # The answer of last resort, so nothing here may raise either: the
+    # policy can be as malformed as whatever tripped, and so can the error.
+    try:
+        shadow = not policy.enforce
+    except Exception:
+        shadow = False  # one that can't say it's in shadow mode enforces
+    try:
+        reason = f"policy evaluation failed: {error!r}"
+    except Exception:
+        reason = "policy evaluation failed, with an error that can't be shown"
+    return Verdict(decision="block", rule_id="evaluator_error", reason=reason, shadow=shadow)
 
 
 def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:

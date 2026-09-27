@@ -87,6 +87,14 @@ def test_total_even_over_malformed_inputs(reference_policy, call, state):
         assert v.decision == "block"
 
 
+@given(call=hostile_calls, state=hostile_snapshots, policy=junk)
+@settings(max_examples=100)
+def test_total_even_over_a_malformed_policy(call, state, policy):
+    # nothing to evaluate against, and nothing to say it's in shadow mode
+    v = evaluate(call, state, policy)
+    assert (v.decision, v.rule_id, v.shadow) == ("block", "evaluator_error", False)
+
+
 @given(call=calls, state=snapshots)
 @settings(max_examples=100, suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_deterministic(reference_policy, call, state):
