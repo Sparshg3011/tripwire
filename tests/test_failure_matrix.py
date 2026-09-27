@@ -115,6 +115,21 @@ def test_unwritable_audit_log_refuses_to_start(tmp_path):
     assert "Traceback" not in done.stderr
 
 
+@pytest.mark.parametrize(
+    "tail",
+    [b"\xff\xfe", b"[" * 100_000 + b"]" * 100_000, b'{"seq":' + b"9" * 5000 + b"}"],
+    ids=["not-utf-8", "nested-too-deep", "number-too-long"],
+)
+def test_an_audit_log_that_cannot_be_read_refuses_to_start(tmp_path, tail):
+    audit = tmp_path / "audit.jsonl"
+    audit.write_bytes(tail + b"\n")
+
+    done = serve(tmp_path, audit=audit)
+    assert done.returncode == REFUSED
+    assert "refusing to start" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
 def test_unreadable_audit_key_refuses_to_start(tmp_path):
     done = serve(tmp_path, extra=["--audit-key-file", str(tmp_path / "missing.key")])
     assert done.returncode == REFUSED

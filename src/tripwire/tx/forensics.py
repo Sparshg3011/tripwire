@@ -30,7 +30,7 @@ def read_records(path: str | Path) -> list[dict[str, Any]]:
     can only half-read is not evidence."""
     try:
         text = Path(path).read_text(encoding="utf-8")
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         raise LogError(f"cannot read {path}: {e}") from e
 
     records = []
@@ -39,7 +39,8 @@ def read_records(path: str | Path) -> list[dict[str, Any]]:
             continue
         try:
             record = json.loads(line)
-        except json.JSONDecodeError as e:
+        except (ValueError, RecursionError) as e:
+            # malformed, or too deep or with a number too long to read
             raise LogError(f"{path}: line {n} is not valid json ({e})") from e
         # `null`, `42` and `[1,2]` are all valid json and none of them is
         # a record. Catching that here is what keeps every reader below

@@ -179,6 +179,111 @@ def test_corrupt_tail_refuses_to_continue(tmp_path):
         AuditLog(path)
 
 
+# lines no reader can take in, each of which used to escape as a traceback
+UNREADABLE = {
+    "not-utf-8": b"\xff\xfe",
+    "nested-too-deep": b"[" * 100_000 + b"]" * 100_000,
+    "number-too-long": b'{"seq":' + b"9" * 5000 + b"}",
+}
+unreadable = pytest.mark.parametrize("tail", UNREADABLE.values(), ids=UNREADABLE.keys())
+
+
+@unreadable
+def test_an_unreadable_line_is_a_bad_line(tmp_path, tail):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2)
+    with open(path, "ab") as fh:
+        fh.write(tail + b"\n")
+
+    result = verify_log(path)
+    assert not result.ok
+    assert result.bad_line == 3
+
+
+@unreadable
+def test_an_unreadable_tail_refuses_to_continue(tmp_path, tail):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2)
+    with open(path, "ab") as fh:
+        fh.write(tail + b"\n")
+
+    with pytest.raises(AuditWriteError):
+        AuditLog(path)
+
+
+def test_a_tail_whose_seq_is_not_a_number_refuses_to_continue(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    path.write_text('{"seq":"0"}\n')
+
+    with pytest.raises(AuditWriteError, match="corrupt last line"):
+        AuditLog(path)
+
+
+def test_a_log_of_blank_lines_starts_a_fresh_chain(tmp_path):
+    # verify calls it an intact log of no records, so the writer agrees
+    path = tmp_path / "audit.jsonl"
+    path.write_text("\n  \n")
+    write_log(path, 2)
+
+    assert verify_log(path).ok
+
+
+def test_a_mac_that_is_not_ascii_fails_to_authenticate(tmp_path):
+    # "\ud800" is valid json and canonical, and compare_digest won't take it
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+    last = json.loads(path.read_text().splitlines()[-1])
+    with open(path, "a") as fh:
+        fh.write(dump({**last, "seq": 2, "prev": last["mac"], "mac": "\ud800"}) + "\n")
+
+    result = verify_log(path, key=KEY)
+    assert not result.ok
+    assert result.bad_line == 3
+    with pytest.raises(AuditWriteError, match="doesn't authenticate"):
+        AuditLog(path, key=KEY)
+
+
+json_values = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.floats() | st.text(),
+    lambda inner: st.lists(inner, max_size=3) | st.dictionaries(st.text(max_size=5), inner),
+    max_leaves=8,
+)
+junk_records = st.fixed_dictionaries(
+    {},
+    optional={
+        "seq": json_values,
+        "prev": json_values,
+        "chain": st.sampled_from(["sha256", "hmac-sha256"]) | json_values,
+        "mac": json_values | st.just("\ud800"),
+        "data": json_values,
+    },
+)
+tails = (
+    st.binary()
+    | junk_records.map(lambda record: dump(record).encode())
+    | st.sampled_from(list(UNREADABLE.values()))
+)
+
+
+@given(tail=tails, key=st.none() | st.just(KEY))
+@settings(max_examples=200, deadline=None)
+def test_verify_and_the_writer_are_total_over_whatever_follows_a_log(tail, key):
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "audit.jsonl"
+        write_log(path, 2, key=key)
+        with open(path, "ab") as fh:
+            fh.write(tail + b"\n")
+
+        for check in (None, KEY):
+            result = verify_log(path, key=check)
+            # the two genuine records are never the ones blamed
+            assert result.ok or result.bad_line is None or result.bad_line >= 3
+        try:
+            AuditLog(path, key=key).close()
+        except AuditWriteError:
+            pass
+
+
 def test_unwritable_path_fails_closed(tmp_path):
     with pytest.raises(AuditWriteError):
         AuditLog(tmp_path / "no" / "such" / "dir" / "audit.jsonl")

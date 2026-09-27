@@ -117,12 +117,12 @@ def _mac(key: bytes, body: str) -> str:
 def _authenticated(record: dict[str, Any], key: bytes) -> str | None:
     """The record's mac if `key` made it over exactly these fields, else None."""
     claimed = record.get("mac")
-    if not isinstance(claimed, str):
+    # compare_digest raises on a str that isn't pure ascii, and this one
+    # came out of the file, lone surrogates and all
+    if not isinstance(claimed, str) or not claimed.isascii():
         return None
     body = _serialize({k: v for k, v in record.items() if k != "mac"})
-    # as bytes: compare_digest raises on a str that isn't pure ascii, and
-    # this one came out of the file
-    if hmac.compare_digest(claimed.encode(), _mac(key, body).encode()):
+    if hmac.compare_digest(claimed, _mac(key, body)):
         return claimed
     return None
 
@@ -180,15 +180,18 @@ class AuditLog:
                 for line in fh:
                     if line.strip():
                         last = line.rstrip("\n")
-        except OSError as e:
+        except (OSError, UnicodeDecodeError) as e:
             raise AuditWriteError(f"cannot read audit log {self.path}: {e}") from e
-        assert last is not None
+        if last is None:
+            return 0, GENESIS
         try:
             record = json.loads(last)
-            seq = record["seq"]
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            # Torn or tampered tail. Refusing to continue the chain is
-            # the point — an operator has to look at it.
+            next_seq = record["seq"] + 1
+        except (ValueError, RecursionError, KeyError, TypeError) as e:
+            # Torn or tampered tail: not json, json too deep or with a
+            # number too long to read, or no record with a numeric seq.
+            # Refusing to continue the chain is the point — an operator
+            # has to look at it.
             raise AuditWriteError(
                 f"audit log {self.path} has a corrupt last line; refusing to continue"
             ) from e
@@ -202,7 +205,7 @@ class AuditLog:
                 f"{self.chain!r}; continue it as it was started, or rotate it"
             )
         if self._key is None:
-            return seq + 1, _hash_line(last)
+            return next_seq, _hash_line(last)
 
         mac = _authenticated(record, self._key)
         if mac is None:
@@ -213,7 +216,7 @@ class AuditLog:
                 f"the last record of {self.path} doesn't authenticate under this key "
                 f"(wrong key, or the record was altered); refusing to continue"
             )
-        return seq + 1, mac
+        return next_seq, mac
 
     def append(self, kind: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
         data = data or {}
@@ -279,16 +282,20 @@ def verify_log(path: str | Path, key: bytes | None = None) -> VerifyResult:
     prev = GENESIS
     n = 0
     try:
-        lines = Path(path).read_text(encoding="utf-8").splitlines()
+        # a byte that isn't utf-8 fails the line it's on rather than the
+        # whole read: as a lone surrogate it can't survive the canonical
+        # check below, which only ever passes ascii
+        text = Path(path).read_text(encoding="utf-8", errors="surrogateescape")
     except OSError as e:
         return VerifyResult(ok=False, records=0, bad_line=None, why=str(e))
 
-    for i, line in enumerate(lines, start=1):
+    for i, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
             continue
         try:
             record = json.loads(line)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
+            # malformed, or too deep or with a number too long to read
             return VerifyResult(ok=False, records=n, bad_line=i, why="not valid json")
         if not isinstance(record, dict):
             return VerifyResult(ok=False, records=n, bad_line=i, why="not a record object")
