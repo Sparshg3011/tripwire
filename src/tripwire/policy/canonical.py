@@ -40,8 +40,10 @@ first, and that ordering is load-bearing.
       drop a value, which is a worse bug than the one it would fix.
 
   C3  (not here — comparison time, inside the evaluator) a constraint
-      that sets case_insensitive matches under re.IGNORECASE. Neither
-      the pattern nor the value is rewritten for it.
+      that sets case_insensitive matches under re.IGNORECASE, and since
+      a policy regex must match in ASCII mode as well as under Unicode
+      rules, it admits ASCII case variants only. Neither the pattern nor
+      the value is rewritten for it.
 
   C4  Strip *all* trailing dots from host-like checked fields, so
       "corp.com." and "corp.com.." both become "corp.com". "Host-like"
@@ -140,7 +142,8 @@ def _walk(value: Any) -> Any:
 
 def checked_fields(tool: str, policy: Policy) -> frozenset[str]:
     """The top-level args the policy reads for this tool: its constraint
-    keys and the field its budget sums. Only these are canonicalized."""
+    keys and the field its budget sums. Only these are canonicalized, and
+    allowed_args admits them without listing them."""
     rule = policy.tools.get(tool)
     if rule is None:
         return frozenset()

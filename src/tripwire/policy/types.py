@@ -17,8 +17,9 @@ Decision = Literal["allow", "block", "gate"]
 @dataclass(frozen=True, slots=True)
 class ToolCall:
     tool: str
-    # Args as the evaluator sees them: already canonicalized (NFKC,
-    # zero-width strip, etc). Canonicalization happens before evaluation.
+    # Args as the evaluator sees them: the ones the policy checks already
+    # canonicalized (NFKC, zero-width strip, etc), the rest as they
+    # arrived. Canonicalization happens before evaluation.
     args: Mapping[str, Any] = field(default_factory=dict)
 
 

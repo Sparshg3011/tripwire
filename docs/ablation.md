@@ -41,8 +41,10 @@ Neither approval bracket is an estimate of how a person would respond.
 
 These differences are conditional on the remaining mechanisms. They are not
 additive contributions and should not be summed into an overall score. In
-particular, removing constraints also removes the numeric-string
-canonicalization that those constraints enable.
+particular, removing constraints also removes the canonicalization they
+drive. Only the arguments a rule reads are canonicalized, so without
+constraints every argument but a budget's field is forwarded as it
+arrived, and no numeric string is parsed into a number for that budget.
 
 ## Reproduce and audit
 

@@ -16,6 +16,7 @@ from tripwire.policy.types import Verdict
 from tripwire.proxy.interceptor import Interceptor
 from tripwire.session import SessionState
 from tripwire.tx import AuditLog
+from tripwire.tx.executor import TxExecutor
 
 OK = types.CallToolResult(content=[types.TextContent(type="text", text="ok")])
 
@@ -100,7 +101,7 @@ def audit_path(tmp_path):
 
 @pytest.fixture
 def make(audit_path):
-    def build(evaluate, canonicalize=passthrough, enforce=True, upstream=None, taint=None):
+    def build(evaluate, canonicalize=passthrough, enforce=True, upstream=None, taint=None, tx=None):
         policy = Policy(version=1, enforce=enforce)
         session = SessionState(policy, taint=taint if taint is not None else FakeTaint())
         return Interceptor(
@@ -108,6 +109,7 @@ def make(audit_path):
             AuditLog(audit_path),
             upstream if upstream is not None else FakeUpstream(),
             session,
+            tx=tx,
             canonicalize=canonicalize,
             evaluate=evaluate,
         )
@@ -283,6 +285,23 @@ async def test_shadow_mode_evaluates_canonical_but_forwards_exact_original_args(
     assert itc.upstream.calls == [("send_email", original)]
     tool_call = next(row for row in records() if row["kind"] == "tool_call")
     assert tool_call["data"]["args"] == original
+
+
+@pytest.mark.parametrize(("enforce", "forwarded"), [(True, 1), (False, 2)])
+async def test_the_ledger_keys_a_call_by_the_args_it_forwards(make, tmp_path, enforce, forwarded):
+    # enforcing, both spellings go upstream as one, so the second is a
+    # retry; in shadow mode each goes as it was sent, and is its own call
+    def canonicalize(tool, args, policy):
+        return {"to": args["to"].replace("\u200b", "")}
+
+    verdict = Verdict("allow", "tools.send_email.action", "fine", shadow=not enforce)
+    tx = TxExecutor(tmp_path / "tx.db", "s1")
+    itc = make(returns(verdict), canonicalize=canonicalize, enforce=enforce, tx=tx)
+    await itc.handle("send_email", {"to": "bob\u200b@corp.example"})
+    await itc.handle("send_email", {"to": "bob@corp.example"})
+    tx.close()
+
+    assert len(itc.upstream.calls) == forwarded
 
 
 async def test_shadow_mode_lets_a_fail_closed_verdict_through_too(make, records):

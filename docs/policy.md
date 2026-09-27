@@ -8,7 +8,8 @@ A policy that doesn't validate doesn't run — `tripwire validate
 policy.yaml` tells you why, with the path to the offending key. Unknown
 keys are errors, not warnings: a typo in a security policy must fail
 loudly, not silently allow. So is a key given twice in one mapping,
-which plain YAML would settle by quietly keeping the last one.
+a `<<` merge key included, which plain YAML would settle by quietly
+keeping the last one.
 
 ## Shape
 
@@ -72,18 +73,20 @@ short-circuits; otherwise stages may only escalate the verdict
    check but still go through sequences and flows, which may name
    tools that have no entry of their own.
 2. **Constraints**, on canonicalized arguments (below). If the tool
-   sets `allowed_args`, an argument named neither there nor under
-   `constraints` **blocks** (`tools.<name>.allowed_args`). Without it,
+   sets `allowed_args`, an argument named neither there, nor under
+   `constraints`, nor as the `field` its `sum_per_session` adds up
+   **blocks** (`tools.<name>.allowed_args`). Without it,
    arguments nothing constrains pass unchecked, so an allowlist on `to`
    alone still lets a `bcc` through. A constraint on an argument the
    call didn't provide **blocks** — absence is not a free pass.
    `max_length` bounds `len()`, and is checked before `regex`, so an
    over-long value never reaches the pattern; `regex` must match the
-   whole value; `type: number` accepts a finite int/float and nothing
-   else (not `True`, not NaN or ±Infinity); `min`/`max` are inclusive
-   and also refuse anything that isn't a finite number. The bounds
-   themselves must be finite, and `allowed_args` may not name an
-   argument twice, or the policy doesn't load.
+   whole value, read two ways (below); `type: number` accepts a finite
+   int/float and nothing else (not `True`, not NaN or ±Infinity);
+   `min`/`max` are inclusive and also refuse anything that isn't a
+   finite number. The bounds themselves must be finite, and
+   `allowed_args` may not name an argument twice, or the policy doesn't
+   load.
 3. **Limits**, counting the current call. `per_session: 3` means calls
    1–3 pass and call 4 blocks. `sum_per_session` adds the current
    call's `field` value to the running total; over `max` blocks,
@@ -99,6 +102,19 @@ short-circuits; otherwise stages may only escalate the verdict
 5. **Flows.** With `when: context_tainted`, once the session has seen
    any result from an `untrusted` source, listed tools escalate to the
    flow's action. Flows cannot allow — the schema rejects it.
+
+Regexes are Python's, and a value has to match twice, in ASCII mode and
+under Unicode rules, since each reading is the strict one somewhere.
+`\d`, `\s` and `\w` admit ASCII characters only, so `\d+` doesn't admit
+digits from other scripts, which the tool on the far side may still
+read as a number. `\D`, `\S`, `\W` and `[^\s]` refuse whatever Unicode
+counts as a digit, whitespace or a word character, so `[^@\s]+` still
+refuses a U+2028 line separator. Ignoring case, whether by
+`case_insensitive: true` or an inline `(?i)`, admits ASCII case
+variants and nothing else: `ADMIN` passes for `admin`, `admın` doesn't.
+Where a pattern refuses, as a lookahead does, Unicode case rules are
+the stricter: ignoring case, `(?!javascript:)` refuses `javascrıpt:` as
+well. A pattern that asks for Unicode rules with `(?u)` doesn't load.
 
 Every verdict carries the id of the rule that decided it
 (`tools.send_email.constraints.to`, `sequences[0]`, …) and a
@@ -118,7 +134,7 @@ is forwarded exactly as it arrived:
 |---|------|
 | C2 | Invisible formatting characters are stripped: U+200B/200C/200D, U+2060, U+FEFF. A zero-width space inside `corp.com` comes out. |
 | C1 | Then Unicode NFKC: fullwidth `ａdmin` → `admin`, ligature `ﬁle` → `file`. (Invisibles first, then NFKC — the order makes the whole thing idempotent.) |
-| C3 | At comparison time, a constraint with `case_insensitive: true` matches its regex ignoring case (`re.IGNORECASE`). Nothing is rewritten: `\D` in the pattern still means `\D`, and the value is checked as it will be sent. A value containing `ı`, `İ`, `ſ` or the Kelvin sign U+212A (which Python counts as cases of `i`, `s` and `k`) is matched case-sensitively, so `admın` doesn't pass for `admin`. |
+| C3 | At comparison time, a constraint with `case_insensitive: true` matches its regex ignoring case (`re.IGNORECASE`), in both readings, so it admits ASCII case variants only. Nothing is rewritten: `\D` in the pattern still means `\D`, and the value is checked as it will be sent. |
 | C4 | Checked host-like fields (`url`, `host`, `hostname`, `domain`, `to`, `recipient`, `email`, `address`) lose all trailing dots: `corp.com.` → `corp.com`. |
 | C5 | Fields constrained with `type: number` parse plain numeric strings: `"1e2"` → `100.0`, `" 42 "` → `42.0`. Only a strict pattern qualifies — `"1_000"`, `"nan"`, `"inf"`, and non-ASCII digits do not, and stay strings for the evaluator to block. |
 

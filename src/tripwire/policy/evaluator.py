@@ -22,16 +22,18 @@ dotted path of the deciding rule):
      (allow / gate) and evaluation continues.
 
   2. Constraints, checked against the canonicalized args:
-       - if the rule sets allowed_args, an argument named neither there
-         nor in constraints -> block, before any constraint is checked
-         (rule_id "tools.<name>.allowed_args")
+       - if the rule sets allowed_args, an argument neither named there
+         nor read by the rule (checked_fields(): its constraint keys and
+         the field its budget sums) -> block, before any constraint is
+         checked (rule_id "tools.<name>.allowed_args")
        - constraint on an argument the call didn't provide -> block
          (fail closed; rule_id "tools.<name>.constraints.<arg>")
        - max_length: len(str(value)) must be <=; checked before the
          regex, so an over-long value never gets matched
-       - regex: full match required; under re.IGNORECASE if
-         case_insensitive is set, unless the value contains one of
-         ASCII_CASE_ALIASES
+       - regex: full match required, both in ASCII mode and under
+         Unicode rules (REGEX_MODES), and under re.IGNORECASE if
+         case_insensitive is set; a value either reading refuses is
+         refused, so ignoring case admits ASCII case variants only
        - type number: value must be a finite int/float (bool doesn't
          count, nor do NaN and +-inf); anything else -> block
        - min/max: numeric bounds, inclusive, on a finite value
@@ -75,7 +77,8 @@ import math
 import re
 from typing import Any, TypeGuard
 
-from tripwire.policy.schema import Constraint, Policy, ToolRule
+from tripwire.policy.canonical import checked_fields
+from tripwire.policy.schema import REGEX_MODES, Constraint, Policy, ToolRule
 from tripwire.policy.types import Decision, SessionSnapshot, ToolCall, Verdict
 
 SEVERITY: dict[Decision, int] = {"allow": 0, "gate": 1, "block": 2}
@@ -86,11 +89,6 @@ AS_DECISION: dict[str, Decision] = {
     "block": "block",
     "require_approval": "gate",
 }
-
-# The only non-ASCII characters re.IGNORECASE treats as cases of ASCII
-# letters: dotted and dotless i, long s and the Kelvin sign. A value
-# carrying one is matched as written, or "admın" would pass for "admin".
-ASCII_CASE_ALIASES = frozenset("\u0130\u0131\u017f\u212a")
 
 
 def is_number(value: Any) -> TypeGuard[float]:
@@ -117,8 +115,8 @@ def _constraint_holds(value: Any, c: Constraint) -> bool:
         # A flag, not casefolding: the pattern is regex source, and
         # casefold() turns \D into \d. The value stays as it is too, since
         # casefolding it would check "strasse" and forward "straße".
-        ignore_case = c.case_insensitive and ASCII_CASE_ALIASES.isdisjoint(value)
-        if re.fullmatch(c.regex, value, re.IGNORECASE if ignore_case else 0) is None:
+        flags = re.IGNORECASE if c.case_insensitive else re.NOFLAG
+        if any(re.fullmatch(c.regex, value, flags | mode) is None for mode in REGEX_MODES):
             return False
 
     if c.type == "number" and not is_number(value):
@@ -141,14 +139,23 @@ def evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
     try:
         return _evaluate(call, state, policy)
     except Exception as e:
-        # calls and snapshots are typed, not checked, so a stage can trip
-        # over what it was handed; that is still an answer, and it's no
-        return Verdict(
-            decision="block",
-            rule_id="evaluator_error",
-            reason=f"policy evaluation failed: {e!r}",
-            shadow=not policy.enforce,
-        )
+        # arguments are typed, not checked, so a stage can trip over what
+        # it was handed; that is still an answer, and it's no
+        return _failed(e, policy)
+
+
+def _failed(error: Exception, policy: Policy) -> Verdict:
+    # The answer of last resort, so nothing here may raise either: the
+    # policy can be as malformed as whatever tripped, and so can the error.
+    try:
+        shadow = not policy.enforce
+    except Exception:
+        shadow = False  # one that can't say it's in shadow mode enforces
+    try:
+        reason = f"policy evaluation failed: {error!r}"
+    except Exception:
+        reason = "policy evaluation failed, with an error that can't be shown"
+    return Verdict(decision="block", rule_id="evaluator_error", reason=reason, shadow=shadow)
 
 
 def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
@@ -184,8 +191,9 @@ def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict
 
     # --- 2. constraints, on the canonicalized args ---
     if rule.allowed_args is not None:
+        read = checked_fields(call.tool, policy)
         for arg in call.args:
-            if arg not in rule.allowed_args and arg not in rule.constraints:
+            if arg not in rule.allowed_args and arg not in read:
                 return verdict(
                     "block",
                     f"tools.{call.tool}.allowed_args",

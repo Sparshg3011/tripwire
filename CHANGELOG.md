@@ -10,6 +10,34 @@ refused to start.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** a policy that loaded before is now refused at startup if it
+  gives a key twice in one mapping (a second `<<` merge key included), sets a
+  NaN or infinite `min`, `max` or `sum_per_session` `max`, or uses the `u`
+  flag, `(?u)` or `(?u:...)`, in a `regex`. Each let a policy mean something
+  other than what it reads as.
+- A value must match a policy regex both in ASCII mode and under Unicode
+  rules. `\d`, `\s` and `\w` admit ASCII characters only, and ignoring case,
+  by `case_insensitive: true` or an inline `(?i)`, admits ASCII case variants
+  only, so `admın` no longer passes for `admin`. `\D`, `\S`, `\W` and `[^\s]`
+  still refuse Unicode digits, whitespace and word characters.
+- `case_insensitive` matches under `re.IGNORECASE` instead of casefolding the
+  pattern and the value, so `\D` keeps its meaning and the value checked is
+  the value forwarded.
+- `max_length` is checked before `regex`, so an over-long value never reaches
+  the pattern.
+- NaN and ±Infinity fail `type: number`, `min`/`max` and `sum_per_session`,
+  and are never added to a running total.
+- With `unknown_tools: allow` or `require_approval`, a tool without an entry
+  still goes through sequences and flows.
+- Canonicalization rewrites only the arguments a tool's rule reads, its
+  constraint keys and its `sum_per_session` field, and forwards the rest
+  exactly as they arrived. `--tx-db` keys each call by the arguments it
+  forwards, which in shadow mode are all of them as they arrived.
+- `evaluate()` never raises: an error during evaluation is a block with rule
+  id `evaluator_error`.
+
 ### Fixed
 
 - Include benchmark scenarios, policies, and frozen protocols in the wheel so
@@ -18,9 +46,16 @@ refused to start.
   and run the same CI and dependency audit for tags as for pull requests.
 - Preserve all five leave-one-out policy conditions across both approval
   brackets in the ablation runner.
+- Keep `allowed_args` admitting what a removed mechanism read in the
+  leave-one-out policies, and refuse to generate them from a policy file the
+  proxy would refuse.
 
 ### Added
 
+- `allowed_args` on a tool rule: an argument neither listed there nor read by
+  the rule (a constraint key or the `sum_per_session` field) blocks the call.
+- `turns: session` on a sequence rule keeps it in force for the rest of the
+  session, where a numeric window can be padded out with harmless calls.
 - Experimental library-only exact pre-approvals: host-authorized full calls,
   one use, live-session binding, expiry, and revocation; no default-policy
   relaxation and no claim of improved AgentDojo utility yet.

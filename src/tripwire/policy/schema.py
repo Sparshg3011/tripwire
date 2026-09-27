@@ -4,6 +4,8 @@ Everything here is deliberately strict (extra="forbid" throughout): a
 misspelled key in a security policy must kill startup, not get silently
 ignored and leave a hole. Numbers must be finite for the same reason:
 every comparison with a NaN bound is False, so it would bound nothing.
+An infinite bound either bounds nothing or refuses everything, and in
+JSON it's null, the same as no bound at all.
 """
 
 from __future__ import annotations
@@ -15,6 +17,65 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 Action = Literal["allow", "block", "require_approval"]
 TrustClass = Literal["trusted", "untrusted"]
+
+# A value has to match a policy regex twice, in ASCII mode and under
+# Unicode rules, because each is the strict reading somewhere. Under
+# Unicode rules, ignoring case makes ı and İ cases of i, ſ of s and the
+# Kelvin sign of k, so "admın" passes for "admin" (and an inline (?i)
+# ignores case whether or not the constraint asks), and \d admits digits
+# like "١٢" that NFKC leaves alone and int() reads as 12. In ASCII mode,
+# \s knows nothing of U+2028 or U+0085, so \S and [^\s] let line breaks
+# through, and \D and \W let other scripts' digits and letters through.
+REGEX_MODES = (re.ASCII, re.NOFLAG)
+
+# (?flags) for the whole pattern, or (?flags:...) and (?flags-flags:...)
+# for one group
+_FLAG_GROUP = re.compile(r"\(\?([a-zA-Z]*)(?:-([a-zA-Z]*))?([:)])")
+
+
+def _past(pattern: str, i: int, stop: str) -> int:
+    """Just past the first unescaped `stop` at or after i."""
+    while i < len(pattern) and pattern[i] != stop:
+        i += 2 if pattern[i] == "\\" else 1
+    return i + 1
+
+
+def _turns_on_unicode(pattern: str) -> bool:
+    """Whether a flag group turns on u, which would read the pattern under
+    Unicode rules in ASCII mode too. In a class, a comment or an escape,
+    "(?u" is only text. Reads only patterns that compile."""
+    verbose = [False]  # per open group: whether a # starts a comment in it
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+        elif c == "[":
+            i += 2 if pattern.startswith("[^", i) else 1
+            if pattern.startswith("]", i):
+                i += 1  # a ] first is a member, not the end
+            i = _past(pattern, i, "]")
+        elif c == "#" and verbose[-1]:
+            i = _past(pattern, i, "\n")
+        elif pattern.startswith("(?#", i):
+            i = _past(pattern, i, ")")
+        elif group := _FLAG_GROUP.match(pattern, i):
+            on, off, scope = group.groups()
+            if "u" in on:
+                return True
+            x_on = (verbose[-1] or "x" in on) and "x" not in (off or "")
+            if scope == ")":
+                verbose[-1] = x_on  # only at the very start, so for the whole pattern
+            else:
+                verbose.append(x_on)
+            i = group.end()
+        else:
+            if c == "(":
+                verbose.append(verbose[-1])
+            elif c == ")":
+                verbose.pop()
+            i += 1
+    return False
 
 
 class StrictModel(BaseModel):
@@ -46,6 +107,11 @@ class Constraint(StrictModel):
                 re.compile(v)
             except re.error as e:
                 raise ValueError(f"regex does not compile: {e}")
+            # without a u flag, what compiles here compiles in ASCII mode too
+            if _turns_on_unicode(v):
+                raise ValueError(
+                    "regex may not use the u flag; policy regexes must match in ASCII mode too"
+                )
         return v
 
     @model_validator(mode="after")
@@ -68,8 +134,9 @@ class Limits(StrictModel):
 class ToolRule(StrictModel):
     action: Action
     constraints: dict[str, Constraint] = {}
-    # When set, an argument named neither here nor in constraints blocks
-    # the call. Without it, arguments nothing constrains pass unchecked.
+    # When set, an argument named neither here, nor in constraints, nor as
+    # the field sum_per_session adds up blocks the call. Without it,
+    # arguments nothing constrains pass unchecked.
     allowed_args: list[str] | None = None
     limits: Limits | None = None
     reason: str | None = None
