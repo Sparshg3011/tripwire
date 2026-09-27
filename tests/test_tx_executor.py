@@ -59,6 +59,19 @@ def old_ledger(db):
     return old
 
 
+def unguarded_ledger(db):
+    """A ledger as written before one unresolved row per call was
+    enforced, still open."""
+    old = sqlite3.connect(db, isolation_level=None)
+    old.execute("PRAGMA journal_mode=WAL")
+    old.execute(
+        "CREATE TABLE intents (key TEXT PRIMARY KEY, tool TEXT NOT NULL, "
+        "state TEXT NOT NULL, result TEXT, call_key TEXT, session TEXT)"
+    )
+    old.execute("CREATE INDEX intents_by_call ON intents (call_key)")
+    return old
+
+
 # --- intent_key -------------------------------------------------------------
 
 
@@ -303,6 +316,40 @@ def test_proxies_opening_an_old_ledger_together_all_start(tmp_path):
             proxy.join()
 
     assert failures == []
+
+
+async def test_a_call_two_sessions_left_unresolved_is_named_before_the_ledger_opens(db):
+    # earlier versions let two sessions both start one call, and the rows
+    # they left can't take the index that now stops it
+    payment = {"to": "bob", "amount": 100}
+    old = unguarded_ledger(db)
+    for session in ("first", "second"):
+        old.execute(
+            "INSERT INTO intents VALUES (?, 'send_payment', 'in_flight', NULL, ?, ?)",
+            (
+                intent_key(session, "send_payment", payment),
+                intent_key("", "send_payment", payment),
+                session,
+            ),
+        )
+    old.close()
+
+    with pytest.raises(TxError, match="send_payment") as refused:
+        TxExecutor(db, "new")
+    assert "first" in str(refused.value)
+    assert "second" in str(refused.value)
+    assert "UNIQUE constraint" not in str(refused.value)
+
+    # what docs/production.md says to do: keep one, which still refuses
+    ledger = sqlite3.connect(db, isolation_level=None)
+    ledger.execute("DELETE FROM intents WHERE session = 'second'")
+    ledger.close()
+    ex = TxExecutor(db, "new")
+    retry = make_forward(ok())
+    with pytest.raises(DuplicateInFlight, match="started by session first"):
+        await ex.run("send_payment", payment, retry)
+    assert retry.calls == 0
+    ex.close()
 
 
 # --- two executors, one db --------------------------------------------------

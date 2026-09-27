@@ -163,6 +163,20 @@ class TxExecutor:
                 for column in LATER_COLUMNS:
                     if column not in have:
                         self._db.execute(f"ALTER TABLE intents ADD COLUMN {column} TEXT")
+                # an earlier version let two sessions both start one call,
+                # and the rows they left can't take the index below; which
+                # of them to keep is for an operator to decide
+                twice = self._db.execute(
+                    "SELECT tool, group_concat(session, ', ') FROM intents "
+                    "WHERE state = 'in_flight' AND call_key IS NOT NULL "
+                    "GROUP BY call_key HAVING count(*) > 1"
+                ).fetchone()
+                if twice is not None:
+                    raise TxError(
+                        f"cannot open the ledger at {self.path}: sessions {twice[1]} each started "
+                        f"the same {twice[0]} call and never recorded an outcome; delete all but "
+                        f"one of their rows, which keeps the call refused until it's cleared"
+                    )
                 # one unresolved row per call across every session; the
                 # look in run() and the insert after it are two statements,
                 # and this is what keeps two sessions from both passing

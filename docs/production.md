@@ -182,6 +182,12 @@ A row left by a version of tripwire from before sessions were recorded
 has no session and can't say which call it was, so until it's cleared it
 refuses every call to its tool.
 
+A version from before one unresolved row per call was enforced could let
+two sessions start the same call at once, and leave a row for each. A
+ledger holding such a pair won't open: tripwire refuses to start and
+names the sessions and the tool. Delete all but one of the pair's rows;
+the one left keeps the call refused until you clear it as above.
+
 Shadow mode leaves the ledger alone: every call goes straight to the
 tool, nothing is replayed or refused, and nothing is written. A call an
 enforcing session left unresolved doesn't stop a shadow session, and
@@ -189,7 +195,8 @@ shadow traffic never leaves one behind for the enforcing sessions that
 follow.
 
 **Watch the exit codes.** `2` means refused to start (bad policy, dead
-upstream, unwritable log, missing or wrong audit key, unusable gate).
+upstream, unwritable log, missing or wrong audit key, a ledger that
+won't open, unusable gate).
 `70` means it started and then lost the audit log, and killed itself
 rather than act unrecorded. Both should page someone; neither should be
 auto-restarted in a loop.
