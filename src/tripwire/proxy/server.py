@@ -10,6 +10,7 @@ from __future__ import annotations
 import secrets
 import sys
 from pathlib import Path
+from typing import Any
 
 from mcp import types
 from mcp.server.lowlevel import Server
@@ -27,7 +28,9 @@ from tripwire.tx.executor import TxExecutor
 def build_server(interceptor: Interceptor) -> Server:
     server = Server("tripwire")
 
-    @server.list_tools()
+    # The SDK leaves its handler decorators unannotated, which strict mypy
+    # can only be told to accept; the handlers they register are typed.
+    @server.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
     async def list_tools() -> list[types.Tool]:
         return interceptor.upstream.tools
 
@@ -36,8 +39,8 @@ def build_server(interceptor: Interceptor) -> Server:
     # judgement. Saying no is the policy engine's job.
     # the interceptor halts the process itself if the audit log fails, so
     # there is nothing to catch here
-    @server.call_tool(validate_input=False)
-    async def call_tool(name: str, arguments: dict) -> types.CallToolResult:
+    @server.call_tool(validate_input=False)  # type: ignore[untyped-decorator]
+    async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         return await interceptor.handle(name, arguments)
 
     return server
