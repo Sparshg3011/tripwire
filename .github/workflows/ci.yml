@@ -21,9 +21,9 @@ jobs:
       - run: pip install -e ".[dev,gym]"
       - run: ruff check src tests scripts
       - run: ruff format --check src tests scripts
-      # strict typing where correctness is load-bearing; the rest of the
-      # tree is checked by tests instead
-      - run: mypy --strict src/tripwire/policy src/tripwire/tx src/tripwire/gate/exact.py
+      # strict typing for the firewall itself; the gym and benchmark
+      # harnesses are checked by tests instead
+      - run: mypy --strict src/tripwire
       - run: pytest -q
 
       # The benchmark harness itself, on the scripted agent: no API key,
