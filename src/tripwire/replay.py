@@ -23,18 +23,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from tripwire.policy.canonical import canonicalize as real_canonicalize
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
-from tripwire.policy.types import ToolCall
+from tripwire.policy.types import Canonicalizer, Evaluator, ToolCall
 from tripwire.session import SessionState
 from tripwire.taint import TaintTracker
-
-if TYPE_CHECKING:
-    # names only: replay never touches the proxy, or the MCP stack under it
-    from tripwire.proxy.interceptor import Canonicalizer, Evaluator
 
 
 @dataclass

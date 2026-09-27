@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 import anyio
@@ -24,7 +24,7 @@ from tripwire.gate import ApprovalGate, ApprovalRequest
 from tripwire.policy.canonical import canonicalize as real_canonicalize
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
-from tripwire.policy.types import SessionSnapshot, ToolCall, Verdict
+from tripwire.policy.types import Canonicalizer, Evaluator, SessionSnapshot, ToolCall, Verdict
 from tripwire.proxy.upstream import Upstream
 from tripwire.session import SessionState
 from tripwire.tx import AuditLog, AuditWriteError
@@ -35,9 +35,6 @@ BLOCKED_CODE = "tripwire_blocked"
 DECISIONS = ("allow", "block", "gate")
 
 _NO_ANSWER = object()  # distinct from any value a gate could return
-
-Canonicalizer = Callable[[str, Mapping[str, Any], Policy], Mapping[str, Any]]
-Evaluator = Callable[[ToolCall, SessionSnapshot, Policy], Verdict]
 
 
 def _describe(e: BaseException) -> str:

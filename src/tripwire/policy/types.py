@@ -1,15 +1,18 @@
-"""Input and output types for the evaluator.
+"""Input and output types for the evaluator, and the signatures of the
+evaluator and the canonicalizer in front of it.
 
-These are frozen dataclasses on purpose: the evaluator is a pure
-function and its inputs should read like values, not like objects with
-behavior.
+The inputs and outputs are frozen dataclasses on purpose: the evaluator
+is a pure function and its inputs should read like values, not like
+objects with behavior.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from tripwire.policy.schema import Policy
 
 Decision = Literal["allow", "block", "gate"]
 
@@ -46,3 +49,7 @@ class Verdict:
     rule_id: str  # dotted path of the deciding rule, e.g. "tools.send_email.constraints.to"
     reason: str
     shadow: bool = False  # true when policy.enforce is false: log, don't block
+
+
+Canonicalizer = Callable[[str, Mapping[str, Any], Policy], Mapping[str, Any]]
+Evaluator = Callable[[ToolCall, SessionSnapshot, Policy], Verdict]
