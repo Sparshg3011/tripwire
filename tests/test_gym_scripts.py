@@ -30,23 +30,30 @@ def run(script, *args, cwd, env):
     )
 
 
+# One row per branch that runs the interpreter: quoting it on one side of
+# an if says nothing about the other.
 @pytest.mark.parametrize(
-    "script, args",
+    "script, args, variables",
     [
-        ("run_ablation.sh", []),
-        ("run_ablation_loo.sh", ["scripted", "1", "", "1", "out"]),
-        ("run_agentdojo_heldout.sh", ["out"]),
-        ("run_agentdojo_pilot.sh", ["out"]),
-        ("run_agentdojo_protectai_heldout.sh", ["out"]),
-        ("run_benchmark.sh", []),
-        ("run_models.sh", []),
-        ("run_publication.sh", []),
-        ("run_static_external.sh", ["workspace", "direct", "out"]),
+        ("run_ablation.sh", [], {}),
+        ("run_ablation.sh", ["scripted", "1", "a-model"], {}),
+        ("run_ablation_loo.sh", ["scripted", "1", "", "1", "out"], {}),
+        ("run_ablation_loo.sh", ["scripted", "1", "a-model", "1", "out"], {}),
+        ("run_agentdojo_heldout.sh", ["out"], {}),
+        ("run_agentdojo_pilot.sh", ["out"], {}),
+        ("run_agentdojo_protectai_heldout.sh", ["out"], {}),
+        ("run_benchmark.sh", [], {}),
+        ("run_benchmark.sh", ["scripted", "1", "a-model"], {}),
+        ("run_models.sh", [], {}),
+        ("run_publication.sh", ["smoke"], {}),
+        ("run_publication.sh", ["feasible"], {}),
+        ("run_static_external.sh", ["workspace", "direct", "out"], {"PROFILE": "full"}),
+        ("run_static_external.sh", ["workspace", "direct", "out"], {"PROFILE": "smoke"}),
     ],
 )
-def test_scripts_run_the_python_they_are_given(tmp_path, fake_python, script, args):
+def test_scripts_run_the_python_they_are_given(tmp_path, fake_python, script, args, variables):
     python, calls = fake_python
-    env = {**os.environ, "PY": str(python), "NVIDIA_API_KEY": "unused"}
+    env = {**os.environ, **variables, "PY": str(python), "NVIDIA_API_KEY": "unused"}
 
     # the scripts write under the working directory, so give them this one
     done = run(script, *args, cwd=tmp_path, env=env)
@@ -69,11 +76,19 @@ def test_setup_builds_its_environments_with_the_python_it_is_given(tmp_path, fak
     git.chmod(0o755)
     path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
     env = {**os.environ, "PYTHON": str(python), "PATH": path}
+    # the fake builds no environments, so both are laid out in advance,
+    # each with the fake as its python, and the script runs to the end
+    for venv in (".venv-agentdyn", ".venv-autodojo"):
+        (tmp_path / venv / "bin").mkdir(parents=True)
+        (tmp_path / venv / "bin" / "python").symlink_to(python)
 
-    run("setup_external_benchmarks.sh", str(deps), cwd=tmp_path, env=env)
+    done = run("setup_external_benchmarks.sh", str(deps), cwd=tmp_path, env=env)
 
-    # the fake makes no environment, so the script stops at the next step
-    assert calls()[:1] == [["-m", "venv", ".venv-agentdyn"]]
+    assert done.returncode == 0, done.stderr
+    assert [call for call in calls() if call[:2] == ["-m", "venv"]] == [
+        ["-m", "venv", ".venv-agentdyn"],
+        ["-m", "venv", ".venv-autodojo"],
+    ]
 
 
 def test_leave_one_out_prints_an_aggregation_command_that_pastes(tmp_path, fake_python):
