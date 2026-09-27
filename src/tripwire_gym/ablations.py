@@ -14,13 +14,29 @@ from typing import Any
 
 import yaml
 
+from tripwire.policy.loader import load_policy
 from tripwire.policy.schema import Policy
 
 COMPONENTS = ("actions", "constraints", "limits", "sequences", "flows")
 
 
+def _read(rule: dict[str, Any]) -> list[str]:
+    """The arguments a tool rule reads, as checked_fields() counts them:
+    its constraint keys and the field its budget sums."""
+    names = list(rule.get("constraints") or {})
+    summed = (rule.get("limits") or {}).get("sum_per_session")
+    if summed and summed["field"] not in names:
+        names.append(summed["field"])
+    return names
+
+
 def leave_one_out(policy: dict[str, Any], component: str) -> dict[str, Any]:
-    """Return a deep copy of ``policy`` with one enforcement mechanism removed."""
+    """Return a deep copy of ``policy`` with one enforcement mechanism removed.
+
+    allowed_args stays. An argument only the removed mechanism read was
+    allowed without being listed, so it gets listed: removing a mechanism
+    must never refuse a call the full policy lets through.
+    """
     if component not in COMPONENTS:
         raise ValueError(f"unknown component {component!r}; choose from {', '.join(COMPONENTS)}")
 
@@ -32,7 +48,12 @@ def leave_one_out(policy: dict[str, Any], component: str) -> dict[str, Any]:
             rule["action"] = "allow"
     elif component in {"constraints", "limits"}:
         for rule in tools.values():
+            read = _read(rule)
             rule.pop(component, None)
+            listed = rule.get("allowed_args")
+            if listed is not None:
+                still_read = _read(rule)
+                listed.extend([n for n in read if n not in still_read and n not in listed])
     else:
         candidate[component] = []
 
@@ -43,10 +64,10 @@ def leave_one_out(policy: dict[str, Any], component: str) -> dict[str, Any]:
 
 def generate(source: str | Path, destination: str | Path) -> list[Path]:
     source = Path(source)
+    # the proxy's own loader, so a file it refuses (a key given twice, say)
+    # is refused here too instead of being quietly deduplicated
+    load_policy(source)
     raw = yaml.safe_load(source.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        raise TypeError(f"{source}: expected a mapping")
-    Policy.model_validate(raw)
 
     destination = Path(destination)
     destination.mkdir(parents=True, exist_ok=True)
