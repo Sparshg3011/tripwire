@@ -39,10 +39,12 @@ def params(calls_path=None, cwd=None):
 @asynccontextmanager
 async def connected(server_params):
     with anyio.fail_after(30):
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
+        async with (
+            stdio_client(server_params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            yield session
 
 
 def recorded(calls_path):

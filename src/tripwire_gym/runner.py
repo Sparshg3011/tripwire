@@ -247,19 +247,21 @@ async def run_once(
             with anyio.fail_after(timeout):
                 # one small local file, opened once at run start
                 with open(stderr_path, "w+") as errlog:  # noqa: ASYNC230
-                    async with stdio_client(params, errlog=errlog) as (read, write):
-                        async with ClientSession(read, write) as mcp:
-                            await mcp.initialize()
-                            async with anyio.create_task_group() as tg:
-                                approver = None
-                                if gated:
-                                    approver = await _start_human(tg, stderr_path, human)
-                                await agent.run(scenario.task, Session(mcp), attempted)
-                                # the agent is done, so nobody is left to
-                                # ask; without this the group waits forever
-                                tg.cancel_scope.cancel()
-                            if approver is not None:
-                                answered = approver.answered
+                    async with (
+                        stdio_client(params, errlog=errlog) as (read, write),
+                        ClientSession(read, write) as mcp,
+                    ):
+                        await mcp.initialize()
+                        async with anyio.create_task_group() as tg:
+                            approver = None
+                            if gated:
+                                approver = await _start_human(tg, stderr_path, human)
+                            await agent.run(scenario.task, Session(mcp), attempted)
+                            # the agent is done, so nobody is left to
+                            # ask; without this the group waits forever
+                            tg.cancel_scope.cancel()
+                        if approver is not None:
+                            answered = approver.answered
         except Exception as e:  # noqa: BLE001 — a crashed run is a data point
             error = _describe_failure(e)
 

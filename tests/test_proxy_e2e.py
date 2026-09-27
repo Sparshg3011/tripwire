@@ -99,22 +99,26 @@ async def talk(params, calls):
     """Run a list of (tool, args) through the proxy, collect the results."""
     out = []
     with anyio.fail_after(30):
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                for tool, args in calls:
-                    out.append(await session.call_tool(tool, args))
+        async with (
+            stdio_client(params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            for tool, args in calls:
+                out.append(await session.call_tool(tool, args))
     return out
 
 
 async def test_tools_reappear_through_proxy(allow_all):
     params, _ = allow_all
     with anyio.fail_after(30):
-        async with stdio_client(params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                tools = await session.list_tools()
-                assert {t.name for t in tools.tools} == {"add", "whoami", "boom"}
+        async with (
+            stdio_client(params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            tools = await session.list_tools()
+            assert {t.name for t in tools.tools} == {"add", "whoami", "boom"}
 
 
 async def test_an_allowed_call_goes_through_untouched(allow_all):
