@@ -11,10 +11,11 @@ to matter.
 from __future__ import annotations
 
 import io
-import json
 import os
 import select
 import time
+from collections.abc import Mapping
+from typing import Any
 
 import anyio
 
@@ -23,9 +24,9 @@ try:
 except ImportError:  # windows: there is no controlling terminal to ask
     termios = None  # type: ignore[assignment]
 
-from tripwire.gate.base import ApprovalRequest, GateUnavailable
+from tripwire.gate.base import ApprovalRequest, GateUnavailable, clip, encode_args
 
-ARGS_PREVIEW = 500  # a 10k email body shouldn't flood the terminal
+ARG_PREVIEW = 500  # per value: a 10k email body shouldn't flood the terminal
 
 # Args reach this prompt from tool calls the attacker may have authored.
 # Anything that can move the cursor, clear the screen, or recolour text
@@ -36,6 +37,13 @@ SAFE = set(range(0x20, 0x7F))
 
 def _flatten(text: str) -> str:
     return "".join(c if ord(c) in SAFE else f"\\x{ord(c):02x}" for c in text)
+
+
+def _arg_lines(args: Mapping[str, Any]) -> list[str]:
+    return [
+        f"{_flatten(name)}: {clip(_flatten(value), ARG_PREVIEW)}"
+        for name, value in encode_args(args)
+    ]
 
 
 class CliGate:
@@ -62,9 +70,7 @@ class CliGate:
         return await anyio.to_thread.run_sync(self._prompt, req, abandon_on_cancel=True)
 
     def _prompt(self, req: ApprovalRequest) -> bool:
-        args = _flatten(json.dumps(dict(req.args), sort_keys=True, default=str))
-        if len(args) > ARGS_PREVIEW:
-            args = f"{args[:ARGS_PREVIEW]}... ({len(args) - ARGS_PREVIEW} more chars)"
+        args = "\n          ".join(_arg_lines(req.args)) or "{}"
 
         taint = "clean session"
         if req.tainted:

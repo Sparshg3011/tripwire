@@ -9,6 +9,7 @@ those paths ends in a refusal. Silence is a no.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -45,3 +46,33 @@ class ApprovalGate(Protocol):
     async def request(self, req: ApprovalRequest) -> bool:
         """True means approved by this gate. Anything else means no."""
         ...
+
+
+def encode_args(args: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Every argument as a JSON-encoded (name, value) pair, shortest first.
+
+    Clipping the arguments as one sorted blob puts `body` ahead of `to`
+    and then cuts, so a long enough body pushes the recipient out of the
+    prompt and the human approves a send whose address they never saw.
+    Shortest first keeps the scalars a decision turns on — recipients,
+    amounts, paths — together at the top, and gates clip each value on
+    its own, never at another's expense.
+
+    JSON because quotes show where a name or value ends, and ensure_ascii
+    turns every control character, bidi override and lookalike letter
+    into a visible escape instead of letting it act on the screen.
+    """
+    encoded = [
+        (json.dumps(name), json.dumps(value, sort_keys=True, default=str))
+        for name, value in args.items()
+    ]
+    return sorted(encoded, key=lambda pair: (len(pair[0]) + len(pair[1]), pair))
+
+
+def clip(value: str, limit: int) -> str:
+    """At most `limit` characters of an encoded value, then how many
+    more there were. No encoded value contains a literal ellipsis, so
+    the marker can't be forged by the value it follows."""
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}…[+{len(value) - limit} chars]"
