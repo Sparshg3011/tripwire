@@ -5,6 +5,7 @@ import yaml
 from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
+from tripwire.policy.canonical import checked_fields
 from tripwire.policy.evaluator import evaluate
 from tripwire.policy.loader import PolicyError, load_policy
 from tripwire.policy.schema import Policy
@@ -153,6 +154,34 @@ def test_removing_a_mechanism_never_refuses_more(component, call, state):
     full = evaluate(call, state, FULL)
     ablated = evaluate(call, state, WITHOUT[component])
     assert SEVERITY[ablated.decision] <= SEVERITY[full.decision]
+
+
+# yaml hands the merged rule the very list its source's allowed_args holds
+MERGED = yaml.safe_load(
+    "version: 1\n"
+    "tools:\n"
+    "  send_email: &mail\n"
+    "    action: allow\n"
+    "    allowed_args: [subject, body]\n"
+    '    constraints: {to: {regex: "^[^@]+@mycompany\\\\.example$"}}\n'
+    "  post_message:\n"
+    "    <<: *mail\n"
+    '    constraints: {channel: {regex: "^#team$"}}\n'
+)
+
+
+def admitted(policy, tool):
+    return set(policy.tools[tool].allowed_args) | checked_fields(tool, policy)
+
+
+@pytest.mark.parametrize("component", COMPONENTS)
+@pytest.mark.parametrize("source", [NEWER, MERGED], ids=["newer", "merged"])
+def test_every_tool_admits_the_arguments_it_did(source, component):
+    full = Policy.model_validate(source)
+    ablated = Policy.model_validate(leave_one_out(source, component))
+    for tool, rule in full.tools.items():
+        if rule.allowed_args is not None:
+            assert admitted(ablated, tool) == admitted(full, tool)
 
 
 def test_generated_policies_carry_allowed_args_and_session_sequences(tmp_path):

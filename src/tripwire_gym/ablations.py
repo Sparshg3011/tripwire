@@ -52,8 +52,12 @@ def leave_one_out(policy: dict[str, Any], component: str) -> dict[str, Any]:
             rule.pop(component, None)
             listed = rule.get("allowed_args")
             if listed is not None:
+                # a new list, since yaml merges and anchors share one
+                # between rules, and deepcopy keeps them shared
                 still_read = _read(rule)
-                listed.extend([n for n in read if n not in still_read and n not in listed])
+                rule["allowed_args"] = listed + [
+                    n for n in read if n not in still_read and n not in listed
+                ]
     else:
         candidate[component] = []
 
