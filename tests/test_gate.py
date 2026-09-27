@@ -213,13 +213,16 @@ def get(gate, path):
         conn.close()
 
 
-def post(gate, **fields):
-    return _post(gate, fields).status
+async def post(gate, **fields):
+    # from a worker thread, as a browser posts from its own process: the
+    # gate answers only once request(), on this loop, has taken the answer
+    return (await anyio.to_thread.run_sync(_post, gate, fields)).status
 
 
-def answer(gate, rid, action):
+async def answer(gate, rid, action):
     """Answer as a card's button does, and land where the browser would."""
-    resp = _post(gate, {"k": gate.token, "rid": rid, "action": action})
+    fields = {"k": gate.token, "rid": rid, "action": action}
+    resp = await anyio.to_thread.run_sync(_post, gate, fields)
     assert resp.status == 303
     return get(gate, resp.getheader("Location"))[1]
 
@@ -267,7 +270,7 @@ async def test_approve_over_real_http(web):
         assert "fetch_url" in page
 
         rid = CARD_RE.search(page).group(2)
-        assert post(web, k=web.token, rid=rid, action="approve") == 303
+        assert await post(web, k=web.token, rid=rid, action="approve") == 303
 
     assert decisions == [True]
 
@@ -282,7 +285,7 @@ async def test_deny_returns_false(web):
         tg.start_soon(ask)
         await anyio.sleep(0.05)
         _, page = get(web, f"/?k={web.token}")
-        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+        await post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
     assert decisions == [False]
 
@@ -298,7 +301,7 @@ async def test_junk_action_string_denies(web):
         await anyio.sleep(0.05)
         _, page = get(web, f"/?k={web.token}")
         # "yes" is not the exact string "approve", so it must read as no
-        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="yes")
+        await post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="yes")
 
     assert decisions == [False]
 
@@ -320,12 +323,12 @@ async def test_forged_post_is_forbidden_and_touches_nothing(web):
         _, page = get(web, f"/?k={web.token}")
         rid = CARD_RE.search(page).group(2)
 
-        assert post(web, k="not-the-token", rid=rid, action="approve") == 403
+        assert await post(web, k="not-the-token", rid=rid, action="approve") == 403
         await anyio.sleep(0.3)  # a full poll cycle: a decided request would have returned
         assert decisions == []
 
         # the request is still open and still answerable
-        assert post(web, k=web.token, rid=rid, action="approve") == 303
+        assert await post(web, k=web.token, rid=rid, action="approve") == 303
 
     assert decisions == [True]
 
@@ -346,7 +349,7 @@ async def test_dangerous_arg_is_escaped_in_the_page(web):
         _, page = get(web, f"/?k={web.token}")
         assert payload not in page
         assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
-        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+        await post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
 
 async def test_a_long_value_cannot_hide_the_recipient_on_the_page(web):
@@ -364,7 +367,7 @@ async def test_a_long_value_cannot_hide_the_recipient_on_the_page(web):
             f'"body": {body[:WEB_PREVIEW]}…[+{len(body) - WEB_PREVIEW} chars]',
         ]
         assert html.escape(body) in page  # clipped in the preview, not gone
-        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+        await post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
 
 async def test_the_page_updates_itself_instead_of_reloading(web):
@@ -384,7 +387,7 @@ async def test_the_page_updates_itself_instead_of_reloading(web):
         assert f'<div class="card" data-rid="{rid}">' in page
         assert '<div id="cards">' in page
         assert "setInterval(poll" in page
-        post(web, k=web.token, rid=rid, action="deny")
+        await post(web, k=web.token, rid=rid, action="deny")
 
     _, idle = get(web, f"/?k={web.token}")
     assert '<p id="idle">' in idle
@@ -400,16 +403,58 @@ async def test_an_answer_after_the_question_closed_says_it_changed_nothing(web):
         tg.start_soon(ask, 5)
         await anyio.sleep(0.05)
         _, page = get(web, f"/?k={web.token}")
-        assert "changed nothing" not in answer(web, CARD_RE.search(page).group(2), "approve")
+        assert "changed nothing" not in await answer(web, CARD_RE.search(page).group(2), "approve")
 
     async with anyio.create_task_group() as tg:
         tg.start_soon(ask, 0.3)
         await anyio.sleep(0.05)
         _, page = get(web, f"/?k={web.token}")
-    landed = answer(web, CARD_RE.search(page).group(2), "approve")
+    landed = await answer(web, CARD_RE.search(page).group(2), "approve")
 
-    assert "That answer came after its request had closed, so it changed nothing." in landed
+    assert "That answer did not reach its request in time, so it changed nothing." in landed
     assert "Nothing waiting for approval." in landed
+
+
+async def test_an_answer_the_timeout_beats_to_the_gate_says_it_changed_nothing(web, monkeypatch):
+    # request() looks for an answer once a poll, so a timeout can close the
+    # question after an answer arrived but before request() looked
+    monkeypatch.setattr("tripwire.gate.web.POLL_SECONDS", 60)
+    said = []
+
+    async def ask():
+        with anyio.move_on_after(0.5):
+            said.append(await web.request(req()))
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(ask)
+        await anyio.sleep(0.05)
+        _, page = get(web, f"/?k={web.token}")
+        landed = await answer(web, CARD_RE.search(page).group(2), "approve")
+
+    assert said == []
+    assert "changed nothing" in landed
+
+
+async def test_an_answer_the_gate_could_not_take_is_withdrawn(web, monkeypatch):
+    said = []
+
+    async def ask():
+        said.append(await web.request(req()))
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(ask)
+        await anyio.sleep(0.05)
+        _, page = get(web, f"/?k={web.token}")
+        rid = CARD_RE.search(page).group(2)
+        with monkeypatch.context() as patch:
+            patch.setattr("tripwire.gate.web.ANSWER_WAIT", 0.1)
+            # answered from the loop's own thread, so request() can't wake to take it
+            assert web._decide(rid, approve=True) is False
+        await anyio.sleep(0.5)
+        assert said == []  # the page said it changed nothing, so it didn't
+        assert "changed nothing" not in await answer(web, rid, "deny")
+
+    assert said == [False]
 
 
 class Rendered(HTMLParser):
@@ -478,7 +523,7 @@ async def test_junk_arguments_cannot_bury_the_preview_on_the_page(web):
         shown = sum(len(split_line(line, WEB_PREVIEW)) for line in lines)
         summary = re.search(r"<summary>(.*?)</summary>", page).group(1)
         assert summary == left_out(args, shown)
-        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+        await post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
 
 def test_short_junk_cannot_crowd_out_an_arg_no_rule_checks_on_the_page():
@@ -512,7 +557,7 @@ async def test_an_unknown_tool_cannot_push_the_buttons_down_the_page(web):
         _, page = get(web, f"/?k={web.token}")
         assert len(folded_away(page.split("<button>Approve")[0])) < 2_000
         assert f"<pre>{html.escape(tool)}</pre>" in page  # folded, not gone
-        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+        await post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
 
 @given(request=approvals)
@@ -543,8 +588,8 @@ async def test_two_pending_requests_are_decided_independently(web):
         rids = dict(CARD_RE.findall(page))
         assert set(rids) == {"send_email", "delete_file"}
 
-        post(web, k=web.token, rid=rids["send_email"], action="approve")
-        post(web, k=web.token, rid=rids["delete_file"], action="deny")
+        await post(web, k=web.token, rid=rids["send_email"], action="approve")
+        await post(web, k=web.token, rid=rids["delete_file"], action="deny")
 
     assert decisions == {"send_email": True, "delete_file": False}
 
@@ -557,7 +602,7 @@ async def test_a_decided_request_leaves_the_page(web):
         tg.start_soon(ask)
         await anyio.sleep(0.05)
         _, page = get(web, f"/?k={web.token}")
-        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+        await post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
     _, page = get(web, f"/?k={web.token}")
     assert "send_email" not in page

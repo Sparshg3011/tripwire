@@ -18,7 +18,9 @@ Two security properties, both load-bearing:
 
 Stdlib http.server on a daemon thread; no new dependencies. Decisions
 cross from that thread by plain assignment, and request() polls for
-them — humans take seconds, so a 200ms poll is invisible.
+them — humans take seconds, so a 200ms poll is invisible. The thread
+that brought an answer waits for that poll, so the page can say
+whether the answer counted.
 """
 
 from __future__ import annotations
@@ -45,12 +47,14 @@ from tripwire.gate.base import (
 )
 
 POLL_SECONDS = 0.2
+ANSWER_WAIT = 2.0  # for request() to take an answer; it looks every POLL_SECONDS
 
 
 @dataclass
 class _Pending:
     req: ApprovalRequest
     decision: bool | None = None
+    taken: bool = False  # request() handed the decision to its caller
 
 
 ARG_PREVIEW = 1000  # per value; the rest of a longer one sits folded below the preview
@@ -67,7 +71,7 @@ FIELD_PREVIEW = 500
 class WebGate:
     def __init__(self, port: int = 8642):
         self._pending: dict[str, _Pending] = {}
-        self._mutex = threading.Lock()
+        self._mutex = threading.Condition()  # notified as each question closes
         self.token = secrets.token_urlsafe(16)
         try:
             self._server = ThreadingHTTPServer(("127.0.0.1", port), _handler_for(self))
@@ -88,23 +92,37 @@ class WebGate:
         with self._mutex:
             self._pending[rid] = entry
         try:
-            while entry.decision is None:
+            while True:
+                with self._mutex:
+                    if entry.decision is not None:
+                        entry.taken = True
+                        return entry.decision
                 await anyio.sleep(POLL_SECONDS)
-            return entry.decision
         finally:
             # reached on decision or on timeout-cancellation from the
             # interceptor; either way the question is no longer open
             with self._mutex:
                 self._pending.pop(rid, None)
+                self._mutex.notify_all()
 
     def _decide(self, rid: str, approve: bool) -> bool:
-        """Record an answer. False if the question had already closed."""
+        """Record an answer, and say whether it counted.
+
+        It counts once request() takes it, and a timeout can close the
+        question between the answer arriving and request() looking, so
+        this waits to see which comes first. An answer still untaken after
+        ANSWER_WAIT is withdrawn: the human is about to be told it changed
+        nothing, so it mustn't count later.
+        """
         with self._mutex:
             entry = self._pending.get(rid)
             if entry is None or entry.decision is not None:
                 return False
             entry.decision = approve
-            return True
+            self._mutex.wait_for(lambda: rid not in self._pending, ANSWER_WAIT)
+            if not entry.taken:
+                entry.decision = None
+            return entry.taken
 
     def _snapshot(self) -> list[tuple[str, ApprovalRequest]]:
         with self._mutex:
@@ -163,7 +181,7 @@ async function poll() {
 setInterval(poll, 2000);
 """
 
-LATE = '<p class="late">That answer came after its request had closed, so it changed nothing.</p>'
+LATE = '<p class="late">That answer did not reach its request in time, so it changed nothing.</p>'
 
 CARD = """<div class="card" data-rid="{rid}">
 <b>{tool}</b> (turn {turn}) — {taint}
