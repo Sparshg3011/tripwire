@@ -141,11 +141,16 @@ tripwire verify --audit-key-file ~/.tripwire/audit.key ~/.tripwire/audit.jsonl
 It says which chain it checked and what that chain can't catch. A keyed
 log won't verify without its key, and a key won't vouch for a log that
 isn't keyed. Neither kind notices lines cut from the end; the
-[threat model](../THREAT_MODEL.md) has the detail.
+[threat model](../THREAT_MODEL.md) has the detail. An archive from
+before you added the key is unkeyed, so check it without one; with the
+variable exported, that's
+`env -u TRIPWIRE_AUDIT_KEY_FILE tripwire verify audit-2026-07.jsonl`.
 
-`trace`, `report` and `replay` also check it, using the key named by
-`TRIPWIRE_AUDIT_KEY_FILE`, and warn loudly if the chain is broken or
-can't be checked, but they still print — so read the warning.
+`trace`, `report` and `replay` check it the same way before they print,
+and take `--audit-key-file` or `TRIPWIRE_AUDIT_KEY_FILE` just as
+`verify` does. They warn loudly when a log is broken or can't be
+verified, and note when it's unkeyed, but they still print — so read
+the warning.
 
 **Know what the ledger remembers.** With `--tx-db`, an identical call
 replays the first result instead of running again — within one session.

@@ -102,14 +102,14 @@ checked and what that kind can't see.
   line onward — or entirely — and recompute every hash, and the final
   record is covered by no other record's hash at all. It catches
   accidents, not an attacker with write access.
-- **Keyed** (`--audit-key-file` on `serve` and `verify`): each record
-  carries an HMAC-SHA256 over its own bytes, and links to the previous
-  record's MAC. Without the key, no line can be edited, inserted or
-  rewritten, the last one included, and none can be deleted except by
-  cutting off the end (below). `verify` won't check a keyed log
-  without its key, and given a key it refuses a log that isn't keyed,
-  so stripping the MACs and rebuilding a plain chain doesn't pass
-  either.
+- **Keyed** (`--audit-key-file` on `serve` and on every command that
+  reads a log): each record carries an HMAC-SHA256 over its own bytes,
+  and links to the previous record's MAC. Without the key, no line can
+  be edited, inserted or rewritten, the last one included, and none can
+  be deleted except by cutting off the end (below). No command vouches
+  for a keyed log without its key, or, given a key, for a log that
+  isn't keyed, so stripping the MACs and rebuilding a plain chain
+  doesn't pass either.
 
 Neither chain can see lines cut from the end — a truncated log is a
 valid shorter log — or a log swapped wholesale for another written
@@ -133,7 +133,8 @@ reasons are all partly attacker-authored and all get printed by
 newlines can't draw extra steps into an incident report — forged
 evidence in a log whose hash chain verifies perfectly, because nothing
 was tampered with. `trace`, `report` and `replay` also check the chain
-before printing and say loudly when it's broken.
+by `verify`'s rules before printing, and say loudly when it's broken or
+can't be checked.
 
 **The tx ledger trusts a tool's own error report.** A result flagged
 `isError` clears its intent row so transient failures stay retryable. A

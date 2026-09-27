@@ -642,3 +642,71 @@ def test_trace_checks_a_keyed_log_with_the_key_from_the_environment(tmp_path, ke
     done = cli("trace", str(path), env={KEY_ENV: str(key_file)})
     assert done.returncode == 0
     assert "WARNING" not in done.stderr
+
+
+# --- trace, report and replay check the chain by verify's rules ---
+
+readers = pytest.mark.parametrize("command", ["trace", "report", "replay"])
+
+
+def read(command, path, *extra, env=None):
+    policy = path.parent / "policy.yaml"
+    policy.write_text("version: 1\n")
+    candidate = ["--policy", str(policy)] if command == "replay" else []
+    return cli(command, str(path), *candidate, *extra, env=env)
+
+
+def downgrade(records):
+    for record in records:
+        record["chain"] = "sha256"
+
+
+@readers
+def test_a_reader_takes_the_key_file_the_way_verify_does(tmp_path, key_file, command):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+
+    done = read(command, path, "--audit-key-file", str(key_file))
+    assert done.returncode == 0
+    assert done.stderr == ""
+
+
+@readers
+def test_a_reader_calls_a_keyed_log_without_its_key_unverified_not_altered(tmp_path, command):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+
+    done = read(command, path)
+    assert done.returncode == 0
+    assert "WARNING: cannot verify" in done.stderr
+    assert "keyed (hmac-sha256) and no key was given" in done.stderr
+    assert "BROKEN" not in done.stderr
+    assert "may have been altered" not in done.stderr
+
+
+@readers
+def test_a_reader_given_the_key_refuses_a_log_rewritten_as_unkeyed(tmp_path, key_file, command):
+    # the forgery used to read clean while the genuine keyed log drew the
+    # warning; now the key is what decides
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+    rechain(path, 0, downgrade)
+
+    done = read(command, path, "--audit-key-file", str(key_file))
+    assert "WARNING: cannot verify" in done.stderr
+    assert "the log is not keyed" in done.stderr
+
+    done = read(command, path)
+    assert "intact but unkeyed, so anyone who can write it could have rewritten it" in done.stderr
+
+
+@readers
+def test_a_reader_calls_a_broken_log_broken(tmp_path, key_file, command):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 3, key=KEY)
+    rechain(path, 1, forge(1), key=b"attacker-guess-0123456789abcdef")
+
+    done = read(command, path, "--audit-key-file", str(key_file))
+    assert "WARNING" in done.stderr
+    assert "BROKEN at line 2" in done.stderr
+    assert "may have been altered" in done.stderr
