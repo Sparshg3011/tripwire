@@ -170,16 +170,19 @@ only by filling the preview; the prompt then says what it left out, and
 the terminal adds that approving forwards it anyway. The terminal clips
 the tool, rule, reason and taint trail at 200 characters each as well,
 because an unknown tool's name comes from the caller too, so nothing the
-caller sends can grow its question past a fixed size. A nested object is clipped as a whole, with
-its members shortest first; a list keeps its order, so a long first
-item can still hide the ones after it. The web gate keeps everything it
-clipped or left out on the page in full, escaped, a click away. It
-remains a human decision, and "make the human tired of saying yes" is a
-real attack family the benchmark exercises. The web gate binds to
-127.0.0.1 and requires a per-run token precisely because a browser will
-submit forms to localhost from any page: without the token, injected
-content could steer the user's own browser into approving the
-attacker's call.
+caller sends can grow its question past a fixed size. A nested object
+is clipped as a whole, with its members shortest first, so a long
+member can't hide a short one. Enough short members can still push a
+longer one past the clip, though, since only the top-level arguments
+get a budget; and a list keeps its order, so a long first item can hide
+the ones after it. The marker says how much was cut, and the web gate
+keeps everything it clipped or left out on the page in full, escaped, a
+click away. It remains a human decision, and "make the human tired of
+saying yes" is a real attack family the benchmark exercises. The web
+gate binds to 127.0.0.1 and requires a per-run token precisely because
+a browser will submit forms to localhost from any page: without the
+token, injected content could steer the user's own browser into
+approving the attacker's call.
 
 **Exact pre-approvals trust the host's authorization, not the agent's plan.**
 The experimental library gate can spend a host-issued approval for one complete
