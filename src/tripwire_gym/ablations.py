@@ -34,8 +34,13 @@ def leave_one_out(policy: dict[str, Any], component: str) -> dict[str, Any]:
     """Return a deep copy of ``policy`` with one enforcement mechanism removed.
 
     allowed_args stays. An argument only the removed mechanism read was
-    allowed without being listed, so it gets listed: removing a mechanism
-    must never refuse a call the full policy lets through.
+    allowed without being listed, so it gets listed: given the same
+    arguments, removing a mechanism never refuses a call the full policy
+    lets through. Behind the proxy the arguments can differ, since
+    canonicalization rewrites only what the policy reads. C5 parses a
+    numeric string only where a constraint says type: number, so without
+    constraints a budget is handed "45" where the full policy saw 45.0,
+    and refuses it.
     """
     if component not in COMPONENTS:
         raise ValueError(f"unknown component {component!r}; choose from {', '.join(COMPONENTS)}")
