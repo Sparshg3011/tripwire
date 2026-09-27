@@ -22,12 +22,18 @@ Type detection for `auto`, first match wins:
   2. starts with http://, https:// or www.         -> url
   3. contains @                                   -> email; a list joined
      with , or ; whose every part is an email is split (normalize_all)
-  4. IBAN shape once spaces and hyphens go         -> iban
+  4. IBAN shape: uppercase, no spaces or hyphens   -> iban
   5. starts with +                                 -> phone
   6. starts with /, ./ or ~                        -> path
-  7. one atom, 2+ labels, last one a pinned TLD    -> host
+  7. one atom, 2+ labels, last one a pinned TLD,   -> host
+     lowercase already and no trailing dot
   8. one atom with a digit or one of _.:-#/        -> id
   9. anything else                                 -> name
+
+Under auto nothing says the value is not a case-sensitive id or file
+name, so rules 4 and 7 take only spellings their normalizers keep as they
+are: "Report.md" and "fe12-release-candidate" are ids, not the host
+"report.md" or the IBAN "FE12RELEASECANDIDATE".
 
 Normalizers:
 
@@ -52,9 +58,11 @@ Normalizers:
          /. Invalid with a backslash. Unanchorable: `..` anywhere, a
          leading ~, a control segment, or a protected path (below).
   id     as given, [A-Za-z0-9_.:/#-]{1,128}, case-sensitive
-  name   casefold, collapse whitespace, strip one leading @ or #. Invalid
-         over 128 characters or 8 words. Unanchorable under 3 characters,
-         with no letter, or reserved (unless normalizing a `known` entry).
+  name   lowercase, collapse whitespace; a leading @ or # stays, since
+         "@random" and "#random" can name two things on one API. Invalid
+         over 128 characters or 8 words. Unanchorable under 3 characters
+         past the sigil, with no letter, or reserved (unless normalizing a
+         `known` entry).
 
 Control segments (data/control_paths.txt) are compared the way APFS and
 NTFS read a segment: NFKC and casefolded, without an NTFS stream suffix
@@ -86,7 +94,8 @@ Extraction runs in two directions and is asymmetric on purpose:
 whole_fields() lists the leaves of a JSON value that can register as keys:
 strings of at most 256 characters and 8 words, ints, and dict keys of at
 most 256 characters, each under every type that accepts it, walked in
-sorted key order.
+sorted key order. A host or IBAN key registers only from its own
+spelling, as under auto.
 
 Comparison is exact on normalized keys. There is no confusable folding: a
 Cyrillic 'а' in an address fails to match, which fails closed.
@@ -445,21 +454,21 @@ def _id(text: str) -> Outcome:
 
 
 def _name(text: str, known: bool) -> Outcome:
-    name = " ".join(text.casefold().split())
-    if name[:1] in ("@", "#"):
-        name = name[1:].lstrip()
-        # "@#x" -> "#x" would normalize again to "x"
-        if name[:1] in ("@", "#"):
-            return Unanchorable("prefix")
+    # lower(), not casefold(): an upstream that ignores case lowercases,
+    # and keeps "straße" apart from "strasse"
+    name = " ".join(text.lower().split())
+    bare = name[1:].lstrip() if name[:1] in ("@", "#") else name
+    if bare[:1] in ("@", "#"):
+        return Unanchorable("prefix")
     if len(name) > 128:
         return Invalid("too_long")
     if len(name.split(" ")) > 8:
         return Invalid("words")
-    if len(name) < 3:
+    if len(bare) < 3:
         return Unanchorable("short")
-    if not any(c.isalpha() for c in name):
+    if not any(c.isalpha() for c in bare):
         return Unanchorable("no_letter")
-    if name in RESERVED_NAMES and not known:
+    if bare in RESERVED_NAMES and not known:
         return Unanchorable("reserved")
     if _is_control(name):
         return Unanchorable("control_path")
@@ -491,8 +500,7 @@ def _detect(text: str) -> ValueType:
         return "url"
     if "@" in text:
         return "email"
-    compact = _iban_form(text)
-    if compact is not None and _IBAN.fullmatch(compact):
+    if _IBAN.fullmatch(text):
         return "iban"
     if text.startswith("+"):
         return "phone"
@@ -500,7 +508,12 @@ def _detect(text: str) -> ValueType:
         return "path"
     if _SPACE.search(text) is None:
         labels = text.rstrip(".").split(".")
-        if len(labels) >= 2 and labels[-1].lower() in TLDS:
+        if (
+            len(labels) >= 2
+            and labels[-1].lower() in TLDS
+            # non-ASCII is Unanchorable as a host either way
+            and (not text.isascii() or (text.islower() and not text.endswith(".")))
+        ):
             return "host"
         if _ID_HINT.search(text):
             return "id"
@@ -721,7 +734,7 @@ class TaskIndex:
     under_prefixes: tuple[str, ...] = ()
     # NFKC, whitespace-collapsed: for labelled ids
     text: str = ""
-    # casefolded as well: for names
+    # NFKC, lowercased, whitespace-collapsed: for names
     folded: str = ""
 
     def __repr__(self) -> str:
@@ -744,7 +757,7 @@ class TaskIndex:
             mentioned=frozenset(mentioned - keys),
             under_prefixes=tuple(prefixes),
             text=collapsed,
-            folded=" ".join(source.casefold().split()),
+            folded=" ".join(source.lower().split()),
         )
 
     def anchors(self, key: Key, *, labels: Iterable[str] = ()) -> bool:
@@ -944,18 +957,23 @@ class WholeField:
 
     path: tuple[str | int, ...]
     value: str | int
-    # every key its value normalizes to, under every type that accepts it
+    # every key its value normalizes to, under every type that accepts it;
+    # host and IBAN only from their own spelling
     keys: tuple[Key, ...]
     # a dict key, at the path of the value it names
     is_key: bool = False
 
 
 def _candidates(value: str | int) -> tuple[Key, ...]:
+    # Nobody declared the field's type, so a host or IBAN key registers only
+    # from its own spelling, as under auto: "Report.md" may be a file that
+    # "report.md" is not.
+    own = _prestep(value) if isinstance(value, str) else None
     keys = {
         outcome
         for vtype in VALUE_TYPES
         for outcome in normalize_all(value, vtype)
-        if isinstance(outcome, Key)
+        if isinstance(outcome, Key) and (vtype not in ("host", "iban") or outcome.key == own)
     }
     return tuple(sorted(keys, key=lambda k: (k.vtype, k.key)))
 

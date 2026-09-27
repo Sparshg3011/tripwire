@@ -181,14 +181,20 @@ def test_unknown_type_is_invalid():
         ("a@x.com,b@y.com", "email"),
         ("@alice", "email"),  # rule 3 is literal: any @
         ("https://x.com/?to=a@b.com", "url"),  # rule 2 first
-        ("DE89 3704 0044 0532 0130 00", "iban"),
-        ("de89-3704-0044-0532-0130-00", "iban"),
+        ("DE89370400440532013000", "iban"),
+        # an IBAN only as its key spells it: these fold to one
+        ("DE89 3704 0044 0532 0130 00", "name"),
+        ("de89370400440532013000", "id"),
+        ("de89-3704-0044-0532-0130-00", "id"),
         ("+1 555 123 4567", "phone"),
         ("/etc/hosts", "path"),
         ("./notes", "path"),
         ("~/notes", "path"),
         ("corp.com", "host"),
-        ("corp.com.", "host"),
+        # a host only as its key spells it
+        ("corp.com.", "id"),
+        ("Corp.com", "id"),
+        ("Bücher.de", "host"),  # non-ASCII is Unanchorable as a host either way
         ("notes.zip", "host"),
         ("a.b.c.io", "host"),
         ("xn--80ak6aa92e.xn--p1ai", "host"),
@@ -212,13 +218,40 @@ def test_detect_type(value, vtype):
 def test_auto_normalizes_under_the_detected_type():
     assert normalize("www.Corp.com/x") == H("corp.com")
     assert normalize("Alice <alice@corp.com>") == E("alice@corp.com")
-    assert normalize("de89 3704 0044 0532 0130 00") == I("DE89370400440532013000")
+    assert normalize("DE89370400440532013000") == I("DE89370400440532013000")
     assert normalize("+1 (555) 123-4567") == P("+15551234567")
     assert normalize("./src/a.py") == PA("src/a.py")
-    assert normalize("corp.com.") == H("corp.com")
+    assert normalize("corp.com") == H("corp.com")
     assert normalize("INV-0042") == D("INV-0042")
     assert normalize("@Priya  Raman") == Invalid("email")
     assert normalize("Priya  Raman") == N("priya raman")
+
+
+# Nothing under auto says a value isn't a case-sensitive id or file name,
+# so auto keeps apart what a host or IBAN normalizer would fold together,
+# and so does a whole field, whose type nobody declared either.
+@pytest.mark.parametrize(
+    ("one", "other"),
+    [
+        ("Report.md", "report.md"),
+        ("notes.md", "notes.md."),
+        ("CORP.COM", "corp.com"),
+        ("fe12-release-candidate", "FE12RELEASECANDIDATE"),
+        ("FE12-RELEASE-CANDIDATE", "FE12RELEASECANDIDATE"),
+        ("de89370400440532013000", "DE89370400440532013000"),
+        ("DE89 3704 0044 0532 0130 00", "DE89370400440532013000"),
+    ],
+)
+def test_auto_keeps_folded_spellings_apart(one, other):
+    assert normalize(one) != normalize(other)
+    for field, value in [(one, other), (other, one)]:
+        registered = {key for found in whole_fields([field]) for key in found.keys}
+        assert normalize(value) not in registered
+
+
+def test_declared_types_still_fold():
+    assert normalize("Report.md", "host") == normalize("report.md", "host") == H("report.md")
+    assert normalize("fe12-release-candidate", "iban") == I("FE12RELEASECANDIDATE")
 
 
 # --- email -----------------------------------------------------------------------
@@ -723,10 +756,14 @@ def test_ids_are_case_sensitive():
     [
         ("Alice", "alice"),
         ("  Priya   Raman ", "priya raman"),
-        ("@alice", "alice"),
-        ("#general", "general"),
-        ("@ alice", "alice"),
-        ("Straße", "strasse"),
+        ("@alice", "@alice"),
+        ("#general", "#general"),
+        ("@ alice", "@ alice"),
+        ("Straße", "straße"),
+        # a final sigma stays one, as str.lower() spells it
+        ("ΣΟΦΟΣ", "σοφος"),
+        ("σοφος", "σοφος"),
+        ("σοφοσ", "σοφοσ"),
         ("Zoë", "zoë"),
         ("ａｌｉｃｅ", "alice"),
         ("a1b", "a1b"),
@@ -861,10 +898,14 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Send it to Priya Raman.", N("raman"), True),
         ("Send it to Priya  RAMAN", N("priya raman"), True),
         ("Send it to Priya Raman", N("priya ram"), False),
-        ("Message @alice", N("alice"), True),
+        ("Message @alice", N("@alice"), True),
         ("Message alice_smith", N("alice"), False),
         ("Message Zoë", N("zoë"), True),
-        ("Message Straße", N("strasse"), True),
+        ("Message Straße", N("straße"), True),
+        ("Message Straße", N("strasse"), False),
+        # a sigil is part of the name
+        ("Post the summary in #random", N("#random"), True),
+        ("Post the summary in #random", N("@random"), False),
     ],
 )
 def test_task_extraction(task, key, expected):
@@ -1390,6 +1431,25 @@ def test_confusable_substitutions_never_anchor(item, data):
     # and the other way round: a task that names the lookalike
     spoofed_task = TaskIndex.build(f"Please use {spoofed} for this.")
     assert not spoofed_task.anchors(key, labels=["use"])
+
+
+def _cased(draw, text):
+    return "".join(draw(st.sampled_from([c.lower(), c.upper()])) for c in text)
+
+
+dots = st.sampled_from(["", ".", ".."])
+
+
+@given(value=st.one_of(hosts, ibans, ids), data=st.data())
+@SETTINGS
+def test_auto_hosts_and_ibans_key_only_their_own_spelling(value, data):
+    spelled = _cased(data.draw, value) + data.draw(dots)
+    assume(not spelled.lower().startswith("www."))
+    outcome = normalize(spelled)
+    if isinstance(outcome, Key) and outcome.vtype in ("host", "iban"):
+        assert outcome.key == spelled
+    for field in whole_fields([spelled]):
+        assert all(k.key == spelled for k in field.keys if k.vtype in ("host", "iban"))
 
 
 # Greedy superset: whatever the task extractors anchor from a text, the same
