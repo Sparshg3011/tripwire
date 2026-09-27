@@ -10,9 +10,11 @@ those paths ends in a refusal. Silence is a no.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+NAME_PREVIEW = 60  # a real argument name is a word or two; past this it's padding
 
 
 class GateUnavailable(Exception):
@@ -39,6 +41,7 @@ class ApprovalRequest:
     tainted_by: tuple[str, ...] = ()
     turn: int = 0
     # Set by the host interceptor, never taken from tool arguments.
+    checked: frozenset[str] = frozenset()  # the args the policy reads (checked_fields())
     approval_scope: str = ""
 
 
@@ -86,3 +89,44 @@ def clip(value: str, limit: int) -> str:
     if len(value) <= limit:
         return value
     return f"{value[:limit]}…[+{len(value) - limit} chars]"
+
+
+def preview_line(name: str, value: str, limit: int) -> str:
+    """One encoded argument as a prompt shows it, name clipped as well as
+    value: the caller writes the names too."""
+    return f"{clip(name, NAME_PREVIEW)}: {clip(value, limit)}"
+
+
+def preview_args(
+    args: Mapping[str, Any], checked: Collection[str], limit: int, lines: int, budget: int
+) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """The encoded arguments a prompt has room for, and the ones it hasn't.
+
+    The caller picks how many arguments a call has and what they're
+    called, and plenty of upstreams ignore the ones they don't know. So a
+    few hundred junk arguments, each under the value clip, would bury the
+    ones that matter. The arguments the policy checks are shown first and
+    always: they are what the rule that fired was about, and their names
+    come from the policy. The rest follow shortest first while they fit
+    in `lines` lines and `budget` characters of preview. The first that
+    doesn't fit is left out along with everything after it, so a flood
+    costs the prompt one line saying how much it left out.
+    """
+    shown = encode_args({k: v for k, v in args.items() if k in checked})
+    used = sum(len(preview_line(name, value, limit)) for name, value in shown)
+    hidden: list[tuple[str, str]] = []
+    for name, value in encode_args({k: v for k, v in args.items() if k not in checked}):
+        size = len(preview_line(name, value, limit))
+        if hidden or len(shown) >= lines or used + size > budget:
+            hidden.append((name, value))
+        else:
+            shown.append((name, value))
+            used += size
+    return shown, hidden
+
+
+def more_args(hidden: list[tuple[str, str]]) -> str:
+    """Exactly what a preview left out, in encoded characters."""
+    chars = sum(len(name) + len(value) for name, value in hidden)
+    noun = "argument" if len(hidden) == 1 else "arguments"
+    return f"{len(hidden)} more {noun} ({chars} chars)"

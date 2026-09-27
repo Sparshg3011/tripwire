@@ -26,7 +26,7 @@ from __future__ import annotations
 import html
 import secrets
 import threading
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -34,7 +34,15 @@ from urllib.parse import parse_qs, urlsplit
 
 import anyio
 
-from tripwire.gate.base import ApprovalRequest, GateUnavailable, clip, encode_args
+from tripwire.gate.base import (
+    NAME_PREVIEW,
+    ApprovalRequest,
+    GateUnavailable,
+    clip,
+    more_args,
+    preview_args,
+    preview_line,
+)
 
 POLL_SECONDS = 0.2
 
@@ -46,6 +54,10 @@ class _Pending:
 
 
 ARG_PREVIEW = 1000  # per value; the rest of a longer one sits folded below the preview
+# In all, too, so a flood of arguments can't push the rule and the buttons
+# a long scroll away; the arguments that don't fit are folded below as well.
+ARG_LINES = 30
+ARG_BUDGET = 4000
 
 
 class WebGate:
@@ -132,19 +144,27 @@ def _token_ok(given: str, expected: str) -> bool:
     return secrets.compare_digest(given, expected)
 
 
-def _args_html(args: Mapping[str, Any]) -> str:
-    """One line per argument, then in full every value the preview clipped."""
-    lines: list[str] = []
-    whole: list[str] = []
-    for name, value in encode_args(args):
-        lines.append(f"{html.escape(name)}: {html.escape(clip(value, ARG_PREVIEW))}")
-        if len(value) > ARG_PREVIEW:
-            whole.append(
-                f"<details><summary>{html.escape(name)} in full</summary>"
-                f"<pre>{html.escape(value)}</pre></details>"
-            )
+def _args_html(args: Mapping[str, Any], checked: Collection[str] = frozenset()) -> str:
+    """One line per argument that fits, then, folded and in full, the ones
+    that didn't and every line the preview clipped."""
+    shown, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_LINES, ARG_BUDGET)
+    lines = [preview_line(name, value, ARG_PREVIEW) for name, value in shown]
     preview = "\n".join(lines) or "{}"
-    return f"<pre>{preview}</pre>" + "".join(whole)
+    parts = [f"<pre>{html.escape(preview)}</pre>"]
+    if hidden:
+        rest = "\n".join(f"{name}: {value}" for name, value in hidden)
+        parts.append(
+            f"<details><summary>{more_args(hidden)}</summary>"
+            f"<pre>{html.escape(rest)}</pre></details>"
+        )
+    for (name, value), line in zip(shown, lines, strict=True):
+        whole = f"{name}: {value}"
+        if line != whole:
+            parts.append(
+                f"<details><summary>{html.escape(clip(name, NAME_PREVIEW))} in full</summary>"
+                f"<pre>{html.escape(whole)}</pre></details>"
+            )
+    return "".join(parts)
 
 
 def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
@@ -179,7 +199,7 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                         tool=html.escape(req.tool),
                         turn=req.turn,
                         taint=taint,
-                        args=_args_html(req.args),
+                        args=_args_html(req.args, req.checked),
                         rule=html.escape(req.rule_id),
                         reason=html.escape(req.reason),
                         rid=html.escape(rid),

@@ -19,9 +19,20 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from tripwire.gate.base import ApprovalRequest, GateUnavailable, encode_args
+from tripwire.gate.base import (
+    NAME_PREVIEW,
+    ApprovalRequest,
+    GateUnavailable,
+    encode_args,
+    preview_args,
+    preview_line,
+)
+from tripwire.gate.cli import ARG_BUDGET as CLI_BUDGET
+from tripwire.gate.cli import ARG_LINES as CLI_LINES
 from tripwire.gate.cli import ARG_PREVIEW as CLI_PREVIEW
 from tripwire.gate.cli import CliGate, _arg_lines
+from tripwire.gate.web import ARG_BUDGET as WEB_BUDGET
+from tripwire.gate.web import ARG_LINES as WEB_LINES
 from tripwire.gate.web import ARG_PREVIEW as WEB_PREVIEW
 from tripwire.gate.web import WebGate, _args_html
 
@@ -50,16 +61,58 @@ json_values = st.recursive(
     lambda children: st.lists(children, max_size=3) | st.dictionaries(nasty, children, max_size=3),
     max_leaves=8,
 )
-# long enough to be clipped by either gate
+# long enough to be clipped by either gate, as a value or as a name
 long_text = (st.text(min_size=1, max_size=3) | tricks).map(lambda s: s * 1000)
-arg_dicts = st.dictionaries(nasty, json_values | long_text, min_size=1, max_size=6)
+# the caller picks the names and how many there are, so enough of both to
+# overflow either gate's preview
+arg_dicts = st.dictionaries(nasty | long_text, json_values | long_text, min_size=1, max_size=40)
+
+# a preview's own marker for text it cut; the args can't spell one, since
+# encoding escapes every ellipsis they contain
+CLIP = re.compile(r"…\[\+\d+ chars\]")
 
 DECODER = json.JSONDecoder()
+
+
+def whole_arg(line):
+    """An unclipped `name: value` line back into the argument it shows."""
+    name, end = DECODER.raw_decode(line)
+    assert line[end : end + 2] == ": "
+    return name, json.loads(line[end + 2 :])
+
+
+def left_out(args, shown):
+    """What a gate should say about the args past the first `shown`."""
+    hidden = encode_args(args)[shown:]
+    chars = sum(len(name) + len(value) for name, value in hidden)
+    return f"{len(hidden)} more argument{'s' * (len(hidden) != 1)} ({chars} chars)"
 
 
 def test_short_scalars_come_before_long_strings():
     args = {"body": "hello " * 50, "to": "boss@corp.com", "amount": 5, "cc": []}
     assert [name for name, _ in encode_args(args)] == ['"cc"', '"amount"', '"to"', '"body"']
+
+
+@given(
+    args=arg_dicts,
+    data=st.data(),
+    limit=st.integers(0, 1200),
+    lines=st.integers(0, 40),
+    budget=st.integers(0, 5000),
+)
+def test_a_preview_shows_every_checked_arg_first_and_leaves_out_a_tail(
+    args, data, limit, lines, budget
+):
+    checked = data.draw(st.sets(st.sampled_from(sorted(args))))
+    shown, hidden = preview_args(args, checked, limit, lines, budget)
+
+    assert {json.loads(name) for name, _ in shown[: len(checked)]} == checked
+    rest = {k: v for k, v in args.items() if k not in checked}
+    assert shown[len(checked) :] + hidden == encode_args(rest)
+
+    sizes = [len(preview_line(name, value, limit)) for name, value in shown]
+    assert len(shown) <= max(lines, len(checked))
+    assert sum(sizes) <= max(budget, sum(sizes[: len(checked)]))
 
 
 @given(args=arg_dicts)
@@ -285,25 +338,45 @@ class Rendered(HTMLParser):
 
 
 @given(args=arg_dicts)
-def test_the_page_names_every_arg_and_keeps_every_value_inert(args):
+def test_the_page_bounds_its_preview_and_keeps_every_arg_inert_and_in_full(args):
     rendered = Rendered(_args_html(args))
     assert set(rendered.tags) <= {"pre", "details", "summary"}
 
-    preview, *whole = rendered.text["pre"]
+    preview, *folded = rendered.text["pre"]
     lines = preview.split("\n")
-    shown = {}
-    for line in lines:
-        name, end = DECODER.raw_decode(line)
-        assert line[end : end + 2] == ": "
-        shown[name] = line[end + 2 :]
-    assert len(lines) == len(args)
-    assert shown.keys() == args.keys()
+    assert len(lines) <= WEB_LINES
+    assert sum(map(len, lines)) <= WEB_BUDGET
 
-    for summary, value in zip(rendered.text["summary"], whole, strict=True):
-        name, _ = DECODER.raw_decode(summary)
-        assert shown[name] == f"{value[:WEB_PREVIEW]}…[+{len(value) - WEB_PREVIEW} chars]"
-        shown[name] = value
-    assert {name: json.loads(value) for name, value in shown.items()} == args
+    summaries = rendered.text["summary"]
+    if len(lines) < len(args):
+        assert summaries.pop(0) == left_out(args, len(lines))
+    clipped = [line for line in lines if CLIP.search(line)]
+    for summary, line in zip(summaries, clipped, strict=True):
+        assert line.startswith(summary.removesuffix(" in full") + ": ")
+
+    whole = [line for line in lines if not CLIP.search(line)]
+    whole += [line for text in folded for line in text.split("\n")]
+    assert len(whole) == len(args)
+    assert dict(map(whole_arg, whole)) == args
+
+
+async def test_junk_arguments_cannot_bury_the_preview_on_the_page(web):
+    junk = {"Z" * 200_000: 0} | {f"pad{i:03}": "y" * 480 for i in range(400)}
+    args = {"to": "attacker@evil.example"} | junk
+
+    async def ask():
+        await web.request(req(args=args))
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(ask)
+        await anyio.sleep(0.05)
+        _, page = get(web, f"/?k={web.token}")
+        preview = html.unescape(re.search(r"<pre>(.*?)</pre>", page, re.DOTALL).group(1))
+        assert preview.startswith('"to": "attacker@evil.example"\n')
+        assert len(preview) < WEB_BUDGET + WEB_LINES
+        summary = re.search(r"<summary>(.*?)</summary>", page).group(1)
+        assert summary == left_out(args, preview.count("\n") + 1)
+        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
 
 async def test_two_pending_requests_are_decided_independently(web):
@@ -457,24 +530,89 @@ async def test_control_characters_never_reach_the_terminal(tty):
     assert len(args.strip().split("\n")) == 2  # an injected newline drew no extra line
 
 
+async def prompt_for(master, gate, request):
+    """Everything the gate writes while it asks, answered no.
+
+    Read as it's written: a prompt bigger than the pty's buffer would
+    stall the gate mid-write, and a flood would hang the test instead of
+    failing it.
+    """
+    os.set_blocking(master, False)
+    out = bytearray()
+
+    async def read():
+        while True:
+            try:
+                out.extend(os.read(master, 65536))
+            except BlockingIOError:
+                await anyio.sleep(0.01)
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(read)
+        tg.start_soon(type_after_prompt, master, "n\n")
+        await gate.request(request)
+        await anyio.sleep(0.05)
+        tg.cancel_scope.cancel()
+    return out.decode()
+
+
+async def test_a_huge_argument_name_is_clipped_at_the_terminal(tty):
+    master, gate = tty
+    args = {"to": "attacker@evil.example", "x" * 20_000: 1}
+    prompt = await prompt_for(master, gate, req(args=args))
+
+    assert len(prompt) < 2_000
+    assert '"to": "attacker@evil.example"' in prompt
+    assert f'"{"x" * (NAME_PREVIEW - 1)}…[+{20_002 - NAME_PREVIEW} chars]: 1' in prompt
+
+
+async def test_a_flood_of_arguments_is_counted_not_printed(tty):
+    master, gate = tty
+    junk = {f"x{i:02}": "y" * 480 for i in range(40)}
+    args = {"to": "attacker@evil.example", "body": "hi"} | junk
+    prompt = await prompt_for(master, gate, req(args=args))
+
+    assert len(prompt) < 2_000
+    assert '"to": "attacker@evil.example"' in prompt
+    shown = prompt.split("  args:")[1].split("  hidden:")[0].count("\n")
+    hidden = f"  hidden: {left_out(args, shown)}, not shown here but forwarded if you approve"
+    assert hidden in prompt
+
+
+async def test_the_args_the_policy_checks_come_before_shorter_junk(tty):
+    master, gate = tty
+    args = {"to": "attacker@evil.example"} | {f"a{i}": 0 for i in range(100)}
+    prompt = await prompt_for(master, gate, req(args=args, checked=frozenset({"to"})))
+
+    assert '  args:   "to": "attacker@evil.example"\r\n' in prompt
+    assert f"  hidden: {len(args) - CLI_LINES} more arguments" in prompt
+
+
+def split_line(line):
+    """A preview line's name and value as shown, clip markers and all."""
+    if line[NAME_PREVIEW:].startswith("…[+"):
+        end = line.index("]", NAME_PREVIEW) + 1
+    else:
+        _, end = DECODER.raw_decode(line)
+    assert line[end : end + 2] == ": "
+    return line[:end], line[end + 2 :]
+
+
 @given(args=arg_dicts)
-def test_the_terminal_names_every_arg_on_one_plain_line(args):
-    lines = _arg_lines(args)
-    assert len(lines) == len(args)
-    names = set()
+def test_the_terminal_shows_a_bounded_plain_preview_and_counts_the_rest(args):
+    lines, rest = _arg_lines(args)
+    assert len(lines) <= CLI_LINES
+    assert sum(map(len, lines)) <= CLI_BUDGET
+    assert rest == (left_out(args, len(lines)) if len(lines) < len(args) else "")
+
     for line in lines:
-        name, end = DECODER.raw_decode(line)
-        assert line[end : end + 2] == ": "
-        value, marker, cut = line[end + 2 :].partition("…")
-        # the clip marker is the only thing on the line the args didn't write
-        assert all(0x20 <= ord(c) < 0x7F for c in line[:end] + value)
-        if marker:
-            assert len(value) == CLI_PREVIEW
-            assert re.fullmatch(r"\[\+\d+ chars\]", cut)
-        else:
-            assert json.loads(value) == args[name]
-        names.add(name)
-    assert names == args.keys()
+        # the clip markers are the only thing on a line the args didn't write
+        assert all(0x20 <= ord(c) < 0x7F for c in CLIP.sub("", line))
+        name, value = split_line(line)
+        assert len(CLIP.sub("", name)) <= NAME_PREVIEW
+        assert len(CLIP.sub("", value)) <= CLI_PREVIEW
+        if not CLIP.search(line):
+            assert whole_arg(line) in args.items()
 
 
 def test_no_terminal_refuses_at_startup():

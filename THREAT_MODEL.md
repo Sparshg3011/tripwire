@@ -152,18 +152,25 @@ retry reaches the restarted proxy. A call whose outcome was never
 recorded does not have that gap; it is refused across sessions.
 
 **Interactive approval assumes the human reads.** Gate prompts show the
-tool, every argument by name, the rule that fired, and the taint trail
-— context an approval box needs to be more than a click-yes box.
-Arguments are listed shortest first and JSON-encoded, so control
-characters and anything non-ASCII (lookalike letters included) show as
-escapes. Each value is clipped on its own, with a marker saying how
-much was cut, so a long body can't push the recipient out of view. A
-nested object is clipped as a whole, but its members are listed
-shortest first too; a list keeps its order, so a long first item can
-still hide the ones after it. The terminal gate shows at most 500
-characters of each value; the web gate shows 1000 and keeps every
-clipped value on the page in full, escaped, a click away. It remains a
-human decision, and "make the human tired of saying yes" is a
+tool, the arguments, the rule that fired, and the taint trail — context
+an approval box needs to be more than a click-yes box. Arguments are
+JSON-encoded, so control characters and anything non-ASCII (lookalike
+letters included) show as escapes. The caller writes their names and
+picks how many there are, so the preview has a fixed size. Each name is
+clipped at 60 characters and each value at 500 (web: 1000), with a
+marker saying how much was cut. The arguments the policy checks come
+first and are always shown. The rest follow shortest first, and from
+the first one that would take the preview past 12 lines or 1000
+characters (web: 30 or 4000) they are left out, with a line saying
+exactly how many arguments and encoded characters that was. So a long
+body can't push the recipient out of view, and junk can't push out an
+argument a rule checks. It can push out one no rule checks; the prompt
+then says what it left out, and the terminal adds that approving
+forwards it anyway. A nested object is clipped as a whole, with its
+members shortest first; a list keeps its order, so a long first item
+can still hide the ones after it. The web gate keeps everything it
+clipped or left out on the page in full, escaped, a click away. It
+remains a human decision, and "make the human tired of saying yes" is a
 real attack family the benchmark exercises. The web gate binds to
 127.0.0.1 and requires a per-run token precisely because a browser will
 submit forms to localhost from any page: without the token, injected

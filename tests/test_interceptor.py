@@ -428,9 +428,18 @@ class DirtyTaint(FakeTaint):
 # the make fixture can't take a gate, so gated interceptors are built by
 # hand the same way it builds them
 def gated(
-    audit_path, gate, evaluate, canonicalize=passthrough, enforce=True, taint=None, timeout=120
+    audit_path,
+    gate,
+    evaluate,
+    canonicalize=passthrough,
+    enforce=True,
+    taint=None,
+    timeout=120,
+    tools=None,
 ):
-    policy = Policy(version=1, enforce=enforce, defaults={"gate_timeout_seconds": timeout})
+    policy = Policy(
+        version=1, enforce=enforce, defaults={"gate_timeout_seconds": timeout}, tools=tools or {}
+    )
     session = SessionState(policy, taint=taint if taint is not None else FakeTaint())
     return Interceptor(
         policy,
@@ -554,3 +563,19 @@ async def test_the_gate_is_asked_with_canonicalized_args_and_session_context(aud
     assert first.tainted_by == ("fetch_url",)
     assert first.turn == 0
     assert second.turn == 1
+
+
+async def test_the_gate_is_told_which_args_the_policy_checks(audit_path):
+    # so a prompt can list those first, whatever the caller packs around them
+    tools = {
+        "refund": {
+            "action": "require_approval",
+            "constraints": {"to": {"regex": ".*"}},
+            "limits": {"sum_per_session": {"field": "amount", "max": 100}},
+        }
+    }
+    gate = FakeGate(False)
+    itc = gated(audit_path, gate, returns(GATED), tools=tools)
+    await itc.handle("refund", {"to": "a@b.com", "amount": 5, "memo": "x"})
+
+    assert gate.requests[0].checked == {"to", "amount"}

@@ -14,7 +14,7 @@ import io
 import os
 import select
 import time
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 import anyio
@@ -24,9 +24,19 @@ try:
 except ImportError:  # windows: there is no controlling terminal to ask
     termios = None  # type: ignore[assignment]
 
-from tripwire.gate.base import ApprovalRequest, GateUnavailable, clip, encode_args
+from tripwire.gate.base import (
+    ApprovalRequest,
+    GateUnavailable,
+    more_args,
+    preview_args,
+    preview_line,
+)
 
 ARG_PREVIEW = 500  # per value: a 10k email body shouldn't flood the terminal
+# ...and nor should a few hundred arguments. The tool and the recipient
+# print first, and scrollback loses whatever scrolls out of it.
+ARG_LINES = 12
+ARG_BUDGET = 1000  # characters of preview, all lines together
 
 # Args reach this prompt from tool calls the attacker may have authored.
 # Anything that can move the cursor, clear the screen, or recolour text
@@ -39,9 +49,14 @@ def _flatten(text: str) -> str:
     return "".join(c if ord(c) in SAFE else f"\\x{ord(c):02x}" for c in text)
 
 
-def _arg_lines(args: Mapping[str, Any]) -> list[str]:
+def _arg_lines(
+    args: Mapping[str, Any], checked: Collection[str] = frozenset()
+) -> tuple[list[str], str]:
+    """The argument lines that fit, and what was left out ("" if nothing)."""
+    shown, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_LINES, ARG_BUDGET)
     # no _flatten: encode_args already escapes everything outside SAFE
-    return [f"{name}: {clip(value, ARG_PREVIEW)}" for name, value in encode_args(args)]
+    lines = [preview_line(name, value, ARG_PREVIEW) for name, value in shown]
+    return lines, more_args(hidden) if hidden else ""
 
 
 class CliGate:
@@ -68,7 +83,12 @@ class CliGate:
         return await anyio.to_thread.run_sync(self._prompt, req, abandon_on_cancel=True)
 
     def _prompt(self, req: ApprovalRequest) -> bool:
-        args = "\n          ".join(_arg_lines(req.args)) or "{}"
+        lines, left_out = _arg_lines(req.args, req.checked)
+        args = "\n          ".join(lines) or "{}"
+        if left_out:
+            # The terminal has no way to show the rest, so the human is
+            # told outright that a yes covers arguments they haven't read.
+            args += f"\n  hidden: {left_out}, not shown here but forwarded if you approve"
 
         taint = "clean session"
         if req.tainted:
