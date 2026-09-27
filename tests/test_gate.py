@@ -62,6 +62,17 @@ def test_short_scalars_come_before_long_strings():
     assert [name for name, _ in encode_args(args)] == ['"cc"', '"amount"', '"to"', '"body"']
 
 
+@given(value=json_values)
+def test_every_nested_object_lists_its_members_shortest_first(value):
+    def members_in_order(pairs):
+        sizes = [sum(map(len, encode_args({key: item})[0])) for key, item in pairs]
+        assert sizes == sorted(sizes)
+        return dict(pairs)
+
+    [(_, encoded)] = encode_args({"arg": value})
+    assert json.loads(encoded, object_pairs_hook=members_in_order) == value
+
+
 # --- web gate ---
 
 # a card is <b>tool</b> ... then its rid in a hidden input; non-greedy so
@@ -413,6 +424,15 @@ async def test_a_long_value_cannot_hide_the_recipient_at_the_terminal(tty):
     prompt = drain(master)
     assert '"to": "attacker@evil.example"' in prompt
     assert prompt.index('"to":') < prompt.index('"body":')
+
+
+async def test_a_long_nested_value_cannot_hide_a_nested_recipient(tty):
+    master, gate = tty
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(type_after_prompt, master, "n\n")
+        await gate.request(req(args={"message": LONG_BODY}))
+
+    assert '"message": {"to": "attacker@evil.example", "body": "xxx' in drain(master)
 
 
 async def test_control_characters_never_reach_the_terminal(tty):

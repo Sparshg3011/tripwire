@@ -62,11 +62,21 @@ def encode_args(args: Mapping[str, Any]) -> list[tuple[str, str]]:
     turns every control character, bidi override and lookalike letter
     into a visible escape instead of letting it act on the screen.
     """
-    encoded = [
-        (json.dumps(name), json.dumps(value, sort_keys=True, default=str))
-        for name, value in args.items()
-    ]
+    encoded = [(json.dumps(name), _encode(value)) for name, value in args.items()]
     return sorted(encoded, key=lambda pair: (len(pair[0]) + len(pair[1]), pair))
+
+
+def _encode(value: Any) -> str:
+    """JSON with every object's members shortest first, like the arguments
+    themselves: a message={to, body} gets clipped as one value, and sorted
+    keys would put its body ahead of its recipient. Lists keep their order,
+    because order is part of what a list says."""
+    if isinstance(value, Mapping):
+        members = [f"{json.dumps(str(key))}: {_encode(item)}" for key, item in value.items()]
+        return "{" + ", ".join(sorted(members, key=lambda m: (len(m), m))) + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_encode(item) for item in value) + "]"
+    return json.dumps(value, default=str)
 
 
 def clip(value: str, limit: int) -> str:
