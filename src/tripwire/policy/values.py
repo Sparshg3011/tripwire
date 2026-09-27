@@ -108,7 +108,8 @@ Contract: pure, total, deterministic. The two pinned lists under
 tripwire/data are read once at import; after that no I/O, no clock, no
 randomness, no mutation of inputs. Nothing raises: values come off the
 wire, so deep nesting, cycles, non-string keys, lone surrogates and huge
-strings all get an answer.
+strings all get an answer, and an input nothing can read gets the answer
+that fails closed. Extraction is linear in the text.
 
 The spec above is executable in tests/test_values.py.
 """
@@ -121,7 +122,7 @@ import unicodedata
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from importlib.resources import files
-from typing import Literal, TypeAlias
+from typing import Literal, Self, TypeAlias
 
 from tripwire.policy.canonical import _clean
 
@@ -580,7 +581,11 @@ def detect_type(value: object) -> ValueType | None:
         return "id"
     if not isinstance(value, str):
         return None
-    text = _clean(str.__str__(value)).strip()
+    try:
+        text = _clean(str.__str__(value)).strip()
+    except Exception:
+        # an object that claims str's class but isn't one
+        return None
     return _detect(text) if text else None
 
 
@@ -640,7 +645,10 @@ def normalize_all(
     a , or ; joined list whose every part is an email, else normalize()'s
     one. () when the leaf is absent."""
     if vtype in ("auto", "email") and isinstance(value, str):
-        cleaned = _prestep(str.__str__(value))
+        try:
+            cleaned = _prestep(str.__str__(value))
+        except Exception:
+            return (Invalid("unreadable"),)
         if (
             isinstance(cleaned, str)
             and _LIST_SEPARATOR.search(cleaned)
@@ -859,7 +867,11 @@ class TaskIndex:
     def build(cls, text: str) -> TaskIndex:
         if not isinstance(text, str):
             return cls()
-        source = _text(str.__str__(text))
+        try:
+            source = _text(str.__str__(text))
+        except Exception:
+            # a task nothing can read anchors nothing
+            return cls()
         keys, mentioned, masked = _task_keys(_plain(source))
         prefixes = sorted(
             k.key for k in keys if k.vtype == "path" and sum(1 for s in k.key.split("/") if s) >= 2
@@ -877,17 +889,23 @@ class TaskIndex:
         anchors only next to a label: "id 13", "#13", or one of `labels`
         ("invoice 13" with labels=["invoice"]). Only keys normalize() could
         have produced are considered."""
-        if not isinstance(key, Key) or normalize(key.key, key.vtype) != key:
+        try:
+            if not isinstance(key, Key) or normalize(key.key, key.vtype) != key:
+                return False
+            if key.vtype == "name":
+                return _has_phrase(self.folded, key.key)
+            if key in self.keys:
+                return True
+            return key.vtype == "id" and self._labelled(key.key, labels)
+        except Exception:
             return False
-        if key.vtype == "name":
-            return _has_phrase(self.folded, key.key)
-        if key in self.keys:
-            return True
-        return key.vtype == "id" and self._labelled(key.key, labels)
 
     def mentions(self, key: Key) -> bool:
         """anchors(), or a host the task names only as a file name."""
-        return self.anchors(key) or key in self.mentioned
+        try:
+            return self.anchors(key) or key in self.mentioned
+        except Exception:
+            return False
 
     def _labelled(self, key: str, labels: Iterable[str]) -> bool:
         words = list(_ID_LABELS)
@@ -933,7 +951,8 @@ _P_PORT_PADDING = re.compile(r"\.+(?=:[0-9])|(?<=:)0+(?=[0-9])")
 class PoisonScan:
     """One poison text: its typed sightings, and the text itself in the
     stored forms the text rule of is_poisoned() reads. A truncated scan
-    stopped at MAX_SCAN_KEYS and poisons every key."""
+    stopped short, at MAX_SCAN_KEYS or on a text it could not read, and
+    poisons every key."""
 
     keys: frozenset[Key]
     # NFKC, casefolded, whitespace-collapsed
@@ -993,8 +1012,9 @@ def scan_poison(text: str) -> PoisonScan:
         return PoisonScan(frozenset(), "", "")
     try:
         return _scan(str.__str__(text))
-    except _Full:
-        # what the text held past MAX_SCAN_KEYS is unknown, so it poisons all
+    except Exception:
+        # past MAX_SCAN_KEYS, or an object that claims str's class but
+        # isn't one: what the text held is unknown, so it poisons all
         return PoisonScan(frozenset(), "", "", truncated=True)
 
 
@@ -1065,11 +1085,19 @@ def is_poisoned(key: Key, scans: Iterable[PoisonScan], *, self_key: bool = False
       3. a scan is truncated.
 
     self_key: testing a `self` id, for which a key under 6 characters is
-    tested by rules 1 and 3 alone. A key that isn't one counts as poisoned.
+    tested by rules 1 and 3 alone. A key that isn't one, or that can't be
+    read, counts as poisoned.
     """
+    try:
+        return _is_poisoned(key, scans, self_key)
+    except Exception:
+        return True
+
+
+def _is_poisoned(key: Key, scans: Iterable[PoisonScan], self_key: bool) -> bool:
     if not isinstance(key, Key) or not isinstance(key.key, str):
         return True
-    text = key.key
+    text = str.__str__(key.key)
     folded = " ".join(text.casefold().split())
     text_rule = not (self_key and len(text) < 6)
     bounded = (
@@ -1119,6 +1147,18 @@ class WholeField:
     is_key: bool = False
 
 
+class WholeFields(tuple[WholeField, ...]):
+    """whole_fields()'s result: a tuple of fields that also says whether
+    part of the value went unread."""
+
+    truncated: bool
+
+    def __new__(cls, fields: Iterable[WholeField], truncated: bool) -> Self:
+        self = super().__new__(cls, fields)
+        self.truncated = truncated
+        return self
+
+
 def _candidates(value: str | int) -> tuple[Key, ...]:
     # Nobody declared the field's type, so a host or IBAN key registers only
     # from its own spelling, as under auto: "Report.md" may be a file that
@@ -1148,8 +1188,12 @@ def _field(value: object, is_key: bool) -> tuple[str | int, tuple[Key, ...]] | N
     return (leaf, keys) if keys else None
 
 
+_JSON_FLOATS = {"nan": "NaN", "inf": "Infinity", "-inf": "-Infinity"}
+
+
 def _json_key(name: object) -> str | None:
-    # json.dumps's key conversions; anything else is not JSON
+    # json.dumps's key conversions; anything else is not JSON. An int past
+    # sys.get_int_max_str_digits() raises here as it does there.
     if isinstance(name, str):
         return str.__str__(name)
     if isinstance(name, bool):
@@ -1157,13 +1201,14 @@ def _json_key(name: object) -> str | None:
     if name is None:
         return "null"
     if isinstance(name, int):
-        return _decimal(name)
+        return int.__repr__(name)
     if isinstance(name, float):
-        return float.__repr__(name)
+        text = float.__repr__(name)
+        return _JSON_FLOATS.get(text, text)
     return None
 
 
-def whole_fields(value: object, *, max_depth: int = MAX_FIELD_DEPTH) -> tuple[WholeField, ...]:
+def whole_fields(value: object, *, max_depth: int = MAX_FIELD_DEPTH) -> WholeFields:
     """Every whole field in a JSON value that registers at least one key,
     walking dicts in sorted key order.
 
@@ -1174,35 +1219,52 @@ def whole_fields(value: object, *, max_depth: int = MAX_FIELD_DEPTH) -> tuple[Wh
     costing its depth squared. A non-string dict key takes the string
     json.dumps would give it and sorts after the string keys; one json.dumps
     would reject is skipped with its value.
+
+    The result is truncated when a container past max_depth, a skipped
+    key's value or a leaf that can't be read went unread; for an untrusted
+    result that is a result over its caps.
     """
     out: list[WholeField] = []
     seen: set[int] = set()
+    truncated = False
     stack: list[tuple[tuple[str | int, ...], object]] = [((), value)]
     while stack:
         path, node = stack.pop()
-        if isinstance(node, dict):
-            if id(node) in seen or len(path) >= max_depth:
-                continue
-            seen.add(id(node))
-            entries: list[tuple[str, int, object]] = []
-            for name, child in dict.items(node):
-                text = _json_key(name)
-                if text is not None:
-                    entries.append((text, 0 if isinstance(name, str) else 1, child))
-            entries.sort(key=lambda entry: entry[:2])
-            for text, _, _ in entries:
-                found = _field(text, is_key=True)
+        try:
+            if isinstance(node, (dict, list, tuple)):
+                if id(node) in seen:
+                    continue
+                if len(path) >= max_depth:
+                    truncated = True
+                    continue
+                seen.add(id(node))
+            if isinstance(node, dict):
+                entries: list[tuple[str, int, object]] = []
+                for name, child in dict.items(node):
+                    try:
+                        text = _json_key(name)
+                    except Exception:
+                        text = None
+                    if text is None:
+                        truncated = True
+                    else:
+                        entries.append((text, 0 if isinstance(name, str) else 1, child))
+                entries.sort(key=lambda entry: entry[:2])
+                for text, _, _ in entries:
+                    found = _field(text, is_key=True)
+                    if found is not None:
+                        out.append(WholeField((*path, text), *found, is_key=True))
+                stack.extend(((*path, text), child) for text, _, child in reversed(entries))
+            elif isinstance(node, (list, tuple)):
+                items = list(
+                    list.__iter__(node) if isinstance(node, list) else tuple.__iter__(node)
+                )
+                stack.extend(((*path, i), child) for i, child in reversed(list(enumerate(items))))
+            else:
+                found = _field(node, is_key=False)
                 if found is not None:
-                    out.append(WholeField((*path, text), *found, is_key=True))
-            stack.extend(((*path, text), child) for text, _, child in reversed(entries))
-        elif isinstance(node, (list, tuple)):
-            if id(node) in seen or len(path) >= max_depth:
-                continue
-            seen.add(id(node))
-            items = list(list.__iter__(node) if isinstance(node, list) else tuple.__iter__(node))
-            stack.extend(((*path, i), child) for i, child in reversed(list(enumerate(items))))
-        else:
-            found = _field(node, is_key=False)
-            if found is not None:
-                out.append(WholeField(path, *found))
-    return tuple(out)
+                    out.append(WholeField(path, *found))
+        except Exception:
+            # an object that claims a JSON type's class but isn't one
+            truncated = True
+    return WholeFields(out, truncated)

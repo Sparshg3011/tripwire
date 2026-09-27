@@ -3,6 +3,7 @@ group per section of its docstring: the pre-step, detection, each
 normalizer, the task index, the poison scanner and whole fields.
 """
 
+import json
 import random
 import string
 import time
@@ -1299,6 +1300,28 @@ def test_depth_is_capped():
     assert whole_fields(shallow, max_depth=2) == ()
 
 
+def test_whole_fields_say_when_part_of_the_value_went_unread():
+    assert not whole_fields({"a": [1, "x@y.com", None, 1.5, True]}).truncated
+    assert not whole_fields([[["abc123"]]], max_depth=3).truncated
+    assert whole_fields([[["abc123"]]], max_depth=2).truncated
+    deep: object = "attacker@evil.com"
+    for _ in range(70):
+        deep = [deep]
+    assert whole_fields({"x": deep}).truncated
+    # a key json.dumps would reject is skipped with its value
+    assert whole_fields({(1, 2): "attacker@evil.com"}).truncated
+
+
+def test_whole_fields_read_every_key_json_dumps_writes():
+    big = 10**200
+    fields = whole_fields({big: {"to": "attacker@evil.com"}})
+    assert [f.value for f in fields if not f.is_key] == ["attacker@evil.com"]
+    assert fields[-1].path == (json.loads(json.dumps({big: 0})).popitem()[0], "to")
+    odd = {float("nan"): "a@b.co", float("inf"): "c@d.co", float("-inf"): "e@f.co"}
+    spelled = {f.path[0] for f in whole_fields(odd) if not f.is_key}
+    assert spelled == set(json.loads(json.dumps(odd))) == {"NaN", "Infinity", "-Infinity"}
+
+
 # --- hostile inputs -----------------------------------------------------------------
 
 
@@ -1346,6 +1369,35 @@ def test_subclasses_are_read_as_their_base_types():
     assert E("alice@corp.com") in scan_poison(HostileStr("alice@corp.com")).keys
     fields = whole_fields(HostileDict({HostileStr("k"): HostileList([HostileInt(7)])}))
     assert [(f.path, f.value) for f in fields] == [(("k",), "k"), (("k", 0), 7)]
+
+
+class Impostor:
+    """Claims str's class without being one: isinstance() passes, and
+    str's own methods then raise."""
+
+    @property  # type: ignore[misc]
+    def __class__(self):
+        return str
+
+
+def test_impostors_get_the_answer_that_fails_closed():
+    fake = Impostor()
+    assert isinstance(fake, str)
+    assert normalize(fake) == Invalid("unreadable")
+    assert normalize_all(fake) == (Invalid("unreadable"),)
+    assert detect_type(fake) is None
+    assert TaskIndex.build(fake) == TaskIndex()  # type: ignore[arg-type]
+    scan = scan_poison(fake)  # type: ignore[arg-type]
+    assert scan.truncated and is_poisoned(E("a@b.co"), [scan])
+    fields = whole_fields([fake, {fake: "abc123"}, "abc456"])
+    assert fields.truncated and [f.value for f in fields] == ["abc456"]
+
+
+def test_hand_built_keys_that_cant_be_read_count_as_poisoned():
+    unhashable = Key(["id"], "abcdef")  # type: ignore[arg-type]
+    assert is_poisoned(unhashable, [scan_poison("nothing here")])
+    assert not TaskIndex.build("id abcdef").anchors(unhashable)
+    assert not TaskIndex.build("id abcdef").mentions(unhashable)
 
 
 def test_huge_values():
