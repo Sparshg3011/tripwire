@@ -184,6 +184,9 @@ class TxExecutor:
                     "CREATE UNIQUE INDEX IF NOT EXISTS intents_in_flight "
                     "ON intents (call_key) WHERE state = 'in_flight'"
                 )
+                # what the index above replaced; it serves every lookup
+                # this one did
+                self._db.execute("DROP INDEX IF EXISTS intents_by_call")
         except sqlite3.Error as e:
             raise TxError(f"cannot open the ledger at {self.path}: {e}") from e
 

@@ -352,6 +352,18 @@ async def test_a_call_two_sessions_left_unresolved_is_named_before_the_ledger_op
     ex.close()
 
 
+def test_an_old_ledger_keeps_only_the_index_it_is_read_by(db):
+    unguarded_ledger(db).close()
+    TxExecutor(db, "new").close()
+
+    ledger = sqlite3.connect(db)
+    indexes = ledger.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL"
+    ).fetchall()
+    ledger.close()
+    assert indexes == [("intents_in_flight",)]
+
+
 # --- two executors, one db --------------------------------------------------
 
 
