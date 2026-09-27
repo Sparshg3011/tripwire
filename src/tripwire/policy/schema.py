@@ -28,10 +28,54 @@ TrustClass = Literal["trusted", "untrusted"]
 # through, and \D and \W let other scripts' digits and letters through.
 REGEX_MODES = (re.ASCII, re.NOFLAG)
 
-# (?u) or (?u:...) would read the pattern under Unicode rules in ASCII
-# mode too. Escapes are matched as well, only so that they're skipped:
-# \(?u is an optional paren, then a u.
-_UNICODE_FLAG = re.compile(r"\\.|\(\?[a-zA-Z-]*u", re.DOTALL)
+# (?flags) for the whole pattern, or (?flags:...) and (?flags-flags:...)
+# for one group
+_FLAG_GROUP = re.compile(r"\(\?([a-zA-Z]*)(?:-([a-zA-Z]*))?([:)])")
+
+
+def _past(pattern: str, i: int, stop: str) -> int:
+    """Just past the first unescaped `stop` at or after i."""
+    while i < len(pattern) and pattern[i] != stop:
+        i += 2 if pattern[i] == "\\" else 1
+    return i + 1
+
+
+def _turns_on_unicode(pattern: str) -> bool:
+    """Whether a flag group turns on u, which would read the pattern under
+    Unicode rules in ASCII mode too. In a class, a comment or an escape,
+    "(?u" is only text. Reads only patterns that compile."""
+    verbose = [False]  # per open group: whether a # starts a comment in it
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "\\":
+            i += 2
+        elif c == "[":
+            i += 2 if pattern.startswith("[^", i) else 1
+            if pattern.startswith("]", i):
+                i += 1  # a ] first is a member, not the end
+            i = _past(pattern, i, "]")
+        elif c == "#" and verbose[-1]:
+            i = _past(pattern, i, "\n")
+        elif pattern.startswith("(?#", i):
+            i = _past(pattern, i, ")")
+        elif group := _FLAG_GROUP.match(pattern, i):
+            on, off, scope = group.groups()
+            if "u" in on:
+                return True
+            x_on = (verbose[-1] or "x" in on) and "x" not in (off or "")
+            if scope == ")":
+                verbose[-1] = x_on  # only at the very start, so for the whole pattern
+            else:
+                verbose.append(x_on)
+            i = group.end()
+        else:
+            if c == "(":
+                verbose.append(verbose[-1])
+            elif c == ")":
+                verbose.pop()
+            i += 1
+    return False
 
 
 class StrictModel(BaseModel):
@@ -59,15 +103,15 @@ class Constraint(StrictModel):
     @classmethod
     def regex_must_compile(cls, v: str | None) -> str | None:
         if v is not None:
-            if any(m[0].startswith("(") for m in _UNICODE_FLAG.finditer(v)):
+            try:
+                re.compile(v)
+            except re.error as e:
+                raise ValueError(f"regex does not compile: {e}")
+            # without a u flag, what compiles here compiles in ASCII mode too
+            if _turns_on_unicode(v):
                 raise ValueError(
                     "regex may not use the u flag; policy regexes must match in ASCII mode too"
                 )
-            try:
-                for mode in REGEX_MODES:
-                    re.compile(v, mode)
-            except re.error as e:
-                raise ValueError(f"regex does not compile: {e}")
         return v
 
     @model_validator(mode="after")
