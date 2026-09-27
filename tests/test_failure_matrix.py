@@ -178,6 +178,15 @@ def test_a_keyed_log_served_without_its_key_refuses_to_start(tmp_path):
     assert "is a 'hmac-sha256' chain and this writer's is 'sha256'" in done.stderr
 
 
+def test_a_ledger_that_cannot_be_opened_refuses_to_start(tmp_path):
+    # before the upstream is running or the log says the proxy started
+    done = serve(tmp_path, extra=["--tx-db", str(tmp_path / "no" / "such" / "dir" / "ledger.db")])
+    assert done.returncode == REFUSED
+    assert "cannot open the ledger" in done.stderr
+    assert "Traceback" not in done.stderr
+    assert "proxy_start" not in (tmp_path / "audit.jsonl").read_text()
+
+
 def test_audit_failure_mid_session_halts_the_proxy(tmp_path):
     # The log going away underneath a running proxy is the one failure we
     # can't just report — an unrecorded call is exactly what we promise
