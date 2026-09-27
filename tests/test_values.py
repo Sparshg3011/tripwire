@@ -91,6 +91,9 @@ def test_tld_list_is_the_iana_root_zone():
 
 def test_control_segments_are_folded():
     assert {".git", ".claude", ".mcp.json", "claude.md", "agents.md", ".ssh"} <= CONTROL_SEGMENTS
+    # Claude Code's and Claude Desktop's MCP server lists, and git's
+    # core.hooksPath and core.fsmonitor
+    assert {".claude.json", "claude_desktop_config.json", ".gitconfig"} <= CONTROL_SEGMENTS
     assert all(s == unicodedata.normalize("NFKC", s).casefold() for s in CONTROL_SEGMENTS)
 
 
@@ -543,6 +546,9 @@ def test_phone_invalid(value):
         ("/repo/.gitignore", "/repo/.gitignore"),
         ("/repo/.github-backup/x", "/repo/.github-backup/x"),
         ("/repo/my.claude", "/repo/my.claude"),
+        ("/repo/x.git/y", "/repo/x.git/y"),
+        ("/repo/notes~/y", "/repo/notes~/y"),
+        ("/repo/a:b", "/repo/a:b"),
     ],
 )
 def test_path_keys(value, key):
@@ -586,10 +592,51 @@ def test_path_invalid_and_unanchorable(value, outcome):
         "/x/.config/fish/config.fish",
         "/x/.vscode/settings.json",
         "/x/CLAUDE.local.md",
+        "/Users/me/.claude.json",
+        "/Users/me/Library/Application Support/Claude/claude_desktop_config.json",
+        "/Users/me/.gitconfig",
+        # what NTFS opens as a control file or directory
+        "/repo/.git./hooks/pre-commit",
+        "/repo/.git /hooks/pre-commit",
+        "/repo/.git. ./config",
+        "/repo/GIT~1/hooks/pre-commit",
+        "/repo/CLAUDE~1/settings.json",
+        "/repo/CLAUDE.md::$DATA",
+        "/repo/CLAUDE.md.:stream",
+        "/repo/.git::$INDEX_ALLOCATION/hooks/pre-commit",
     ],
 )
 def test_control_paths_are_unanchorable(value):
     assert normalize(value, "path") == Unanchorable("control_path")
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        ".git/hooks/pre-commit",
+        ".claude/settings.json",
+        ".github/workflows/ci.yml",
+        ".mcp.json",
+        ".zshrc",
+        "project/.git/config",
+        "C:/repo/.git/hooks/pre-commit",
+        "CLAUDE.md",
+        "AGENTS.md",
+        "My Project/.git/config",
+    ],
+)
+def test_control_files_are_unanchorable_under_every_type(value):
+    for vtype in [*VALUE_TYPES, "auto"]:
+        assert not any(isinstance(o, Key) for o in normalize_all(value, vtype)), vtype
+    assert whole_fields([value]) == ()
+    task = TaskIndex.build(f"Don't touch {value}, or do: {value}.")
+    assert not task.keys and not task.mentioned
+
+
+def test_hosts_named_as_control_files_are_unanchorable():
+    assert normalize("www.CLAUDE.md", "host") == Unanchorable("control_path")
+    assert normalize("https://agents.md/x", "url") == Unanchorable("control_path")
+    assert normalize("https://claude.md.example/x", "url") == H("claude.md.example")
 
 
 @pytest.mark.parametrize(
@@ -1367,6 +1414,26 @@ def test_no_path_with_a_control_segment_anchors(prefix, segment, rest, data):
     assert normalize(path, "path") == Unanchorable("control_path")
     task = TaskIndex.build(f"Work in {prefix or '/'} and edit {path}")
     assert not any(k.vtype == "path" and k.key.casefold() == path.casefold() for k in task.keys)
+
+
+# Nor under any other type, relative or NTFS-spelled: a control file never
+# anchors, and neither does anything a task names inside it.
+@given(
+    prefix=st.from_regex(r"(?:/?[a-z]{1,6}/){0,3}", fullmatch=True),
+    segment=st.sampled_from(sorted(CONTROL_SEGMENTS)),
+    suffix=st.sampled_from(["", ".", " ", ". ", "::$DATA", ":x"]),
+    rest=st.from_regex(r"(/[a-z]{1,6}){0,2}", fullmatch=True),
+    data=st.data(),
+)
+@SETTINGS
+def test_no_value_with_a_control_segment_anchors(prefix, segment, suffix, rest, data):
+    value = "".join(data.draw(st.sampled_from([c, c.upper()])) for c in segment) + suffix
+    value = f"{prefix}{value}{rest}"
+    for vtype in [*VALUE_TYPES, "auto"]:
+        assert not any(isinstance(o, Key) for o in normalize_all(value, vtype)), vtype
+    assert whole_fields([value]) == ()
+    task = TaskIndex.build(f"Update {value} now")
+    assert not any(segment in k.key.casefold() for k in task.keys | task.mentioned)
 
 
 # Unlabelled short ids never anchor from task text.

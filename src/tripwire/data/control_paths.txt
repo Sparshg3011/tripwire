@@ -1,12 +1,16 @@
 # Path segments that never anchor (tripwire.policy.values). A path with any
 # of these as a segment is unanchorable whatever the task or known prefixes
 # say. Compared after NFKC and casefolding, because APFS and NTFS are
-# case-insensitive by default.
+# case-insensitive by default, and without the NTFS stream suffixes and
+# trailing dots and spaces Win32 ignores.
 
 # agent, editor and CI configuration
 .claude
+.claude.json
+claude_desktop_config.json
 .mcp.json
 .git
+.gitconfig
 .github
 .gitlab-ci.yml
 .vscode

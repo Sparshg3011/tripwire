@@ -39,7 +39,8 @@ Normalizers:
          www., fold ports 80 and 443. Invalid: a non-LDH label, fewer than 2
          labels, any IPv4 spelling but dotted decimal, non-canonical
          bracketed IPv6, a bad port. Non-ASCII is Unanchorable; xn-- labels
-         compare as ASCII.
+         compare as ASCII. A host named like a control file (claude.md) is
+         Unanchorable.
   url    the key is the host key of its authority, so a URL anchors by
          host[:port]; path, query and fragment are content. Invalid: a
          scheme other than http(s), userinfo, a backslash, whitespace, % in
@@ -55,6 +56,13 @@ Normalizers:
   name   casefold, collapse whitespace, strip one leading @ or #. Invalid
          over 128 characters or 8 words. Unanchorable under 3 characters,
          with no letter, or reserved (unless normalizing a `known` entry).
+
+Control segments (data/control_paths.txt) are compared the way APFS and
+NTFS read a segment: NFKC and casefolded, without an NTFS stream suffix
+("CLAUDE.md::$DATA") or the trailing dots and spaces Win32 drops (".git.").
+A segment shaped like an 8.3 short name ("GIT~1") can alias any of them and
+counts as one. A path, id or name with a control segment, split at slashes
+and backslashes, is Unanchorable under every type, auto included.
 
 Every key is a fixed point: normalizing key.key under key.vtype gives the
 key back. TaskIndex.anchors() leans on that to refuse hand-built keys.
@@ -227,6 +235,21 @@ _PHONE_SEPARATORS = str.maketrans("", "", " ().-")
 _ID = re.compile(r"[A-Za-z0-9_.:/#-]{1,128}")
 _ID_HINT = re.compile(r"[0-9_.:#/-]")
 _LIST_SEPARATOR = re.compile(r"[,;]")
+_SEGMENT_SEPARATOR = re.compile(r"[/\\]")
+_SHORT_NAME = re.compile(r"[^.~]{1,6}~[0-9]{1,6}(?:\.[^.]*)?")
+
+
+def _segment(segment: str) -> str:
+    # the name NTFS opens: no ":stream" suffix, no trailing dots or spaces
+    return _fold(segment).partition(":")[0].rstrip(". ")
+
+
+def _is_control(text: str) -> bool:
+    for segment in _SEGMENT_SEPARATOR.split(text):
+        name = _segment(segment)
+        if name in CONTROL_SEGMENTS or _SHORT_NAME.fullmatch(name):
+            return True
+    return False
 
 
 def _email(text: str) -> Outcome:
@@ -310,6 +333,9 @@ def _host(text: str) -> Outcome:
     name = _ipv6(host) if host.startswith("[") else _hostname(host.rstrip("."))
     if isinstance(name, Invalid):
         return name
+    # "CLAUDE.md" is a host by shape; as a file it must never anchor
+    if _is_control(name):
+        return Unanchorable("control_path")
     return Key("host", name + suffix)
 
 
@@ -380,7 +406,7 @@ def _path(text: str, protected_paths: Sequence[str]) -> Outcome:
     key = _path_key(text)
     if not key:
         return Unanchorable("empty")
-    if any(_fold(segment) in CONTROL_SEGMENTS for segment in key.split("/")):
+    if _is_control(key):
         return Unanchorable("control_path")
     folded = _fold(key)
     for entry in protected_paths:
@@ -393,6 +419,9 @@ def _path(text: str, protected_paths: Sequence[str]) -> Outcome:
 def _id(text: str) -> Outcome:
     if _ID.fullmatch(text) is None:
         return Invalid("id")
+    # ".git/hooks/pre-commit" is an id by shape
+    if _is_control(text):
+        return Unanchorable("control_path")
     return Key("id", text)
 
 
@@ -413,6 +442,8 @@ def _name(text: str, known: bool) -> Outcome:
         return Unanchorable("no_letter")
     if name in RESERVED_NAMES and not known:
         return Unanchorable("reserved")
+    if _is_control(name):
+        return Unanchorable("control_path")
     return Key("name", name)
 
 
