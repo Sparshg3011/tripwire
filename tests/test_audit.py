@@ -374,6 +374,18 @@ def test_a_keyed_chain_covers_its_last_line(tmp_path):
     assert result.bad_line == 3
 
 
+def test_a_keyed_chain_cannot_see_a_cut_it_was_continued_past(tmp_path):
+    # the limit the docs state: cut on a line boundary, restart, and the
+    # missing records sit in the middle of a log that verifies
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 5, key=KEY)
+    path.write_text("\n".join(path.read_text().splitlines()[:2]) + "\n")
+    write_log(path, 1, key=KEY)
+
+    result = verify_log(path, key=KEY)
+    assert result.ok and result.records == 3
+
+
 payloads = st.lists(
     st.dictionaries(st.text(max_size=5), st.integers(), max_size=3), min_size=1, max_size=6
 )

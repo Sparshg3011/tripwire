@@ -106,16 +106,21 @@ checked and what that kind can't see.
   reads a log): each record carries an HMAC-SHA256 over its own bytes,
   and links to the previous record's MAC. Without the key, no line can
   be edited, inserted or rewritten, the last one included, and none can
-  be deleted except by cutting off the end (below). No command vouches
-  for a keyed log without its key, or, given a key, for a log that
-  isn't keyed, so stripping the MACs and rebuilding a plain chain
-  doesn't pass either.
+  be deleted except by cutting off the end, which it doesn't catch
+  (below). No command vouches for a keyed log without its key, or,
+  given a key, for a log that isn't keyed, so stripping the MACs and
+  rebuilding a plain chain doesn't pass either.
 
-Neither chain can see lines cut from the end — a truncated log is a
-valid shorter log — or a log swapped wholesale for another written
-under the same key. Closing that needs an anchor outside the file: a
-periodically published head, or a second append-only sink. v0.1
-documents it rather than pretending. And a key only helps against
+Neither chain can see lines cut from the end on a line boundary — a
+truncated log is a valid shorter log — or a log swapped wholesale for
+another written under the same key. Only a cut through the middle of a
+line shows, as a torn last record the writer refuses to continue. A
+clean cut doesn't stay at the end, either: the next proxy to open the
+log carries on from its new last line, so after a restart the missing
+records sit in the middle of a log that still verifies, keyed or not.
+Closing these needs an anchor outside the file: a periodically
+published head, or a second append-only sink. v0.1 documents it rather
+than pretending. And a key only helps against
 someone who can write the log but not read the key. The proxy has to
 read it to sign, so the compromised host above can forge a keyed log as
 easily as an unkeyed one.

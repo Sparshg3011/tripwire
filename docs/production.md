@@ -109,10 +109,14 @@ head and shred it for both.
 
 **Rotate by moving, not truncating.** The chain lives in the file, so
 `mv audit.jsonl audit-2026-08.jsonl` and let tripwire open a fresh one
-on restart. Truncating a live log breaks the chain and tripwire will
-refuse to continue it. Adding or dropping a key is a rotation too:
-tripwire won't continue a log in a different chain from the one it
-started with. Keep the archives — they're your evidence.
+on restart. Truncating throws evidence away without a trace: cut on a
+line boundary, the shorter log still verifies, keyed or not, and
+tripwire carries on from the new last line, so the gap ends up in the
+middle of a log that checks out. Only a cut through a line is caught,
+as a torn record tripwire refuses to continue. Adding or dropping a key
+is a rotation too: tripwire won't continue a log in a different chain
+from the one it started with. Keep the archives — they're your
+evidence.
 
 **Key the audit log.** Unkeyed, the chain catches a line edited or
 deleted in the middle, but anyone who can write the file can rewrite it
@@ -127,10 +131,10 @@ tripwire serve --audit-key-file ~/.tripwire/audit.key --policy ... --upstream ..
 `TRIPWIRE_AUDIT_KEY_FILE` works in place of the flag. An empty name in
 either is refused rather than taken to mean no key, so an unset shell
 variable can't quietly turn keying off. The key is never written to the
-log or printed. It only protects the log from people who
-can write it but can't read the key, so keep the key away from anyone
-else with write access to the log. Lose the key and the log can't be
-verified any more.
+log or printed. It only protects the log from people who can write it
+but can't read the key, so keep the key away from anyone else with
+write access to the log. Lose the key and the log can't be verified any
+more.
 
 **Check integrity before you trust a log.**
 

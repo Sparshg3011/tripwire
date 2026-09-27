@@ -20,8 +20,10 @@ an unkeyed one when given a key.
 
 What neither chain protects against: truncating the tail of the file.
 An attacker with write access can drop the last k lines and the
-remaining prefix still verifies. (Fixing that needs an external anchor;
-out of scope for v0.1, noted in the threat model.)
+remaining prefix still verifies, and the next writer carries on from
+the new last line, so after a restart the gap is in the middle of a log
+that verifies. (Fixing that needs an external anchor; out of scope for
+v0.1, noted in the threat model.)
 
 If a write fails, we raise AuditWriteError and the proxy is expected to
 halt: no audit record, no side effect.
