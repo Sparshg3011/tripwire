@@ -26,11 +26,16 @@ bet on the model.
   information-flow rules that tighten once untrusted content is in
   play. Within MCP there is no second path to the tools.
 - **The record.** Every decision is logged with the rule that made it
-  and the reason, in a hash chain that makes rewriting history visible.
-  If tripwire cannot write the log, it stops the world rather than act
-  unrecorded.
-- **The retry hole.** A duplicated side-effectful call (agent retry,
-  transport hiccup) replays the first result instead of running twice.
+  and the reason, in a hash chain. Keyed with `--audit-key-file`, the
+  chain makes rewriting history visible to whoever holds the key;
+  unkeyed, it only catches an edit that leaves the rest of the chain
+  alone (see below). If tripwire cannot write the log, it stops the
+  world rather than act unrecorded.
+- **The retry hole.** Within one proxy session, a duplicated
+  side-effectful call replays the first result instead of running
+  twice. A call whose outcome was never recorded is refused in every
+  session, including the one a crashed proxy restarts as, until an
+  operator clears it.
 
 ## What tripwire does not defend
 
@@ -41,8 +46,9 @@ Named plainly, because a security tool that oversells is a hazard:
   tripwire never sees. Tripwire mediates MCP; it does not sandbox the
   agent process.
 - **A compromised host.** Root on the machine can edit the policy, kill
-  the proxy, or truncate the log (see below). Tripwire's guarantees are
-  against a *content* attacker, not a *host* attacker.
+  the proxy, truncate the log, or read the audit key and rewrite the
+  log with it (see below). Tripwire's guarantees are against a
+  *content* attacker, not a *host* attacker.
 - **Harm without tool calls.** If the model is talked into writing
   something false, cruel, or secret-revealing *in its reply text*,
   no tool call happens and tripwire never enters the picture.
@@ -85,19 +91,34 @@ receive a lightly rewritten string, which is why the rewrites are
 small, enumerated, and tested. Only arguments the policy checks are
 rewritten; the rest reach the tool byte for byte.
 
-**The audit chain does not protect the tail.** Two related gaps, both
-inherent to a chain with no external anchor:
+**What the audit chain proves depends on the key.** Every record links
+to the one before it, and `tripwire verify` says which kind of chain it
+checked and what that kind can't see.
 
-- Deleting the last k lines leaves a prefix that still verifies.
-- The **final** record is covered by no other record's hash, so its
-  contents can be rewritten and the chain still verifies. Only when a
-  later record is appended does the previous one become fixed.
+- **Unkeyed** (the default): each record carries the sha256 of the
+  previous line. A line edited or deleted in the middle, with the lines
+  after it left alone, breaks the chain and is located exactly. That is
+  all it proves. Anyone who can write the file can rewrite it from any
+  line onward — or entirely — and recompute every hash, and the final
+  record is covered by no other record's hash at all. It catches
+  accidents, not an attacker with write access.
+- **Keyed** (`--audit-key-file` on `serve` and `verify`): each record
+  carries an HMAC-SHA256 over its own bytes, and links to the previous
+  record's MAC. Without the key, no line can be edited, inserted or
+  rewritten, the last one included, and none can be deleted except by
+  cutting off the end (below). `verify` won't check a keyed log
+  without its key, and given a key it refuses a log that isn't keyed,
+  so stripping the MACs and rebuilding a plain chain doesn't pass
+  either.
 
-So the log is tamper-evident for everything except its own end. Fixing
-that needs an anchor outside the file — a periodically published head
-hash, or a second append-only sink. v0.1 documents it rather than
-pretending. Rewriting or removing anything before the tail is detected
-and located exactly.
+Neither chain can see lines cut from the end — a truncated log is a
+valid shorter log — or a log swapped wholesale for another written
+under the same key. Closing that needs an anchor outside the file: a
+periodically published head, or a second append-only sink. v0.1
+documents it rather than pretending. And a key only helps against
+someone who can write the log but not read the key. The proxy has to
+read it to sign, so the compromised host above can forge a keyed log as
+easily as an unkeyed one.
 
 **One writer per audit log, enforced.** Each writer caches the chain
 head when it opens the file, so two proxies appending to one log would
@@ -121,6 +142,14 @@ perform it again on retry. That is the tool lying about its own
 outcome — see "malicious upstream" above. The ledger also stores tool
 results unredacted; the db file deserves the same protection as the
 audit log.
+
+**The tx ledger replays within a session only.** A session is one proxy
+process, so a restart starts a new one. Replaying across sessions would
+serve every later conversation the first one's results, with no clock
+to expire them. The cost: a call that completed just before the proxy
+died, with its answer lost on the way to the agent, runs again when the
+retry reaches the restarted proxy. A call whose outcome was never
+recorded does not have that gap; it is refused across sessions.
 
 **Interactive approval assumes the human reads.** Gate prompts show the
 tool, the exact arguments, the rule that fired, and the taint trail —

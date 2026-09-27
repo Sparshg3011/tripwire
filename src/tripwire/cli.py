@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 import anyio
 
 from tripwire.policy import PolicyError, load_policy
 from tripwire.tx import (
+    AuditKeyError,
     AuditWriteError,
     LogError,
+    VerifyResult,
     format_report,
     format_trace,
+    load_key,
     read_records,
     report,
     sessions,
     trace,
     verify_log,
 )
+
+KEY_ENV = "TRIPWIRE_AUDIT_KEY_FILE"
 
 
 def check_chain(path: str) -> None:
@@ -26,11 +32,20 @@ def check_chain(path: str) -> None:
     is broken, that story may be the attacker's, so it can't be printed
     without the warning attached — a forensic tool that quietly renders
     tampered input is worse than one that doesn't exist.
+
+    A keyed log is checked with the key $TRIPWIRE_AUDIT_KEY_FILE names;
+    without it, a keyed log gets the warning too, because unverified is
+    what it is.
     """
-    result = verify_log(path)
+    key_file = os.environ.get(KEY_ENV)
+    try:
+        result = verify_log(path, key=load_key(key_file) if key_file else None)
+    except AuditKeyError as e:
+        result = VerifyResult(ok=False, records=0, why=str(e))
     if not result.ok:
+        where = "" if result.bad_line is None else f" at line {result.bad_line}"
         print(
-            f"WARNING: {path} fails its integrity check at line {result.bad_line} "
+            f"WARNING: {path} fails its integrity check{where} "
             f"({result.why}). Everything below is UNVERIFIED and may have been "
             f"altered. Run `tripwire verify` for detail.\n",
             file=sys.stderr,
@@ -59,8 +74,16 @@ def main(argv: list[str] | None = None) -> None:
     p_serve.add_argument(
         "--tx-db",
         help=(
-            "sqlite ledger for idempotency; with it a retried identical call "
-            "returns the first call's result instead of running the tool twice"
+            "sqlite ledger for idempotency; with it a retried identical call in the "
+            "same session returns the first call's result instead of running the tool twice"
+        ),
+    )
+    p_serve.add_argument(
+        "--audit-key-file",
+        default=os.environ.get(KEY_ENV),
+        help=(
+            "file holding a secret key; the audit log becomes an HMAC chain nobody "
+            f"can rewrite without it (default: ${KEY_ENV})"
         ),
     )
 
@@ -69,6 +92,11 @@ def main(argv: list[str] | None = None) -> None:
 
     p_verify = sub.add_parser("verify", help="check an audit log's hash chain")
     p_verify.add_argument("log")
+    p_verify.add_argument(
+        "--audit-key-file",
+        default=os.environ.get(KEY_ENV),
+        help=f"the key the log was served with; a keyed log needs it (default: ${KEY_ENV})",
+    )
 
     p_trace = sub.add_parser("trace", help="replay one session as a causal chain")
     p_trace.add_argument("log")
@@ -94,9 +122,24 @@ def main(argv: list[str] | None = None) -> None:
         print(f"ok: {args.policy} is valid, mode: {mode}, {len(policy.tools)} tool rules")
 
     elif args.command == "verify":
-        result = verify_log(args.log)
-        if result.ok:
-            print(f"ok: chain intact, {result.records} records")
+        try:
+            key = load_key(args.audit_key_file) if args.audit_key_file else None
+        except AuditKeyError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+        result = verify_log(args.log, key=key)
+        if result.ok and key is None:
+            print(f"ok: chain intact, {result.records} records (unkeyed)")
+            print("  catches: a line edited or deleted in the middle of the log")
+            print("  misses:  a rewrite by anyone who can write the file; lines cut from the end")
+            print("  serve and verify with --audit-key-file to catch rewrites")
+        elif result.ok:
+            print(f"ok: chain intact, {result.records} records (keyed, all authenticated)")
+            print("  catches: any edit, deletion or rewrite made without the key")
+            print("  misses:  lines cut from the end")
+        elif result.bad_line is None:
+            print(f"cannot verify {args.log}: {result.why}", file=sys.stderr)
+            sys.exit(1)
         else:
             print(
                 f"BROKEN at line {result.bad_line}: {result.why} "
@@ -160,6 +203,7 @@ def main(argv: list[str] | None = None) -> None:
         from tripwire.tx.executor import TxError
 
         try:
+            key = load_key(args.audit_key_file) if args.audit_key_file else None
             anyio.run(
                 serve,
                 args.policy,
@@ -168,11 +212,19 @@ def main(argv: list[str] | None = None) -> None:
                 args.gate,
                 args.gate_port,
                 args.tx_db,
+                key,
             )
-        except (PolicyError, UpstreamError, AuditWriteError, GateUnavailable, TxError) as e:
-            # bad policy, dead upstream, nowhere to write the log, or a
-            # gate that can't run here: we can't do the job, so we don't
-            # pretend to
+        except (
+            PolicyError,
+            UpstreamError,
+            AuditWriteError,
+            AuditKeyError,
+            GateUnavailable,
+            TxError,
+        ) as e:
+            # bad policy, dead upstream, nowhere to write the log, a key
+            # we can't use, or a gate that can't run here: we can't do the
+            # job, so we don't pretend to
             print(f"tripwire: refusing to start: {e}", file=sys.stderr)
             sys.exit(2)
         except KeyboardInterrupt:

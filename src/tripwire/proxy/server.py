@@ -50,6 +50,7 @@ async def serve(
     gate_mode: str = "none",
     gate_port: int = 8642,
     tx_db: str | Path | None = None,
+    audit_key: bytes | None = None,
 ) -> None:
     # Everything here raises on problems, and that's the point: bad
     # policy / dead upstream / unwritable log / unreachable gate =
@@ -59,7 +60,7 @@ async def serve(
     # runs colliding would splice two unrelated incidents into one
     # convincing-looking causal chain
     session_id = secrets.token_hex(8)
-    audit = AuditLog(audit_path, session_id=session_id)
+    audit = AuditLog(audit_path, session_id=session_id, key=audit_key)
 
     gate: ApprovalGate | None = None
     if gate_mode == "cli":

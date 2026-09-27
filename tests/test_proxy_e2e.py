@@ -7,6 +7,7 @@ afterwards.
 """
 
 import json
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from tripwire.tx import verify_log
+from tripwire.tx.executor import TxExecutor
 
 TOY = Path(__file__).parent / "toy_server.py"
 
@@ -48,7 +50,7 @@ tools:
 SHADOWED = "version: 1\nenforce: false\n" + GUARDED.split("version: 1\n", 1)[1]
 
 
-def proxy(tmp_path, policy_text, name="policy.yaml"):
+def proxy(tmp_path, policy_text, name="policy.yaml", *extra):
     policy = tmp_path / name
     policy.write_text(policy_text)
     audit = tmp_path / f"{name}.audit.jsonl"
@@ -64,7 +66,12 @@ def proxy(tmp_path, policy_text, name="policy.yaml"):
             UPSTREAM_CMD,
             "--audit",
             str(audit),
+            *extra,
         ],
+        # left to the SDK the proxy gets a scrubbed environment with no
+        # PYTHONPATH, and quietly runs whichever tripwire is installed
+        # instead of the one under test
+        env=dict(os.environ),
     )
     return params, audit
 
@@ -195,6 +202,18 @@ async def test_the_log_is_a_verifiable_chain(allow_all):
     assert kinds.count("tool_result") == 2
 
 
+async def test_a_keyed_log_verifies_only_under_its_key(tmp_path):
+    key_file = tmp_path / "audit.key"
+    key_file.write_text("e2e-audit-key-0123456789abcdef\n")
+    params, audit = proxy(tmp_path, ALLOW_ALL, "keyed.yaml", "--audit-key-file", str(key_file))
+    await talk(params, [("add", {"a": 1, "b": 1})])
+
+    assert verify_log(audit, key=b"e2e-audit-key-0123456789abcdef").ok
+    assert not verify_log(audit).ok
+    assert {r["chain"] for r in records(audit)} == {"hmac-sha256"}
+    assert "e2e-audit-key" not in audit.read_text()
+
+
 async def test_a_session_id_is_stamped_on_every_record(allow_all):
     params, audit = allow_all
     await talk(params, [("add", {"a": 1, "b": 1})])
@@ -202,3 +221,43 @@ async def test_a_session_id_is_stamped_on_every_record(allow_all):
     sessions = {r["session"] for r in records(audit)}
     assert len(sessions) == 1
     assert sessions != {""}
+
+
+# --- the ledger across a restart ---
+
+
+async def test_a_restarted_proxy_refuses_a_call_its_predecessor_never_finished(tmp_path):
+    # The predecessor wrote its intent and died before the outcome. The
+    # agent's retry can only land on a new proxy, which is a new session.
+    ledger = tmp_path / "ledger.db"
+    dead = TxExecutor(ledger, "dead-proxy")
+
+    async def killed():
+        raise RuntimeError("proxy killed mid-call")
+
+    with pytest.raises(RuntimeError):
+        await dead.run("add", {"a": 1, "b": 1}, killed)
+    dead.close()
+
+    params, audit = proxy(tmp_path, ALLOW_ALL, "ledger.yaml", "--tx-db", str(ledger))
+    retry, other = await talk(params, [("add", {"a": 1, "b": 1}), ("add", {"a": 2, "b": 1})])
+
+    assert retry.isError
+    assert "tx.duplicate_in_flight" in retry.content[0].text
+    assert other.content[0].text == "3"
+    duplicate = next(r for r in records(audit) if r["kind"] == "tx_duplicate")
+    assert "dead-proxy" in duplicate["data"]["error"]
+
+
+async def test_a_restarted_proxy_does_not_replay_what_its_predecessor_finished(tmp_path):
+    # replay is per session, and a restart is a new one: a new
+    # conversation gets fresh results, not the last one's
+    ledger = tmp_path / "ledger.db"
+    params, audit = proxy(tmp_path, ALLOW_ALL, "ledger.yaml", "--tx-db", str(ledger))
+    await talk(params, [("add", {"a": 1, "b": 1})])
+    (again,) = await talk(params, [("add", {"a": 1, "b": 1})])
+
+    assert again.content[0].text == "2"
+    kinds = [r["kind"] for r in records(audit)]
+    assert kinds.count("tool_result") == 2
+    assert "tx_replayed" not in kinds

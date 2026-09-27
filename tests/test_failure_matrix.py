@@ -6,6 +6,7 @@ that quietly turns into a pipe is worse than no firewall — you'd still
 think you had one.
 """
 
+import os
 import shlex
 import subprocess
 import sys
@@ -14,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tripwire.tx import AuditLog
+
 TOY = Path(__file__).parent / "toy_server.py"
 GOOD_UPSTREAM = f"{shlex.quote(sys.executable)} {shlex.quote(str(TOY))}"
 
@@ -21,7 +24,9 @@ REFUSED = 2  # exit code for "I will not start"
 HALTED = 70  # exit code for "I started, then lost the audit log"
 
 
-def serve(tmp_path, policy_text="version: 1\n", upstream=GOOD_UPSTREAM, audit=None):
+def serve(
+    tmp_path, policy_text="version: 1\n", upstream=GOOD_UPSTREAM, audit=None, extra=(), env=None
+):
     policy = tmp_path / "policy.yaml"
     policy.write_text(policy_text)
     return subprocess.run(
@@ -36,12 +41,14 @@ def serve(tmp_path, policy_text="version: 1\n", upstream=GOOD_UPSTREAM, audit=No
             upstream,
             "--audit",
             str(audit if audit is not None else tmp_path / "audit.jsonl"),
+            *extra,
         ],
         check=False,
         capture_output=True,
         text=True,
         timeout=60,
         stdin=subprocess.DEVNULL,
+        env=env,
     )
 
 
@@ -106,6 +113,33 @@ def test_unwritable_audit_log_refuses_to_start(tmp_path):
     assert done.returncode == REFUSED
     assert "refusing to start" in done.stderr
     assert "Traceback" not in done.stderr
+
+
+def test_unreadable_audit_key_refuses_to_start(tmp_path):
+    done = serve(tmp_path, extra=["--audit-key-file", str(tmp_path / "missing.key")])
+    assert done.returncode == REFUSED
+    assert "refusing to start" in done.stderr
+    assert "audit key file" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+def test_audit_key_file_is_taken_from_the_environment(tmp_path):
+    env = {**os.environ, "TRIPWIRE_AUDIT_KEY_FILE": str(tmp_path / "missing.key")}
+    done = serve(tmp_path, env=env)
+    assert done.returncode == REFUSED
+    assert "audit key file" in done.stderr
+
+
+def test_a_keyed_log_served_without_its_key_refuses_to_start(tmp_path):
+    # carrying on unkeyed would quietly downgrade the rest of the log
+    audit = tmp_path / "audit.jsonl"
+    log = AuditLog(audit, key=b"failure-matrix-key-0123456789")
+    log.append("proxy_start", {})
+    log.close()
+
+    done = serve(tmp_path, audit=audit)
+    assert done.returncode == REFUSED
+    assert "refusing to start" in done.stderr
 
 
 def test_audit_failure_mid_session_halts_the_proxy(tmp_path):
