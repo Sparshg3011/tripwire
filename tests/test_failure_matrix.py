@@ -140,6 +140,7 @@ def test_a_keyed_log_served_without_its_key_refuses_to_start(tmp_path):
     done = serve(tmp_path, audit=audit)
     assert done.returncode == REFUSED
     assert "refusing to start" in done.stderr
+    assert "is a 'hmac-sha256' chain and this writer's is 'sha256'" in done.stderr
 
 
 def test_audit_failure_mid_session_halts_the_proxy(tmp_path):

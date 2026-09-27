@@ -18,15 +18,13 @@ KEY = b"audit-test-key-0123456789abcdef"
 
 
 def cli(*argv, env=None):
-    # hermetic: a key file set in the developer's shell must not leak in
-    base = {k: v for k, v in os.environ.items() if k != KEY_ENV}
     return subprocess.run(
         [sys.executable, "-m", "tripwire", *argv],
         check=False,
         capture_output=True,
         encoding="utf-8",
         timeout=60,
-        env={**base, **(env or {})},
+        env={**os.environ, **(env or {})},
     )
 
 
