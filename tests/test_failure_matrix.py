@@ -130,6 +130,13 @@ def test_an_audit_log_that_cannot_be_read_refuses_to_start(tmp_path, tail):
     assert "Traceback" not in done.stderr
 
 
+def test_an_audit_log_whose_name_cannot_be_looked_up_refuses_to_start(tmp_path):
+    done = serve(tmp_path, audit=tmp_path / ("a" * 300 + ".jsonl"))
+    assert done.returncode == REFUSED
+    assert "refusing to start" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
 def test_unreadable_audit_key_refuses_to_start(tmp_path):
     done = serve(tmp_path, extra=["--audit-key-file", str(tmp_path / "missing.key")])
     assert done.returncode == REFUSED

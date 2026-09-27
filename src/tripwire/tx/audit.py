@@ -174,14 +174,14 @@ class AuditLog:
             ) from e
 
     def _resume(self) -> tuple[int, str]:
-        if not self.path.exists() or self.path.stat().st_size == 0:
-            return 0, GENESIS
         last = None
         try:
             with open(self.path, encoding="utf-8") as fh:
                 for line in fh:
                     if line.strip():
                         last = line.rstrip("\n")
+        except FileNotFoundError:
+            return 0, GENESIS
         except (OSError, UnicodeDecodeError) as e:
             raise AuditWriteError(f"cannot read audit log {self.path}: {e}") from e
         if last is None:

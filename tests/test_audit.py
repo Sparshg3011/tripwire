@@ -289,6 +289,26 @@ def test_unwritable_path_fails_closed(tmp_path):
         AuditLog(tmp_path / "no" / "such" / "dir" / "audit.jsonl")
 
 
+def test_a_path_that_cannot_be_looked_up_fails_closed(tmp_path):
+    # longer than the 255 bytes a filesystem allows in one name
+    with pytest.raises(AuditWriteError):
+        AuditLog(tmp_path / ("a" * 300 + ".jsonl"))
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs a directory it may not search"
+)
+def test_a_log_in_a_directory_it_may_not_search_fails_closed(tmp_path):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        with pytest.raises(AuditWriteError, match="cannot read audit log"):
+            AuditLog(locked / "audit.jsonl")
+    finally:
+        locked.chmod(0o700)
+
+
 def test_redactor_runs_before_hashing(tmp_path):
     path = tmp_path / "audit.jsonl"
 
