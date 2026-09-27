@@ -41,11 +41,11 @@ fi
 # be an array that is sometimes empty.
 run_gym() {
   if [ -n "$MODEL" ]; then
-    $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$1" \
+    "$PY" -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$1" \
       --concurrency "$CONCURRENCY" \
       --conditions "$2" --policy-dir "$3" --out "$4" --model "$MODEL"
   else
-    $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$1" \
+    "$PY" -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$1" \
       --concurrency "$CONCURRENCY" \
       --conditions "$2" --policy-dir "$3" --out "$4"
   fi
@@ -69,7 +69,7 @@ for BRACKET in approve deny; do
 done
 
 echo "==> marginal contributions"
-$PY - <<PYEOF
+"$PY" - <<PYEOF
 from tripwire_gym.analysis import load_results
 from tripwire_gym.scoring import summarize
 

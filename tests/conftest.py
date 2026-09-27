@@ -20,13 +20,14 @@ def reference_policy():
 def fake_python(tmp_path):
     """An executable to hand a gym script as $PY, and a function that
     reads back the argv of every call it got."""
-    home = tmp_path / "fake-python"
+    # checkouts have spaces in their paths, so this one does too
+    home = tmp_path / "fake python"
     home.mkdir()
     log = home / "calls.jsonl"
     log.touch()
     python = home / "python"
     # A shebang can't name sys.executable: the kernel ends the
-    # interpreter path at the first space, and checkouts have spaces.
+    # interpreter path at the first space.
     command = shlex.join([sys.executable, str(FAKE_PYTHON), str(log)])
     python.write_text(f'#!/bin/sh\nexec {command} "$@"\n')
     python.chmod(0o755)
