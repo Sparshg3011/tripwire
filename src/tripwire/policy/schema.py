@@ -2,13 +2,14 @@
 
 Everything here is deliberately strict (extra="forbid" throughout): a
 misspelled key in a security policy must kill startup, not get silently
-ignored and leave a hole.
+ignored and leave a hole. Numbers must be finite for the same reason:
+every comparison with a NaN bound is False, so it would bound nothing.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -17,7 +18,7 @@ TrustClass = Literal["trusted", "untrusted"]
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class Defaults(StrictModel):
@@ -67,16 +68,36 @@ class Limits(StrictModel):
 class ToolRule(StrictModel):
     action: Action
     constraints: dict[str, Constraint] = {}
+    # When set, an argument named neither here nor in constraints blocks
+    # the call. Without it, arguments nothing constrains pass unchecked.
+    allowed_args: list[str] | None = None
     limits: Limits | None = None
     reason: str | None = None
 
+    @field_validator("allowed_args")
+    @classmethod
+    def allowed_args_are_distinct(cls, v: list[str] | None) -> list[str] | None:
+        if v is not None:
+            repeated = sorted({name for name in v if v.count(name) > 1})
+            if repeated:
+                raise ValueError(
+                    f"allowed_args lists {', '.join(map(repr, repeated))} more than once"
+                )
+        return v
+
 
 class SequenceRule(StrictModel):
-    """Deny `deny` if `within_turns_after` was called in the last `turns` turns."""
+    """Deny `deny` if `within_turns_after` was called in the last `turns`
+    turns, or at any earlier point in the session with `turns: session`.
+
+    Every executed call is a turn, so a numeric window can be padded: a
+    caller who gets a few harmless calls allowed ages the trigger out of
+    it. A session-long rule has no window to push anything out of.
+    """
 
     deny: str
     within_turns_after: str
-    turns: int = Field(gt=0)
+    turns: Annotated[int, Field(gt=0)] | Literal["session"]
 
 
 class FlowRule(StrictModel):

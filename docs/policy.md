@@ -7,7 +7,8 @@ text-normalization rules applied before any rule looks at an argument.
 A policy that doesn't validate doesn't run — `tripwire validate
 policy.yaml` tells you why, with the path to the offending key. Unknown
 keys are errors, not warnings: a typo in a security policy must fail
-loudly, not silently allow.
+loudly, not silently allow. So is a key given twice in one mapping,
+which plain YAML would settle by quietly keeping the last one.
 
 ## Shape
 
@@ -28,6 +29,7 @@ sources:                       # who taints the session
 tools:
   send_email:
     action: require_approval   # allow | block | require_approval
+    allowed_args: [subject]    # with to and body, the only arguments accepted
     constraints:
       to:   { regex: "^[^@]+@mycompany\\.com$" }
       body: { max_length: 10000 }
@@ -47,7 +49,7 @@ tools:
 sequences:                     # order-of-operations rules
   - deny: execute_code
     within_turns_after: fetch_url
-    turns: 3
+    turns: 3                   # or session: for the rest of the session
 
 flows:                         # information-flow rules; tighten only
   - when: context_tainted
@@ -62,21 +64,38 @@ Every call is judged in five stages. The first hard **block**
 short-circuits; otherwise stages may only escalate the verdict
 (allow → gate → block), never relax it.
 
-1. **Tool lookup.** No entry in `tools:` → the verdict is
-   `defaults.unknown_tools`. An entry with `action: block` ends it
+1. **Tool lookup.** An entry in `tools:` with `action: block` ends it
    here. `allow` / `require_approval` set the provisional verdict and
-   evaluation continues.
-2. **Constraints**, on canonicalized arguments (below). A constraint on
-   an argument the call didn't provide **blocks** — absence is not a
-   free pass. `regex` must match the whole value; `max_length` bounds
-   `len()`; `type: number` accepts int/float and nothing else (not
-   `True`); `min`/`max` are inclusive.
+   evaluation continues. A tool with no entry gets
+   `defaults.unknown_tools` as its action: `block` ends it here too,
+   while `allow` / `require_approval` have no constraints or limits to
+   check but still go through sequences and flows, which may name
+   tools that have no entry of their own.
+2. **Constraints**, on canonicalized arguments (below). If the tool
+   sets `allowed_args`, an argument named neither there nor under
+   `constraints` **blocks** (`tools.<name>.allowed_args`). Without it,
+   arguments nothing constrains pass unchecked, so an allowlist on `to`
+   alone still lets a `bcc` through. A constraint on an argument the
+   call didn't provide **blocks** — absence is not a free pass.
+   `max_length` bounds `len()`, and is checked before `regex`, so an
+   over-long value never reaches the pattern; `regex` must match the
+   whole value; `type: number` accepts a finite int/float and nothing
+   else (not `True`, not NaN or ±Infinity); `min`/`max` are inclusive
+   and also refuse anything that isn't a finite number. The bounds
+   themselves must be finite, and `allowed_args` may not name an
+   argument twice, or the policy doesn't load.
 3. **Limits**, counting the current call. `per_session: 3` means calls
    1–3 pass and call 4 blocks. `sum_per_session` adds the current
    call's `field` value to the running total; over `max` blocks,
-   exactly `max` is fine. A missing or non-numeric `field` blocks.
+   exactly `max` is fine. A missing, non-numeric or non-finite `field`
+   blocks, and a non-finite value is never added to the total.
 4. **Sequences.** `deny: X within_turns_after: Y turns: N` blocks X
    when Y ran at turn *t* and the current turn is within *t + N*.
+   `turns: session` blocks X for the rest of the session once Y has
+   run. Every executed call is a turn, so a numeric window can be
+   padded: a caller who gets N harmless calls allowed after Y has aged
+   Y out of the window before calling X. Use `session` when no amount
+   of distance should make X safe.
 5. **Flows.** With `when: context_tainted`, once the session has seen
    any result from an `untrusted` source, listed tools escalate to the
    flow's action. Flows cannot allow — the schema rejects it.
@@ -89,16 +108,18 @@ what the agent reads in the refusal.
 ## Canonicalization
 
 Attackers rarely attack the rule; they attack the *spelling* of the
-value the rule reads. Before evaluation, tripwire normalizes arguments
-— and forwards the normalized form upstream, so what was checked is
-what runs:
+value the rule reads. Before evaluation, tripwire normalizes the
+arguments the policy checks for that tool — its constraint keys and
+the field its `sum_per_session` adds up — and forwards the normalized
+form upstream, so what was checked is what runs. Every other argument
+is forwarded exactly as it arrived:
 
 | # | Rule |
 |---|------|
 | C2 | Invisible formatting characters are stripped: U+200B/200C/200D, U+2060, U+FEFF. A zero-width space inside `corp.com` comes out. |
 | C1 | Then Unicode NFKC: fullwidth `ａdmin` → `admin`, ligature `ﬁle` → `file`. (Invisibles first, then NFKC — the order makes the whole thing idempotent.) |
-| C3 | At comparison time, both sides are casefolded when a constraint sets `case_insensitive: true`. |
-| C4 | Host-like fields (`url`, `host`, `hostname`, `domain`, `to`, `recipient`, `email`, `address`) lose all trailing dots: `corp.com.` → `corp.com`. |
+| C3 | At comparison time, a constraint with `case_insensitive: true` matches its regex ignoring case (`re.IGNORECASE`). Nothing is rewritten: `\D` in the pattern still means `\D`, and the value is checked as it will be sent. A value containing `ı`, `İ`, `ſ` or the Kelvin sign U+212A (which Python counts as cases of `i`, `s` and `k`) is matched case-sensitively, so `admın` doesn't pass for `admin`. |
+| C4 | Checked host-like fields (`url`, `host`, `hostname`, `domain`, `to`, `recipient`, `email`, `address`) lose all trailing dots: `corp.com.` → `corp.com`. |
 | C5 | Fields constrained with `type: number` parse plain numeric strings: `"1e2"` → `100.0`, `" 42 "` → `42.0`. Only a strict pattern qualifies — `"1_000"`, `"nan"`, `"inf"`, and non-ASCII digits do not, and stay strings for the evaluator to block. |
 
 Just as important is what canonicalization **doesn't** do: no HTML

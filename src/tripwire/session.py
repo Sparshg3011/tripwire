@@ -5,7 +5,9 @@ A blocked call leaves nothing behind: no count, no history entry, no
 turn. That asymmetry is on purpose — if refused calls moved the state,
 an attacker could spend your per-session budget with calls that never
 ran, or fire three junk calls to push a fetch_url out of a sequence
-window. Refusing a call should never help the caller.
+window. Refusing a call should never help the caller. (Allowed calls do
+move the turn, so a numeric window can still be padded with harmless
+ones. `turns: session` is the sequence rule that can't be.)
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ import secrets
 from collections.abc import Mapping
 from typing import Any
 
+from tripwire.policy.evaluator import is_number
 from tripwire.policy.schema import Policy
 from tripwire.policy.types import SessionSnapshot
 from tripwire.taint import TaintTracker
@@ -77,7 +80,9 @@ class SessionState:
         field = self._summed.get(tool)
         if field is not None:
             value = args.get(field)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
+            # shadow mode records calls the budget check refused, and one
+            # NaN would leave the total NaN, under every cap, for good
+            if is_number(value):
                 totals = self._sums.setdefault(tool, {})
                 totals[field] = totals.get(field, 0.0) + float(value)
 

@@ -5,10 +5,16 @@ from an untrusted source and the session stays tainted until it ends.
 There is no way to wash it off — no declassification, no per-message
 scoping, no "that was only the subject line".
 
-That is not laziness, it is the one property worth having: the tracker
-can over-block, but it can never under-block. A model that read an
-attacker's text at turn 2 is still carrying it at turn 40, because the
-instruction it absorbed doesn't expire when the message scrolls away.
+That is not laziness, it is the one property worth having: within a
+session the tracker can over-block, but it can never under-block. A
+model that read an attacker's text at turn 2 is still carrying it at
+turn 40, because the instruction it absorbed doesn't expire when the
+message scrolls away.
+
+The session is where that stops. Taint lives in this process's memory
+and nowhere else, so a restarted proxy starts a new, clean session,
+even if the agent that reconnects still has the attacker's text in its
+context.
 
 The cost is real and we refuse to hide it: after one fetch_url, every
 flow-guarded tool needs a human for the rest of the session. The gym
@@ -47,8 +53,7 @@ Contract: no I/O, no clock, no randomness. Total — observe_result takes
 whatever tool name arrives off the wire, including ones no policy has
 ever heard of, and must not raise.
 
-The spec is executable in tests/test_taint.py. Delete the skip line
-there and make it green.
+The spec is executable in tests/test_taint.py.
 """
 
 from __future__ import annotations

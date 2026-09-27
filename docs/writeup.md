@@ -66,9 +66,9 @@ in this post.
 
 **Session taint.** Tools are declared trusted or untrusted. One result
 from an untrusted source marks the session, permanently, with no way to
-wash it off. It's deliberately blunt — it can over-block but never
-under-block — and the over-blocking is real, which is why the benchmark
-measures it rather than hiding it.
+wash it off. It's deliberately blunt — within a session it can
+over-block but never under-block — and the over-blocking is real, which
+is why the benchmark measures it rather than hiding it.
 
 **Gates.** Once untrusted content is in play, outbound actions can
 require a human. This is the only part whose effectiveness depends on

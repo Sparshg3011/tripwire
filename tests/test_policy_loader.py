@@ -32,6 +32,43 @@ def test_yaml_that_is_not_a_mapping(tmp_path):
         load_policy(p)
 
 
+def test_duplicate_tool_rejected(tmp_path):
+    # last one wins in plain yaml, and here the last one is the loose one
+    p = write(
+        tmp_path,
+        "version: 1\ntools:\n  send_email: {action: block}\n  send_email: {action: allow}\n",
+    )
+    with pytest.raises(PolicyError, match=r"(?s)duplicate key 'send_email'.*line 4, column 3"):
+        load_policy(p)
+
+
+def test_duplicate_nested_key_rejected(tmp_path):
+    p = write(
+        tmp_path,
+        "version: 1\n"
+        "tools:\n"
+        "  send_email:\n"
+        "    action: allow\n"
+        "    constraints:\n"
+        '      to: {regex: "^a@corp$", regex: ".*"}\n',
+    )
+    with pytest.raises(PolicyError, match=r"(?s)duplicate key 'regex'.*line 6, column 31"):
+        load_policy(p)
+
+
+def test_merge_keys_may_still_be_overridden(tmp_path):
+    p = write(
+        tmp_path,
+        "version: 1\n"
+        "tools:\n"
+        "  send_email: &gated {action: require_approval, limits: {per_session: 3}}\n"
+        "  http_post: {<<: *gated, action: block}\n",
+    )
+    policy = load_policy(p)
+    assert policy.tools["http_post"].action == "block"
+    assert policy.tools["http_post"].limits.per_session == 3
+
+
 def test_validation_error_names_the_path(tmp_path):
     p = write(tmp_path, "version: 1\ntools:\n  send_email: {action: maybe}\n")
     with pytest.raises(PolicyError, match="tools.send_email.action"):

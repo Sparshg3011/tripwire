@@ -148,6 +148,7 @@ tools:
   read_email: { action: allow }
   send_email:
     action: allow
+    allowed_args: [subject, body]   # and the constrained to; a bcc or anything else blocks
     constraints:
       to: { regex: "^[^@]+@mycompany\\.example$" }
     limits: { per_session: 3 }
@@ -218,6 +219,7 @@ tools:
 
   send_email:
     action: require_approval
+    allowed_args: [subject]      # plus the constrained to and body; anything else blocks
     constraints:
       to: { regex: "^[^@]+@mycompany\\.com$" }
       body: { max_length: 10000 }
@@ -263,7 +265,7 @@ and failure direction.
 | **Total MCP mediation** | Upstream tools are discovered and re-advertised through the proxy; within MCP there is no alternate route. |
 | **Pure evaluation** | A decision is a deterministic function of the call, session state, and policy. |
 | **Monotonic tightening** | Later policy stages may escalate a verdict but never relax it. |
-| **Checked form is executed** | Canonicalized arguments are both evaluated and forwarded, avoiding check/use disagreement. |
+| **Checked form is executed** | Checked arguments are canonicalized, then both evaluated and forwarded in that form, avoiding check/use disagreement. Unchecked arguments pass through untouched. |
 | **No unrecorded side effect** | The enforced path records its decision before forwarding; an unwritable audit log halts execution. |
 
 These guarantees are deliberately narrow. Tripwire mediates MCP tool calls; it is not a sandbox and

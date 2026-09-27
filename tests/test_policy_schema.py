@@ -1,7 +1,14 @@
 import pytest
 from pydantic import ValidationError
 
-from tripwire.policy.schema import Constraint, FlowRule, Policy
+from tripwire.policy.schema import (
+    Constraint,
+    FlowRule,
+    Policy,
+    SequenceRule,
+    SumLimit,
+    ToolRule,
+)
 
 
 def test_reference_policy_validates(reference_policy):
@@ -41,6 +48,29 @@ def test_bad_regex_rejected_at_load_time():
 def test_empty_constraint_rejected():
     with pytest.raises(ValidationError, match="no conditions"):
         Constraint.model_validate({})
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_bounds_rejected(value):
+    # a NaN bound compares False against everything, so it would bound nothing
+    with pytest.raises(ValidationError, match="finite"):
+        Constraint.model_validate({"max": value})
+    with pytest.raises(ValidationError, match="finite"):
+        SumLimit.model_validate({"field": "amount", "max": value})
+
+
+def test_allowed_args_must_not_repeat():
+    with pytest.raises(ValidationError, match="'subject' more than once"):
+        ToolRule.model_validate({"action": "allow", "allowed_args": ["subject", "body", "subject"]})
+
+
+def test_sequence_window_is_a_positive_count_or_session():
+    rule = {"deny": "execute_code", "within_turns_after": "fetch_url"}
+    assert SequenceRule.model_validate({**rule, "turns": 3}).turns == 3
+    assert SequenceRule.model_validate({**rule, "turns": "session"}).turns == "session"
+    for bad in (0, -1, "forever", None):
+        with pytest.raises(ValidationError):
+            SequenceRule.model_validate({**rule, "turns": bad})
 
 
 def test_flow_rules_cannot_allow():

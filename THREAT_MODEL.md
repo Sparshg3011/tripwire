@@ -59,11 +59,14 @@ Named plainly, because a security tool that oversells is a hazard:
 
 **Session taint is sticky and session-wide (v0.1).** One untrusted
 result taints the session until it ends; nothing washes it off. This is
-the sound direction — it can over-block, never under-block — and the
-over-blocking is real: after one `fetch_url`, every flow-guarded tool
-needs approval for the rest of the session. The benchmark measures that
-cost as lost task completion instead of hiding it. Per-message taint
-and declassification are v0.2 design work, not v0.1 promises.
+the sound direction — within a session it can over-block, never
+under-block — and the over-blocking is real: after one `fetch_url`,
+every flow-guarded tool needs approval for the rest of the session. The
+benchmark measures that cost as lost task completion instead of hiding
+it. Per-message taint and declassification are v0.2 design work, not
+v0.1 promises. Taint lives in the proxy's memory, so restarting the
+proxy starts a clean session, even if the agent still carries the text
+that tainted the old one.
 
 **Canonicalization stops where stated.** NFKC, invisible-character
 stripping, trailing-dot hosts, numeric-string parsing — and nothing
@@ -79,7 +82,8 @@ against encodings we don't fold** — write allowlists.
 canonicalized form it evaluated, not the original bytes. Checking one
 form and sending another would make the check theatre. The cost: tools
 receive a lightly rewritten string, which is why the rewrites are
-small, enumerated, and tested.
+small, enumerated, and tested. Only arguments the policy checks are
+rewritten; the rest reach the tool byte for byte.
 
 **The audit chain does not protect the tail.** Two related gaps, both
 inherent to a chain with no external anchor:
@@ -148,7 +152,9 @@ gate, latency for queued calls; the benchmark's benign twins price it.
 1. **Multi-step attacks that stay inside policy.** Each call
    individually legal, the harm in the composition. Sequence rules
    catch the shapes you anticipated; they do not catch the ones you
-   didn't.
+   didn't. A numeric window also counts every executed call, so
+   harmless allowed calls can pad the trigger out of it; only
+   `turns: session` can't be outwaited.
 2. **Gate social-engineering.** Content that coaches the model to make
    the request look routine or urgent to the approving human.
 3. **Policy gaps.** Unknown-tool defaults and `"*"` taint classes are

@@ -256,12 +256,14 @@ subjects, and it is out of scope for a benchmark that has to run a
 hundred times.
 
 **Defended and undefended runs record slightly different arguments.**
-Tripwire forwards the *canonicalized* form of an argument upstream —
-what it checked is what it sends — so the mock records normalized text
-under every proxied condition and raw text undefended. For an attack
-predicate matching something like `evil\.example` this makes no
-difference, but a predicate matching a string that canonicalization
-touches (zero-width characters, fullwidth digits) would be compared
+Tripwire forwards the *canonicalized* form of every argument its policy
+checks — what it checked is what it sends — so for those arguments the
+mock records normalized text under every proxied condition and raw text
+undefended. Arguments a tier doesn't check are forwarded raw, so which
+ones get normalized depends on the tier. For an attack predicate
+matching something like `evil\.example` this makes no difference, but
+a predicate matching a string that canonicalization touches
+(zero-width characters, fullwidth digits) would be compared
 against different haystacks in different conditions. Write predicates
 against the semantic thing you care about, not against a specific
 spelling, and be aware of it when scoring the `policy_probing` family.
