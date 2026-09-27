@@ -71,6 +71,8 @@ complete policy for an arbitrary upstream server.
   argument defaults. The host must authorize the full call it expects.
 - Registration uses the existing policy canonicalizer. The host's approval is
   for those **canonical values**, which are also what the proxy forwards.
+  Only arguments the policy checks are canonicalized; every other argument
+  must match the grant byte for byte.
   JSON scalar types remain distinct unless the policy canonicalizes them.
 - One use per registered call, in one live `SessionState`, with a finite
   lifetime (default five minutes). Either its monotonic or wall-clock deadline

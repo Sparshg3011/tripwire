@@ -29,7 +29,10 @@ def policy():
                 "read_email": {"action": "allow"},
                 "send_money": {
                     "action": "require_approval",
-                    "constraints": {"amount": {"type": "number", "min": 0, "max": 100}},
+                    "constraints": {
+                        "to": {"regex": "[a-z]+@example\\.com"},
+                        "amount": {"type": "number", "min": 0, "max": 100},
+                    },
                     "limits": {"per_session": 2},
                 },
             },
@@ -248,6 +251,13 @@ async def test_canonicalized_registration_matches_what_is_forwarded(live):
     live.gate = gate_for(live.session, variant)
     assert not (await live.handle("send_money", variant)).isError
     assert live.upstream.calls == [("send_money", ARGS)]
+
+
+async def test_unchecked_arguments_must_match_byte_for_byte():
+    # body is forwarded as sent, so a grant for one spelling can't cover another
+    session = SessionState(policy())
+    gate = gate_for(session)
+    assert not await gate.request(request(session, {**ARGS, "body": "Approved\u200bpayment"}))
 
 
 async def test_gate_never_normalizes_only_for_comparison():
