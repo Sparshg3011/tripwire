@@ -145,6 +145,19 @@ def test_audit_key_file_is_taken_from_the_environment(tmp_path):
     assert "audit key file" in done.stderr
 
 
+@pytest.mark.parametrize("given", ["flag", "environment"])
+def test_an_empty_audit_key_file_name_refuses_to_start(tmp_path, given):
+    # what `--audit-key-file "$KEY"` with KEY unset looks like; serving
+    # unkeyed would drop the key without anyone having chosen to
+    if given == "flag":
+        done = serve(tmp_path, extra=["--audit-key-file", ""])
+    else:
+        done = serve(tmp_path, env={**os.environ, "TRIPWIRE_AUDIT_KEY_FILE": ""})
+    assert done.returncode == REFUSED
+    assert "audit key file name is empty" in done.stderr
+    assert not (tmp_path / "audit.jsonl").exists()
+
+
 def test_a_keyed_log_served_without_its_key_refuses_to_start(tmp_path):
     # carrying on unkeyed would quietly downgrade the rest of the log
     audit = tmp_path / "audit.jsonl"

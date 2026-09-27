@@ -124,8 +124,10 @@ chmod 600 ~/.tripwire/audit.key
 tripwire serve --audit-key-file ~/.tripwire/audit.key --policy ... --upstream ...
 ```
 
-`TRIPWIRE_AUDIT_KEY_FILE` works in place of the flag. The key is never
-written to the log or printed. It only protects the log from people who
+`TRIPWIRE_AUDIT_KEY_FILE` works in place of the flag. An empty name in
+either is refused rather than taken to mean no key, so an unset shell
+variable can't quietly turn keying off. The key is never written to the
+log or printed. It only protects the log from people who
 can write it but can't read the key, so keep the key away from anyone
 else with write access to the log. Lose the key and the log can't be
 verified any more.

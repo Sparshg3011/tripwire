@@ -621,6 +621,19 @@ def test_verify_names_an_unusable_key_file_but_not_its_contents(tmp_path):
     assert "Traceback" not in done.stderr
 
 
+def test_verify_refuses_an_empty_key_file_name(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 1)
+
+    for done in (
+        cli("verify", "--audit-key-file", "", str(path)),
+        cli("verify", str(path), env={KEY_ENV: ""}),
+    ):
+        assert done.returncode == 1
+        assert "audit key file name is empty" in done.stderr
+        assert "ok:" not in done.stdout
+
+
 def test_trace_checks_a_keyed_log_with_the_key_from_the_environment(tmp_path, key_file):
     path = tmp_path / "audit.jsonl"
     write_log(path, 1, key=KEY)

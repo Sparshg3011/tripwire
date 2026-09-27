@@ -25,6 +25,23 @@ from tripwire.tx import (
 KEY_ENV = "TRIPWIRE_AUDIT_KEY_FILE"
 
 
+def audit_key(key_file: str | None) -> bytes | None:
+    """The key the command was given, if it was given one.
+
+    An empty name is refused rather than read as no key: that's what an
+    unset variable in `--audit-key-file "$KEY"` or an empty secret in a
+    unit file looks like, and it must not turn keying off without a word.
+    """
+    if key_file is None:
+        return None
+    if not key_file:
+        raise AuditKeyError(
+            f"the audit key file name is empty; to go without a key, unset {KEY_ENV} "
+            f"and leave out --audit-key-file"
+        )
+    return load_key(key_file)
+
+
 def check_chain(path: str) -> None:
     """Say so, loudly, before showing anyone a log as evidence.
 
@@ -37,9 +54,8 @@ def check_chain(path: str) -> None:
     without it, a keyed log gets the warning too, because unverified is
     what it is.
     """
-    key_file = os.environ.get(KEY_ENV)
     try:
-        result = verify_log(path, key=load_key(key_file) if key_file else None)
+        result = verify_log(path, key=audit_key(os.environ.get(KEY_ENV)))
     except AuditKeyError as e:
         result = VerifyResult(ok=False, records=0, why=str(e))
     if not result.ok:
@@ -123,7 +139,7 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "verify":
         try:
-            key = load_key(args.audit_key_file) if args.audit_key_file else None
+            key = audit_key(args.audit_key_file)
         except AuditKeyError as e:
             print(e, file=sys.stderr)
             sys.exit(1)
@@ -203,7 +219,7 @@ def main(argv: list[str] | None = None) -> None:
         from tripwire.tx.executor import TxError
 
         try:
-            key = load_key(args.audit_key_file) if args.audit_key_file else None
+            key = audit_key(args.audit_key_file)
             anyio.run(
                 serve,
                 args.policy,
