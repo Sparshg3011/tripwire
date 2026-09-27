@@ -34,7 +34,7 @@ if [ "$AGENT" = "claude" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
 fi
 
 echo "==> corpus"
-$PY -c "from tripwire_gym import load_corpus
+"$PY" -c "from tripwire_gym import load_corpus
 c = load_corpus('gym/scenarios')
 a = [s for s in c if s.attack]
 print(f'  {len(a)} attacks + {len(c) - len(a)} twins across {len({s.family for s in a})} families')"
@@ -47,16 +47,16 @@ for BRACKET in approve deny; do
   # spelled out twice rather than with an array: macos ships bash 3.2,
   # where expanding an empty array under `set -u` is a fatal error
   if [ -n "$MODEL" ]; then
-    $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$BRACKET" \
+    "$PY" -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$BRACKET" \
       --concurrency "$CONCURRENCY" --out "$OUT/$BRACKET" --model "$MODEL"
   else
-    $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$BRACKET" \
+    "$PY" -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$BRACKET" \
       --concurrency "$CONCURRENCY" --out "$OUT/$BRACKET"
   fi
 done
 
 echo "==> charts"
-$PY - <<PYEOF
+"$PY" - <<PYEOF
 from tripwire_gym.analysis import load_results
 from tripwire_gym.chart import frontier, family_breakdown, summaries_from_results
 
@@ -80,7 +80,7 @@ elif [ -n "$MODEL" ]; then
   REPRO="$REPRO $MODEL"
 fi
 
-$PY - <<PYEOF
+"$PY" - <<PYEOF
 from tripwire_gym.analysis import load_results, write_report
 
 brackets = {b: load_results(f"$OUT/{b}/results.jsonl") for b in ("approve", "deny")}

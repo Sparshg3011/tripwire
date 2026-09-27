@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,9 +21,9 @@ jobs:
       - run: pip install -e ".[dev,gym]"
       - run: ruff check src tests scripts
       - run: ruff format --check src tests scripts
-      # strict typing where correctness is load-bearing; the rest of the
-      # tree is checked by tests instead
-      - run: mypy --strict src/tripwire/policy src/tripwire/tx src/tripwire/gate/exact.py
+      # strict typing for the firewall itself; the gym and benchmark
+      # harnesses are checked by tests instead
+      - run: mypy --strict src/tripwire
       - run: pytest -q
 
       # The benchmark harness itself, on the scripted agent: no API key,
@@ -32,6 +32,18 @@ jobs:
       # quietly breaking — and a broken harness reports flawless
       # security, which is the worst number this repo could print.
       - run: python -m tripwire_gym --agent scripted --conditions undefended,standard --out /tmp/gym
+
+  # one version is enough to catch what differs by platform, like the
+  # bash 3.2 macOS still ships as /bin/bash for the gym scripts
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,gym]"
+      - run: pytest -q
 
   publication:
     runs-on: ubuntu-latest
@@ -47,7 +59,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

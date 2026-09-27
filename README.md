@@ -4,7 +4,7 @@
 
 **A deterministic enforcement firewall for AI-agent tool calls.**
 
-[![Python](https://img.shields.io/badge/Python-3.11--3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11--3.14-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![MCP](https://img.shields.io/badge/MCP-Tool%20Firewall-8B5CF6?style=for-the-badge)](https://modelcontextprotocol.io/)
 [![CI](https://img.shields.io/github/actions/workflow/status/Sparshg3011/tripwire/ci.yml?branch=main&style=for-the-badge&label=CI&logo=github)](https://github.com/Sparshg3011/tripwire/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache--2.0-3DA639?style=for-the-badge)](LICENSE)
@@ -462,8 +462,8 @@ python3.12 -m venv .venv
 .venv/bin/pytest -q
 ```
 
-CI runs linting, formatting, strict type checks for the policy and transaction cores, the full test
-suite on Python 3.11–3.13, a scripted gym smoke test, and a dependency audit.
+CI runs linting, formatting, strict type checks for the whole firewall, the full test suite on
+Python 3.11–3.14 and on macOS, a scripted gym smoke test, and a dependency audit.
 
 Attack scenarios and real policy packs are especially welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the machine-checkable scenario requirements and engineering invariants.

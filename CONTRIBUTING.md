@@ -15,7 +15,7 @@ Everything CI runs, you can run:
 ```bash
 ruff check src tests
 ruff format --check src tests
-mypy --strict src/tripwire/policy src/tripwire/tx
+mypy --strict src/tripwire
 pytest -q
 python -m tripwire_gym --agent scripted --conditions undefended,standard --out /tmp/gym
 ```

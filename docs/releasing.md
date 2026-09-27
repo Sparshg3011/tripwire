@@ -35,7 +35,7 @@ outside the checkout. It validates the bundled policies and corpus, starts the
 real proxy, and checks the defended and undefended exfiltration case plus its
 benign twin. No optional model packages or credentials are needed.
 
-CI runs this check on Python 3.11–3.13 as well as the unit and integration
+CI runs this check on Python 3.11–3.14 as well as the unit and integration
 tests, static checks, external adapter tests, and dependency audit. The tag
 workflow reuses the full CI workflow before building or publishing.
 

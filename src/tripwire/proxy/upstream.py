@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import shlex
 from contextlib import AsyncExitStack
+from typing import Any
 
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
@@ -55,7 +56,7 @@ class Upstream:
             await self.aclose()
             raise UpstreamError(f"upstream {argv0(self.command)!r} failed to start: {e}") from e
 
-    async def call(self, name: str, arguments: dict) -> types.CallToolResult:
+    async def call(self, name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         assert self._session is not None, "call() before start()"
         return await self._session.call_tool(name, arguments)
 

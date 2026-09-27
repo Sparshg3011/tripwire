@@ -21,13 +21,14 @@ differently", which is the question worth answering before a rollout.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from tripwire.policy.canonical import canonicalize as real_canonicalize
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
-from tripwire.policy.types import ToolCall
+from tripwire.policy.types import Canonicalizer, Evaluator, ToolCall
 from tripwire.session import SessionState
 from tripwire.taint import TaintTracker
 
@@ -73,9 +74,9 @@ def replay(
     records: list[dict[str, Any]],
     session_id: str,
     policy: Policy,
-    canonicalize=real_canonicalize,
-    evaluate=real_evaluate,
-    taint_factory=TaintTracker,
+    canonicalize: Canonicalizer = real_canonicalize,
+    evaluate: Evaluator = real_evaluate,
+    taint_factory: Callable[[Policy], TaintTracker] = TaintTracker,
 ) -> ReplayResult:
     # Taint is rebuilt, not replayed: `sources:` may be exactly what the
     # candidate policy changed, and reusing the old log's taint would
@@ -106,7 +107,13 @@ def replay(
     return ReplayResult(session_id=session_id, changes=changes)
 
 
-def _judge(session, data, policy, canonicalize, evaluate) -> Change:
+def _judge(
+    session: SessionState,
+    data: dict[str, Any],
+    policy: Policy,
+    canonicalize: Canonicalizer,
+    evaluate: Evaluator,
+) -> Change:
     tool = data.get("tool", "?")
     args = data.get("args", {}) or {}
     snapshot = session.snapshot()

@@ -24,7 +24,7 @@ from tripwire.gate import ApprovalGate, ApprovalRequest
 from tripwire.policy.canonical import canonicalize as real_canonicalize
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
-from tripwire.policy.types import SessionSnapshot, ToolCall, Verdict
+from tripwire.policy.types import Canonicalizer, Evaluator, SessionSnapshot, ToolCall, Verdict
 from tripwire.proxy.upstream import Upstream
 from tripwire.session import SessionState
 from tripwire.tx import AuditLog, AuditWriteError
@@ -69,8 +69,8 @@ class Interceptor:
         session: SessionState,
         gate: ApprovalGate | None = None,
         tx: TxExecutor | None = None,
-        canonicalize=real_canonicalize,
-        evaluate=real_evaluate,
+        canonicalize: Canonicalizer = real_canonicalize,
+        evaluate: Evaluator = real_evaluate,
     ):
         self.policy = policy
         self.audit = audit
@@ -82,7 +82,7 @@ class Interceptor:
         self.evaluate = evaluate
         self._lock = anyio.Lock()
 
-    async def handle(self, name: str, arguments: dict) -> types.CallToolResult:
+    async def handle(self, name: str, arguments: Mapping[str, Any]) -> types.CallToolResult:
         try:
             # One call at a time. Everything stateful — per-session
             # limits, sequence windows, taint — is decided from a
@@ -101,7 +101,7 @@ class Interceptor:
             print(f"tripwire: FATAL: {e}", file=sys.stderr, flush=True)
             os._exit(70)
 
-    async def _handle(self, name: str, arguments: dict) -> types.CallToolResult:
+    async def _handle(self, name: str, arguments: Mapping[str, Any]) -> types.CallToolResult:
         verdict, args, snapshot = self._decide(name, arguments)
 
         self.audit.append(
@@ -309,7 +309,7 @@ class Interceptor:
             return False
 
     def _decide(
-        self, name: str, arguments: dict
+        self, name: str, arguments: Mapping[str, Any]
     ) -> tuple[Verdict, Mapping[str, Any], SessionSnapshot]:
         """Never raises. A policy engine that throws has still answered:
         the answer is no."""

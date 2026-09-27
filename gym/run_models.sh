@@ -39,13 +39,13 @@ echo "$MODELS" | while IFS='|' read -r SHORT MODEL THINKING; do
   for BRACKET in approve deny; do
     echo "==> $SHORT ($MODEL) human=$BRACKET"
     if [ "$THINKING" = "disable" ]; then
-      $PY -m tripwire_gym --agent nvidia --model "$MODEL" \
+      "$PY" -m tripwire_gym --agent nvidia --model "$MODEL" \
         --conditions undefended,standard --runs "$RUNS" \
         --human "$BRACKET" --concurrency "$CONCURRENCY" \
         --prompt-profile plain --temperature 0 --disable-thinking \
         --shuffle-seed 17229 --out "$OUT/$SHORT/$BRACKET"
     else
-      $PY -m tripwire_gym --agent nvidia --model "$MODEL" \
+      "$PY" -m tripwire_gym --agent nvidia --model "$MODEL" \
         --conditions undefended,standard --runs "$RUNS" \
         --human "$BRACKET" --concurrency "$CONCURRENCY" \
         --prompt-profile plain --temperature 0 --shuffle-seed 17229 \
@@ -55,7 +55,7 @@ echo "$MODELS" | while IFS='|' read -r SHORT MODEL THINKING; do
 done
 
 echo
-$PY - <<PYEOF
+"$PY" - <<PYEOF
 from pathlib import Path
 from tripwire_gym.analysis import load_results, model_comparison
 

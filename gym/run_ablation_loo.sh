@@ -16,7 +16,7 @@ if [ "$AGENT" = "nvidia" ] && [ -z "${NVIDIA_API_KEY:-}" ]; then
   exit 2
 fi
 
-$PY -m tripwire_gym.ablations --policy gym/policies/standard.yaml --out "$POLICY_DIR"
+"$PY" -m tripwire_gym.ablations --policy gym/policies/standard.yaml --out "$POLICY_DIR"
 
 run_cell() {
   local BRACKET="$1"
@@ -24,12 +24,12 @@ run_cell() {
   local POLICY_PATH="$3"
   local DESTINATION="$4"
   if [ -n "$MODEL" ]; then
-    $PY -m tripwire_gym --agent "$AGENT" --model "$MODEL" \
+    "$PY" -m tripwire_gym --agent "$AGENT" --model "$MODEL" \
       --runs "$RUNS" --human "$BRACKET" --concurrency "$CONCURRENCY" \
       --conditions "$CONDITIONS" --policy-dir "$POLICY_PATH" --out "$DESTINATION" \
       --prompt-profile plain --temperature 0 --shuffle-seed 17229
   else
-    $PY -m tripwire_gym --agent "$AGENT" \
+    "$PY" -m tripwire_gym --agent "$AGENT" \
       --runs "$RUNS" --human "$BRACKET" --concurrency "$CONCURRENCY" \
       --conditions "$CONDITIONS" --policy-dir "$POLICY_PATH" --out "$DESTINATION" \
       --prompt-profile plain --temperature 0 --shuffle-seed 17229
@@ -44,4 +44,4 @@ done
 
 echo "Generated the full-versus-minus-one runs under $OUT."
 echo "Aggregate them with:"
-echo "$PY -m tripwire_gym.publication --root $OUT --out $OUT/summary"
+printf '%q -m tripwire_gym.publication --root %q --out %q\n' "$PY" "$OUT" "$OUT/summary"

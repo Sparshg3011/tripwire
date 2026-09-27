@@ -42,13 +42,18 @@ refused to start.
 
 - Include benchmark scenarios, policies, and frozen protocols in the wheel so
   installed benchmark commands work outside a repository checkout.
-- Exercise the installed wheel on Python 3.11, 3.12, and 3.13 before publishing,
+- Exercise the installed wheel on Python 3.11 through 3.14 before publishing,
   and run the same CI and dependency audit for tags as for pull requests.
 - Preserve all five leave-one-out policy conditions across both approval
   brackets in the ablation runner.
 - Keep `allowed_args` admitting what a removed mechanism read in the
   leave-one-out policies, and refuse to generate them from a policy file the
   proxy would refuse.
+- Run the gym scripts from a checkout whose path contains a space, and the
+  held-out AgentDojo script under macOS's bash 3.2 without
+  `ALLOW_TRANSPORT_RESUME=1`.
+- Quote the paths in the aggregation command the leave-one-out ablation
+  prints, so it can be pasted as shown.
 
 ### Added
 
@@ -56,6 +61,7 @@ refused to start.
   the rule (a constraint key or the `sum_per_session` field) blocks the call.
 - `turns: session` on a sequence rule keeps it in force for the rest of the
   session, where a numeric window can be padded out with harmless calls.
+- Python 3.14 support, with CI running the test suite on macOS as well.
 - Experimental library-only exact pre-approvals: host-authorized full calls,
   one use, live-session binding, expiry, and revocation; no default-policy
   relaxation and no claim of improved AgentDojo utility yet.
