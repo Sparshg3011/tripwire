@@ -93,11 +93,14 @@ class WebGate:
             with self._mutex:
                 self._pending.pop(rid, None)
 
-    def _decide(self, rid: str, approve: bool) -> None:
+    def _decide(self, rid: str, approve: bool) -> bool:
+        """Record an answer. False if the question had already closed."""
         with self._mutex:
             entry = self._pending.get(rid)
-            if entry is not None and entry.decision is None:
-                entry.decision = approve
+            if entry is None or entry.decision is not None:
+                return False
+            entry.decision = approve
+            return True
 
     def _snapshot(self) -> list[tuple[str, ApprovalRequest]]:
         with self._mutex:
@@ -110,21 +113,55 @@ class WebGate:
 
 PAGE = """<!doctype html>
 <meta charset="utf-8">
-{refresh}
+<noscript><meta http-equiv="refresh" content="2"></noscript>
 <title>tripwire approvals</title>
 <style>
   body {{ font: 15px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; }}
   .card {{ border: 1px solid #ccc; border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; }}
-  .taint {{ color: #b00; font-weight: 600; }}
+  .closed {{ opacity: .45; }}
+  .taint, .late {{ color: #b00; font-weight: 600; }}
   pre {{ background: #f6f6f6; padding: .6rem; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }}
   button {{ font: inherit; padding: .4rem 1.2rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }}
   form {{ display: inline; margin-right: .5rem; }}
 </style>
 <h2>tripwire</h2>
-{body}
+{notice}
+<div id="cards">{body}</div>
+<script>{script}</script>
 """
 
-CARD = """<div class="card">
+# The page keeps itself current without reloading. A reload would fold
+# away a value the human opened to read, and a card leaving would slide
+# the next one's buttons under their cursor. So a card whose question
+# closed stays where it is, greyed out with its buttons off, and a new
+# one joins the end. Without scripts the page falls back to reloading.
+POLL = """
+async function poll() {
+  let fresh;
+  try {
+    const response = await fetch(location.href);
+    if (!response.ok) return;
+    fresh = new DOMParser().parseFromString(await response.text(), "text/html");
+  } catch {
+    return;
+  }
+  const open = new Map([...fresh.querySelectorAll(".card")].map((c) => [c.dataset.rid, c]));
+  for (const card of document.querySelectorAll(".card:not(.closed)")) {
+    if (open.delete(card.dataset.rid)) continue;
+    card.classList.add("closed");
+    for (const button of card.querySelectorAll("button")) button.disabled = true;
+    const note = "<p>Closed: answered elsewhere, or timed out and refused.</p>";
+    card.insertAdjacentHTML("beforeend", note);
+  }
+  if (open.size) document.getElementById("idle")?.remove();
+  document.getElementById("cards").append(...open.values());
+}
+setInterval(poll, 2000);
+"""
+
+LATE = '<p class="late">That answer came after its request had closed, so it changed nothing.</p>'
+
+CARD = """<div class="card" data-rid="{rid}">
 <b>{tool}</b> (turn {turn}) — {taint}
 {args}
 <p>{rule}: {reason}</p>
@@ -183,7 +220,8 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                 self.send_response(404)
                 self.end_headers()
                 return
-            if not _token_ok(parse_qs(url.query).get("k", [""])[0], gate.token):
+            query = parse_qs(url.query)
+            if not _token_ok(query.get("k", [""])[0], gate.token):
                 self._forbidden()
                 return
 
@@ -206,13 +244,9 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                         k=html.escape(gate.token),
                     )
                 )
-            body = "\n".join(cards) if cards else "<p>Nothing waiting for approval.</p>"
-            # Refresh only while idle, to pick up the first request. With one
-            # open, a reload would snap shut the value the human expanded to
-            # read, and a card timing out above could slide another card's
-            # buttons under their cursor.
-            refresh = "" if cards else '<meta http-equiv="refresh" content="2">'
-            page = PAGE.format(refresh=refresh, body=body).encode()
+            body = "\n".join(cards) if cards else '<p id="idle">Nothing waiting for approval.</p>'
+            notice = LATE if "late" in query else ""
+            page = PAGE.format(notice=notice, body=body, script=POLL).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -232,10 +266,12 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
             rid = form.get("rid", [""])[0]
             action = form.get("action", [""])[0]
             # only the exact string "approve" approves; junk denies
-            gate._decide(rid, approve=action == "approve")
+            counted = gate._decide(rid, approve=action == "approve")
 
+            # An answer to a question that already closed changes nothing,
+            # and the page after it would look just like one that counted.
             self.send_response(303)
-            self.send_header("Location", f"/?k={gate.token}")
+            self.send_header("Location", f"/?k={gate.token}" + ("" if counted else "&late=1"))
             self.end_headers()
 
     return Handler

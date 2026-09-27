@@ -152,6 +152,17 @@ def get(gate, path):
 
 
 def post(gate, **fields):
+    return _post(gate, fields).status
+
+
+def answer(gate, rid, action):
+    """Answer as a card's button does, and land where the browser would."""
+    resp = _post(gate, {"k": gate.token, "rid": rid, "action": action})
+    assert resp.status == 303
+    return get(gate, resp.getheader("Location"))[1]
+
+
+def _post(gate, fields):
     conn = http.client.HTTPConnection("127.0.0.1", gate.port, timeout=5)
     try:
         conn.request(
@@ -162,7 +173,7 @@ def post(gate, **fields):
         )
         resp = conn.getresponse()
         resp.read()
-        return resp.status
+        return resp
     finally:
         conn.close()
 
@@ -294,10 +305,7 @@ async def test_a_long_value_cannot_hide_the_recipient_on_the_page(web):
         post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
 
 
-async def test_the_page_holds_still_while_a_question_is_open(web):
-    _, idle = get(web, f"/?k={web.token}")
-    assert 'http-equiv="refresh"' in idle
-
+async def test_the_page_updates_itself_instead_of_reloading(web):
     async def ask():
         await web.request(req(args=LONG_BODY))
 
@@ -305,10 +313,41 @@ async def test_the_page_holds_still_while_a_question_is_open(web):
         tg.start_soon(ask)
         await anyio.sleep(0.05)
         _, page = get(web, f"/?k={web.token}")
-        # a reload would fold the full body away while the human reads it
+        rid = CARD_RE.search(page).group(2)
+        # a reload would fold the full body away while the human reads it,
+        # so only a browser without scripts gets one
         assert "<details>" in page
-        assert 'http-equiv="refresh"' not in page
-        post(web, k=web.token, rid=CARD_RE.search(page).group(2), action="deny")
+        assert page.count("http-equiv") == page.count('<noscript><meta http-equiv="refresh"') == 1
+        # what the poller matches cards by, and where it puts new ones
+        assert f'<div class="card" data-rid="{rid}">' in page
+        assert '<div id="cards">' in page
+        assert "setInterval(poll" in page
+        post(web, k=web.token, rid=rid, action="deny")
+
+    _, idle = get(web, f"/?k={web.token}")
+    assert '<p id="idle">' in idle
+    assert "setInterval(poll" in idle
+
+
+async def test_an_answer_after_the_question_closed_says_it_changed_nothing(web):
+    async def ask(timeout):
+        with anyio.move_on_after(timeout):  # the interceptor's gate timeout
+            await web.request(req())
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(ask, 5)
+        await anyio.sleep(0.05)
+        _, page = get(web, f"/?k={web.token}")
+        assert "changed nothing" not in answer(web, CARD_RE.search(page).group(2), "approve")
+
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(ask, 0.3)
+        await anyio.sleep(0.05)
+        _, page = get(web, f"/?k={web.token}")
+    landed = answer(web, CARD_RE.search(page).group(2), "approve")
+
+    assert "That answer came after its request had closed, so it changed nothing." in landed
+    assert "Nothing waiting for approval." in landed
 
 
 class Rendered(HTMLParser):
@@ -391,7 +430,7 @@ async def test_two_pending_requests_are_decided_independently(web):
         await anyio.sleep(0.05)
 
         _, page = get(web, f"/?k={web.token}")
-        assert page.count('<div class="card">') == 2
+        assert page.count('<div class="card"') == 2
         rids = dict(CARD_RE.findall(page))
         assert set(rids) == {"send_email", "delete_file"}
 
