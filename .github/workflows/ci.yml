@@ -33,6 +33,18 @@ jobs:
       # security, which is the worst number this repo could print.
       - run: python -m tripwire_gym --agent scripted --conditions undefended,standard --out /tmp/gym
 
+  # one version is enough to catch what differs by platform, like the
+  # bash 3.2 macOS still ships as /bin/bash for the gym scripts
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,gym]"
+      - run: pytest -q
+
   publication:
     runs-on: ubuntu-latest
     steps:

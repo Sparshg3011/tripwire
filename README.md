@@ -463,7 +463,7 @@ python3.12 -m venv .venv
 ```
 
 CI runs linting, formatting, strict type checks for the whole firewall, the full test suite on
-Python 3.11–3.13, a scripted gym smoke test, and a dependency audit.
+Python 3.11–3.13 and on macOS, a scripted gym smoke test, and a dependency audit.
 
 Attack scenarios and real policy packs are especially welcome. See [CONTRIBUTING.md](CONTRIBUTING.md)
 for the machine-checkable scenario requirements and engineering invariants.
