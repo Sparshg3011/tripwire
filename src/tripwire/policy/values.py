@@ -89,9 +89,11 @@ Extraction runs in two directions and is asymmetric on purpose:
                names only as whole phrases, not glued by -./@#' and the
                like to a longer token.
   scan_poison  greedy. The same extractors with every limit removed, plus
-               the text itself in two forms for is_poisoned()'s text rule.
-               Whatever the task extractors find in a text, that text
-               scanned as poison poisons.
+               the text itself in the forms is_poisoned()'s text rule
+               reads. Whatever the task extractors find in a text, and
+               whatever key a whole field of it registers, that text
+               scanned as poison poisons. A scan stops at MAX_SCAN_KEYS
+               typed keys and then poisons every key.
 
 whole_fields() lists the leaves of a JSON value that can register as keys:
 strings of at most 256 characters and 8 words, ints, and dict keys of at
@@ -116,7 +118,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import unicodedata
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from importlib.resources import files
 from typing import Literal, TypeAlias
@@ -245,6 +247,9 @@ MAX_FIELD_CHARS = 256
 MAX_FIELD_WORDS = 8
 # the per-result depth cap on what provenance walks
 MAX_FIELD_DEPTH = 64
+# typed keys one poison scan may hold: the per-session key cap, so that one
+# 2 MiB result can't allocate past it before any session cap applies
+MAX_SCAN_KEYS = 200_000
 
 # --- pre-step ----------------------------------------------------------------
 
@@ -903,7 +908,11 @@ class TaskIndex:
 # rejected, which would be quadratic; a match can always start where the
 # run starts.
 _P_URL = re.compile(r"(?i:https?)://[^\s<>\"'`]+")
-_P_HOST = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+(?::[0-9]+)?")
+# Trailing dots before a port too: "h.:8443" is the host key "h:8443". The
+# port is read ahead, not consumed, since a task host may start inside it:
+# "a.io:1b.com".
+_P_HOST = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.*(?=(:[0-9]+)?)")
+_P_IPV6 = re.compile(r"\[[0-9A-Fa-f:.]*\](?::[0-9]+)?")
 _P_IBAN = re.compile(r"[A-Za-z]{2}(?:[\s.()-]*[0-9]){2}(?:[\s.()-]*[A-Za-z0-9]){11,30}")
 _P_PHONE = re.compile(r"\+?[0-9](?:[\s.()-]*[0-9])*")
 _P_PATH = re.compile(r"[\w.~/-]+")
@@ -914,25 +923,40 @@ _P_AT = re.compile("@")
 _P_SEPARATORS = re.compile(r"[\s.()-]")
 _P_WHITESPACE = re.compile(r"\s")
 _P_COMPACT = re.compile(r"[\s().-]")
+# what _path_key() drops: empty and . segments
+_P_EMPTY_SEGMENTS = re.compile(r"/(?:\.?/)+")
+# what _host() drops: dots before a port, zeros leading one
+_P_PORT_PADDING = re.compile(r"\.+(?=:[0-9])|(?<=:)0+(?=[0-9])")
 
 
 @dataclass(frozen=True, slots=True, repr=False)
 class PoisonScan:
     """One poison text: its typed sightings, and the text itself in the
-    two stored forms the text rule of is_poisoned() reads."""
+    stored forms the text rule of is_poisoned() reads. A truncated scan
+    stopped at MAX_SCAN_KEYS and poisons every key."""
 
     keys: frozenset[Key]
     # NFKC, casefolded, whitespace-collapsed
     folded: str
     # folded, with whitespace and -.() removed
     compact: str
+    # folded, respelled as path keys and host keys spell it: every "//"
+    # and "/./" run made "/"; the dots before a port and the zeros leading
+    # one dropped. Each is the same object as folded when nothing changes.
+    paths: str = ""
+    hosts: str = ""
+    truncated: bool = False
 
     def __repr__(self) -> str:
         # a scan can run to megabytes; its size is what a log line needs
         return f"PoisonScan(keys={len(self.keys)}, chars={len(self.folded)})"
 
 
-def _emails(text: str, keys: set[Key]) -> None:
+class _Full(Exception):
+    """A scan reached MAX_SCAN_KEYS."""
+
+
+def _emails(text: str, add: Callable[[Outcome], None]) -> None:
     """Every @-anchored suffix of the local part: "xattacker@evil.com"
     yields itself and "attacker@evil.com". Built from one validated
     domain, since any suffix of a valid local part is valid."""
@@ -959,7 +983,7 @@ def _emails(text: str, keys: set[Key]) -> None:
         for start in range(len(local)):
             suffix = local[start:].lower()
             if len(suffix) + 1 + len(host) <= 254:
-                keys.add(Key("email", f"{suffix}@{host}"))
+                add(Key("email", f"{suffix}@{host}"))
 
 
 def scan_poison(text: str) -> PoisonScan:
@@ -967,29 +991,38 @@ def scan_poison(text: str) -> PoisonScan:
     leaves, post-taint argument strings, the tool listing, error text."""
     if not isinstance(text, str):
         return PoisonScan(frozenset(), "", "")
+    try:
+        return _scan(str.__str__(text))
+    except _Full:
+        # what the text held past MAX_SCAN_KEYS is unknown, so it poisons all
+        return PoisonScan(frozenset(), "", "", truncated=True)
+
+
+def _scan(text: str) -> PoisonScan:
     # prepared exactly as task text is, so every token a task extractor
     # can find here is a token the greedy ones see too
-    source = _text(str.__str__(text))
+    source = _text(text)
     keys: set[Key] = set()
 
     def add(outcome: Outcome) -> None:
         if isinstance(outcome, Key):
             keys.add(outcome)
+            if len(keys) > MAX_SCAN_KEYS:
+                raise _Full
 
-    _emails(source, keys)
+    _emails(source, add)
 
     for m in _P_URL.finditer(source):
         add(_url(m.group()))
         add(_url(m.group().rstrip(TRAILING)))
 
     for m in _P_HOST.finditer(source):
-        token = m.group()
-        host = token.partition(":")[0]
-        last = host.rsplit(".", 1)[-1]
-        if last.isalpha() or last.lower() in TLDS:
-            add(_host(host))
-            if host != token:
-                add(_host(token))
+        add(_host(m.group()))
+        if m.group(1):
+            add(_host(m.group() + m.group(1)))
+
+    for m in _P_IPV6.finditer(source):
+        add(_host(m.group()))
 
     for m in _P_IBAN.finditer(source):
         add(_iban(_P_SEPARATORS.sub("", m.group())))
@@ -1009,7 +1042,13 @@ def scan_poison(text: str) -> PoisonScan:
         add(_id(m.group().rstrip(".:")))
 
     folded = " ".join(source.casefold().split())
-    return PoisonScan(frozenset(keys), folded, _P_COMPACT.sub("", folded))
+    return PoisonScan(
+        frozenset(keys),
+        folded,
+        _P_COMPACT.sub("", folded),
+        _P_EMPTY_SEGMENTS.sub("/", folded),
+        _P_PORT_PADDING.sub("", folded),
+    )
 
 
 def is_poisoned(key: Key, scans: Iterable[PoisonScan], *, self_key: bool = False) -> bool:
@@ -1017,18 +1056,21 @@ def is_poisoned(key: Key, scans: Iterable[PoisonScan], *, self_key: bool = False
     scans from before the sighting in question). Poisoned when:
 
       1. a scan sighted the key as typed, or
-      2. a scan's text holds it: casefolded, as a substring when the key is
-         6+ characters, else as an alphanumeric-bounded token; IBAN and
-         phone keys also against the compacted text, a phone by its digits
-         so that "00 49..." and "+49..." match.
+      2. a scan's text holds it: casefolded and whitespace-collapsed as the
+         text is, as a substring when the key is 6+ characters, else as an
+         alphanumeric-bounded token; path and host keys also against the
+         text respelled their way; IBAN and phone keys also against the
+         compacted text, a phone by its digits so that "00 49..." and
+         "+49..." match, or
+      3. a scan is truncated.
 
     self_key: testing a `self` id, for which a key under 6 characters is
-    tested by rule 1 alone. A key that isn't one counts as poisoned.
+    tested by rules 1 and 3 alone. A key that isn't one counts as poisoned.
     """
     if not isinstance(key, Key) or not isinstance(key.key, str):
         return True
     text = key.key
-    folded = text.casefold()
+    folded = " ".join(text.casefold().split())
     text_rule = not (self_key and len(text) < 6)
     bounded = (
         None if len(text) >= 6 else re.compile(r"(?<![^\W_])" + re.escape(folded) + r"(?![^\W_])")
@@ -1040,15 +1082,21 @@ def is_poisoned(key: Key, scans: Iterable[PoisonScan], *, self_key: bool = False
         compact = text.lstrip("+")
 
     for scan in scans:
-        if key in scan.keys:
+        if scan.truncated or key in scan.keys:
             return True
         if not text_rule:
             continue
-        if bounded is None:
-            if folded in scan.folded:
+        forms = [scan.folded]
+        if key.vtype == "path":
+            forms.append(scan.paths)
+        elif key.vtype == "host":
+            forms.append(scan.hosts)
+        for form in forms:
+            if bounded is None:
+                if folded in form:
+                    return True
+            elif bounded.search(form):
                 return True
-        elif bounded.search(scan.folded):
-            return True
         if compact is not None and compact in scan.compact:
             return True
     return False
