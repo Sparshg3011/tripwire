@@ -91,38 +91,49 @@ def clip(value: str, limit: int) -> str:
     return f"{value[:limit]}…[+{len(value) - limit} chars]"
 
 
-def preview_line(name: str, value: str, limit: int) -> str:
+def preview_arg(name: str, value: str, limit: int) -> str:
     """One encoded argument as a prompt shows it, name clipped as well as
     value: the caller writes the names too."""
     return f"{clip(name, NAME_PREVIEW)}: {clip(value, limit)}"
 
 
 def preview_args(
-    args: Mapping[str, Any], checked: Collection[str], limit: int, lines: int, budget: int
-) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
-    """The encoded arguments a prompt has room for, and the ones it hasn't.
+    args: Mapping[str, Any], checked: Collection[str], limit: int, width: int, budget: int
+) -> tuple[list[str], list[tuple[str, str]], list[tuple[str, str]]]:
+    """The lines a prompt shows, the encoded arguments on them, and the
+    encoded arguments it leaves out.
 
     The caller picks how many arguments a call has and what they're
     called, and plenty of upstreams ignore the ones they don't know. So a
     few hundred junk arguments, each under the value clip, would bury the
-    ones that matter. The arguments the policy checks are shown first and
-    always: they are what the rule that fired was about, and their names
-    come from the policy. The rest follow shortest first while they fit
-    in `lines` lines and `budget` characters of preview. The first that
-    doesn't fit is left out along with everything after it, so a flood
-    costs the prompt one line saying how much it left out.
+    ones that matter. The arguments the policy checks are shown first,
+    one to a line, and always: they are what the rule that fired was
+    about, and their names come from the policy. The rest follow shortest
+    first while the preview, read as one list, stays within `budget`
+    characters, and share lines up to `width`. Capping the lines instead
+    would let a dozen one-letter arguments push out the one a flow rule
+    stopped, since those rules check none. The first that doesn't fit is
+    left out along with everything after it, so a flood costs the prompt
+    one line saying how much it left out.
     """
     shown = encode_args({k: v for k, v in args.items() if k in checked})
-    used = sum(len(preview_line(name, value, limit)) for name, value in shown)
+    lines = [preview_arg(name, value, limit) for name, value in shown]
+    used = len(", ".join(lines))
+    rest: list[str] = []
     hidden: list[tuple[str, str]] = []
     for name, value in encode_args({k: v for k, v in args.items() if k not in checked}):
-        size = len(preview_line(name, value, limit))
-        if hidden or len(shown) >= lines or used + size > budget:
+        arg = preview_arg(name, value, limit)
+        size = used + len(", ") + len(arg) if shown else len(arg)
+        if hidden or size > budget:
             hidden.append((name, value))
+            continue
+        shown.append((name, value))
+        used = size
+        if rest and len(f"{rest[-1]}, {arg}") <= width:
+            rest[-1] += f", {arg}"
         else:
-            shown.append((name, value))
-            used += size
-    return shown, hidden
+            rest.append(arg)
+    return lines + rest, shown, hidden
 
 
 def more_args(hidden: list[tuple[str, str]]) -> str:

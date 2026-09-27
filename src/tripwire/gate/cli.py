@@ -30,14 +30,13 @@ from tripwire.gate.base import (
     clip,
     more_args,
     preview_args,
-    preview_line,
 )
 
 ARG_PREVIEW = 500  # per value: a 10k email body shouldn't flood the terminal
 # ...and nor should a few hundred arguments. The tool and the recipient
 # print first, and scrollback loses whatever scrolls out of it.
-ARG_LINES = 12
 ARG_BUDGET = 1000  # characters of preview, all lines together
+ARG_WIDTH = 70  # short args share a line this long, which fits 80 columns after the indent
 # The tool, rule, reason and taint trail. An unknown tool's name is the
 # caller's to pick, and the reason and the trail can repeat it.
 FIELD_PREVIEW = 200
@@ -61,9 +60,8 @@ def _arg_lines(
     args: Mapping[str, Any], checked: Collection[str] = frozenset()
 ) -> tuple[list[str], str]:
     """The argument lines that fit, and what was left out ("" if nothing)."""
-    shown, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_LINES, ARG_BUDGET)
     # no _flatten: encode_args already escapes everything outside SAFE
-    lines = [preview_line(name, value, ARG_PREVIEW) for name, value in shown]
+    lines, _, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_WIDTH, ARG_BUDGET)
     return lines, more_args(hidden) if hidden else ""
 
 
