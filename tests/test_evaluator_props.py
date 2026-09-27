@@ -198,13 +198,13 @@ def test_case_insensitive_changes_nothing_on_a_caseless_pattern(regex, value):
 CASE_ALIASES = {"i": "\u0131\u0130", "s": "\u017f", "k": "\u212a"}
 ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 
-# (pattern, case_insensitive, the same pattern not ignoring case)
+# (pattern, case_insensitive, the same pattern not ignoring case), each
+# admitting what it matches; a pattern that refuses what it matches is below
 FOLDING = [
     ("kiss", True, "kiss"),
     ("(?i)kiss", False, "kiss"),
     ("(?i:kiss)", False, "kiss"),
     ("[a-z]+", True, "[a-z]+"),
-    ("(?!kiss).*", True, "(?!kiss).*"),
 ]
 
 
@@ -214,11 +214,10 @@ def respellings(word):
     return st.tuples(*letters).map("".join)
 
 
-@given(
-    folding=st.sampled_from(FOLDING),
-    word=respellings("kiss"),
-    tail=st.text(alphabet=st.sampled_from(list("kiS\u0131\u0130\u017f\u212a\u00e9")), max_size=3),
-)
+tails = st.text(alphabet=st.sampled_from(list("kiS\u0131\u0130\u017f\u212a\u00e9")), max_size=3)
+
+
+@given(folding=st.sampled_from(FOLDING), word=respellings("kiss"), tail=tails)
 @settings(max_examples=300)
 def test_ignoring_case_folds_ascii_letters_and_nothing_else(folding, word, tail):
     # whether the flag or an inline (?i) asks for it, ignoring case may do
@@ -234,3 +233,49 @@ def test_ignoring_case_folds_ascii_letters_and_nothing_else(folding, word, tail)
         lookup(plain, False),
     )
     assert folded.decision == by_hand.decision
+
+
+REFUSING = [lookup("(?!kiss).*", True), lookup("(?i)(?!kiss).*", False)]
+
+
+@given(policy=st.sampled_from(REFUSING), word=respellings("kiss"), tail=tails)
+def test_ignoring_case_a_lookahead_refuses_every_respelling(policy, word, tail):
+    # refusing, the reading that folds more is the strict one, and Unicode
+    # case rules make every one of these spellings a case of kiss
+    v = evaluate(ToolCall("lookup", {"q": word + tail}), SessionSnapshot(), policy)
+    assert v.decision == "block"
+
+
+# what each class escape covers under Unicode rules, and in ASCII mode
+UNICODE_CLASSES = {"d": str.isdecimal, "s": str.isspace, "w": lambda c: c.isalnum() or c == "_"}
+ASCII_CLASSES = {
+    "d": string.digits,
+    "s": " \t\n\r\f\v",
+    "w": string.ascii_letters + string.digits + "_",
+}
+
+
+@given(
+    escape=st.sampled_from("dsw"),
+    negated=st.booleans(),
+    bracketed=st.booleans(),
+    value=st.text(
+        alphabet=st.sampled_from(list("aZ_1 \t\n\x1c\x85\xa0\u2028\u3000\u0661\u00e9\u0131@-")),
+        min_size=1,
+        max_size=6,
+    ),
+)
+@settings(max_examples=300)
+def test_a_class_admits_only_what_both_readings_put_in_it(escape, negated, bracketed, value):
+    # \d, \s and \w admit their ASCII members and no others, while \D, \S,
+    # \W and [^\s] refuse all that Unicode rules count as digit, space or word
+    if bracketed:
+        regex = f"[{'^' if negated else ''}\\{escape}]+"
+    else:
+        regex = f"\\{escape.upper() if negated else escape}+"
+    v = evaluate(ToolCall("lookup", {"q": value}), SessionSnapshot(), lookup(regex, False))
+    if negated:
+        admitted = not any(UNICODE_CLASSES[escape](c) for c in value)
+    else:
+        admitted = all(c in ASCII_CLASSES[escape] for c in value)
+    assert (v.decision == "allow") == admitted

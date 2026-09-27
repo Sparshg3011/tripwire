@@ -18,15 +18,19 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 Action = Literal["allow", "block", "require_approval"]
 TrustClass = Literal["trusted", "untrusted"]
 
-# Policy regexes match in ASCII mode. Under Unicode rules, ignoring case
-# makes ı and İ cases of i, ſ of s and the Kelvin sign of k, so "admın"
-# passes for "admin" — and an inline (?i) ignores case whether or not the
-# constraint asks. It also keeps \d to 0-9, where Unicode rules admit
-# digits like "١٢" that NFKC leaves alone and int() reads as 12.
-REGEX_FLAGS = re.ASCII
+# A value has to match a policy regex twice, in ASCII mode and under
+# Unicode rules, because each is the strict reading somewhere. Under
+# Unicode rules, ignoring case makes ı and İ cases of i, ſ of s and the
+# Kelvin sign of k, so "admın" passes for "admin" (and an inline (?i)
+# ignores case whether or not the constraint asks), and \d admits digits
+# like "١٢" that NFKC leaves alone and int() reads as 12. In ASCII mode,
+# \s knows nothing of U+2028 or U+0085, so \S and [^\s] let line breaks
+# through, and \D and \W let other scripts' digits and letters through.
+REGEX_MODES = (re.ASCII, re.NOFLAG)
 
-# (?u) or (?u:...) would switch back to Unicode rules. Escapes are matched
-# too, only so that they're skipped: \(?u is an optional paren, then a u.
+# (?u) or (?u:...) would read the pattern under Unicode rules in ASCII
+# mode too. Escapes are matched as well, only so that they're skipped:
+# \(?u is an optional paren, then a u.
 _UNICODE_FLAG = re.compile(r"\\.|\(\?[a-zA-Z-]*u", re.DOTALL)
 
 
@@ -56,9 +60,12 @@ class Constraint(StrictModel):
     def regex_must_compile(cls, v: str | None) -> str | None:
         if v is not None:
             if any(m[0].startswith("(") for m in _UNICODE_FLAG.finditer(v)):
-                raise ValueError("regex may not use the u flag; policy regexes are ASCII-only")
+                raise ValueError(
+                    "regex may not use the u flag; policy regexes must match in ASCII mode too"
+                )
             try:
-                re.compile(v, REGEX_FLAGS)
+                for mode in REGEX_MODES:
+                    re.compile(v, mode)
             except re.error as e:
                 raise ValueError(f"regex does not compile: {e}")
         return v

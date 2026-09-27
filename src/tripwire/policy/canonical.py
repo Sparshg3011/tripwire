@@ -40,9 +40,10 @@ first, and that ordering is load-bearing.
       drop a value, which is a worse bug than the one it would fix.
 
   C3  (not here — comparison time, inside the evaluator) a constraint
-      that sets case_insensitive matches under re.IGNORECASE, which folds
-      ASCII letters only, since policy regexes match in ASCII mode.
-      Neither the pattern nor the value is rewritten for it.
+      that sets case_insensitive matches under re.IGNORECASE, and since
+      a policy regex must match in ASCII mode as well as under Unicode
+      rules, it admits ASCII case variants only. Neither the pattern nor
+      the value is rewritten for it.
 
   C4  Strip *all* trailing dots from host-like checked fields, so
       "corp.com." and "corp.com.." both become "corp.com". "Host-like"

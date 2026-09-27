@@ -81,7 +81,7 @@ short-circuits; otherwise stages may only escalate the verdict
    call didn't provide **blocks** — absence is not a free pass.
    `max_length` bounds `len()`, and is checked before `regex`, so an
    over-long value never reaches the pattern; `regex` must match the
-   whole value, in ASCII mode (below); `type: number` accepts a finite
+   whole value, read two ways (below); `type: number` accepts a finite
    int/float and nothing else (not `True`, not NaN or ±Infinity);
    `min`/`max` are inclusive and also refuse anything that isn't a
    finite number. The bounds themselves must be finite, and
@@ -103,13 +103,18 @@ short-circuits; otherwise stages may only escalate the verdict
    any result from an `untrusted` source, listed tools escalate to the
    flow's action. Flows cannot allow — the schema rejects it.
 
-Regexes are Python's, matched in ASCII mode: `\d` is `[0-9]`, `\w` is
-`[a-zA-Z0-9_]`, and `\s` and `\b` go by ASCII whitespace and word
-characters. So `\d+` doesn't admit digits from other scripts, which the
-tool on the far side may still read as a number. Ignoring case, whether
-by `case_insensitive: true` or an inline `(?i)`, folds ASCII letters and
-nothing else: `ADMIN` passes for `admin`, `admın` doesn't. A pattern
-that asks for Unicode rules with `(?u)` doesn't load.
+Regexes are Python's, and a value has to match twice, in ASCII mode and
+under Unicode rules, since each reading is the strict one somewhere.
+`\d`, `\s` and `\w` admit ASCII characters only, so `\d+` doesn't admit
+digits from other scripts, which the tool on the far side may still
+read as a number. `\D`, `\S`, `\W` and `[^\s]` refuse whatever Unicode
+counts as a digit, whitespace or a word character, so `[^@\s]+` still
+refuses a U+2028 line separator. Ignoring case, whether by
+`case_insensitive: true` or an inline `(?i)`, admits ASCII case
+variants and nothing else: `ADMIN` passes for `admin`, `admın` doesn't.
+Where a pattern refuses, as a lookahead does, Unicode case rules are
+the stricter: ignoring case, `(?!javascript:)` refuses `javascrıpt:` as
+well. A pattern that asks for Unicode rules with `(?u)` doesn't load.
 
 Every verdict carries the id of the rule that decided it
 (`tools.send_email.constraints.to`, `sequences[0]`, …) and a
@@ -129,7 +134,7 @@ is forwarded exactly as it arrived:
 |---|------|
 | C2 | Invisible formatting characters are stripped: U+200B/200C/200D, U+2060, U+FEFF. A zero-width space inside `corp.com` comes out. |
 | C1 | Then Unicode NFKC: fullwidth `ａdmin` → `admin`, ligature `ﬁle` → `file`. (Invisibles first, then NFKC — the order makes the whole thing idempotent.) |
-| C3 | At comparison time, a constraint with `case_insensitive: true` matches its regex ignoring case (`re.IGNORECASE`), which folds ASCII letters only. Nothing is rewritten: `\D` in the pattern still means `\D`, and the value is checked as it will be sent. |
+| C3 | At comparison time, a constraint with `case_insensitive: true` matches its regex ignoring case (`re.IGNORECASE`), in both readings, so it admits ASCII case variants only. Nothing is rewritten: `\D` in the pattern still means `\D`, and the value is checked as it will be sent. |
 | C4 | Checked host-like fields (`url`, `host`, `hostname`, `domain`, `to`, `recipient`, `email`, `address`) lose all trailing dots: `corp.com.` → `corp.com`. |
 | C5 | Fields constrained with `type: number` parse plain numeric strings: `"1e2"` → `100.0`, `" 42 "` → `42.0`. Only a strict pattern qualifies — `"1_000"`, `"nan"`, `"inf"`, and non-ASCII digits do not, and stay strings for the evaluator to block. |
 

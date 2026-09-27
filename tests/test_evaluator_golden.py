@@ -495,3 +495,28 @@ def test_digits_are_ascii_digits():
     assert evaluate(ToolCall("lookup", {"q": "123"}), FRESH, policy).decision == "allow"
     arabic_indic = ToolCall("lookup", {"q": "\u0661\u0662\u0663"})
     assert evaluate(arabic_indic, FRESH, policy).decision == "block"
+
+
+@pytest.mark.parametrize(
+    ("regex", "value"),
+    [
+        (r"[^@\s]+@corp\.com", "bob\u2028Bcc:eve@corp.com"),
+        (r"\S+", "bob\x85eve"),
+        (r"\S+", "bob\x1ceve"),
+        (r"\D+", "\u0661\u0662"),
+        (r"\W+", "\u00e9"),
+    ],
+)
+def test_a_negated_class_refuses_what_unicode_puts_in_the_class(regex, value):
+    # ASCII mode alone reads U+2028, U+0085 and U+001C as not whitespace,
+    # and str.splitlines() breaks a line at every one of them
+    assert evaluate(ToolCall("lookup", {"q": value}), FRESH, matching(regex)).decision == "block"
+
+
+def test_ignoring_case_a_lookahead_refuses_unicode_case_aliases_too():
+    # where a pattern refuses, the reading that folds more is the strict
+    # one: Unicode rules make ı a case of i, and "javascrıpt:".upper() is
+    # "JAVASCRIPT:"
+    policy = insensitive(r"(?!javascript:)[^ ]+")
+    call = ToolCall("lookup", {"q": "javascr\u0131pt:alert(1)"})
+    assert evaluate(call, FRESH, policy).decision == "block"

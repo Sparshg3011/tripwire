@@ -17,10 +17,11 @@ refused to start.
   NaN or infinite `min`, `max` or `sum_per_session` `max`, or uses the `u`
   flag, `(?u)` or `(?u:...)`, in a `regex`. Each let a policy mean something
   other than what it reads as.
-- Policy regexes match in ASCII mode: `\d`, `\w`, `\s` and `\b` are
-  ASCII-only, and ignoring case, by `case_insensitive: true` or an inline
-  `(?i)`, folds ASCII letters and nothing else, so `admın` no longer passes
-  for `admin`.
+- A value must match a policy regex both in ASCII mode and under Unicode
+  rules. `\d`, `\s` and `\w` admit ASCII characters only, and ignoring case,
+  by `case_insensitive: true` or an inline `(?i)`, admits ASCII case variants
+  only, so `admın` no longer passes for `admin`. `\D`, `\S`, `\W` and `[^\s]`
+  still refuse Unicode digits, whitespace and word characters.
 - `case_insensitive` matches under `re.IGNORECASE` instead of casefolding the
   pattern and the value, so `\D` keeps its meaning and the value checked is
   the value forwarded.

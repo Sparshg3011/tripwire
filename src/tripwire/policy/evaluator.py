@@ -30,9 +30,10 @@ dotted path of the deciding rule):
          (fail closed; rule_id "tools.<name>.constraints.<arg>")
        - max_length: len(str(value)) must be <=; checked before the
          regex, so an over-long value never gets matched
-       - regex: full match required, in ASCII mode (REGEX_FLAGS), and
-         under re.IGNORECASE if case_insensitive is set, which then
-         folds ASCII letters and nothing else
+       - regex: full match required, both in ASCII mode and under
+         Unicode rules (REGEX_MODES), and under re.IGNORECASE if
+         case_insensitive is set; a value either reading refuses is
+         refused, so ignoring case admits ASCII case variants only
        - type number: value must be a finite int/float (bool doesn't
          count, nor do NaN and +-inf); anything else -> block
        - min/max: numeric bounds, inclusive, on a finite value
@@ -77,7 +78,7 @@ import re
 from typing import Any, TypeGuard
 
 from tripwire.policy.canonical import checked_fields
-from tripwire.policy.schema import REGEX_FLAGS, Constraint, Policy, ToolRule
+from tripwire.policy.schema import REGEX_MODES, Constraint, Policy, ToolRule
 from tripwire.policy.types import Decision, SessionSnapshot, ToolCall, Verdict
 
 SEVERITY: dict[Decision, int] = {"allow": 0, "gate": 1, "block": 2}
@@ -114,8 +115,8 @@ def _constraint_holds(value: Any, c: Constraint) -> bool:
         # A flag, not casefolding: the pattern is regex source, and
         # casefold() turns \D into \d. The value stays as it is too, since
         # casefolding it would check "strasse" and forward "straße".
-        flags = REGEX_FLAGS | (re.IGNORECASE if c.case_insensitive else 0)
-        if re.fullmatch(c.regex, value, flags) is None:
+        flags = re.IGNORECASE if c.case_insensitive else re.NOFLAG
+        if any(re.fullmatch(c.regex, value, flags | mode) is None for mode in REGEX_MODES):
             return False
 
     if c.type == "number" and not is_number(value):
