@@ -4,6 +4,8 @@ Everything here is deliberately strict (extra="forbid" throughout): a
 misspelled key in a security policy must kill startup, not get silently
 ignored and leave a hole. Numbers must be finite for the same reason:
 every comparison with a NaN bound is False, so it would bound nothing.
+An infinite bound either bounds nothing or refuses everything, and in
+JSON it's null, the same as no bound at all.
 """
 
 from __future__ import annotations
