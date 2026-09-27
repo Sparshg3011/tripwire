@@ -254,6 +254,29 @@ async def test_a_ledger_from_before_sessions_were_recorded_still_works(db):
     ex.close()
 
 
+async def test_an_unresolved_call_from_before_sessions_were_recorded_holds_up_its_tool(db):
+    # a proxy on the old schema died mid-payment; the upgraded one can't
+    # tell which payment, so it refuses them all rather than guess
+    old = old_ledger(db)
+    old.execute(
+        "INSERT INTO intents VALUES (?, 'send_payment', 'in_flight', NULL)",
+        (intent_key("old", "send_payment", {"to": "bob", "amount": 100}),),
+    )
+    old.close()
+
+    ex = TxExecutor(db, "new")
+    retry = make_forward(ok())
+    for args in ({"to": "bob", "amount": 100}, {"to": "carol", "amount": 5}):
+        with pytest.raises(DuplicateInFlight, match="before sessions were recorded"):
+            await ex.run("send_payment", args, retry)
+    assert retry.calls == 0
+
+    other = make_forward(ok())
+    await ex.run("add", {"a": 1}, other)
+    assert other.calls == 1
+    ex.close()
+
+
 def _open_when_released(db, barrier, session_id, failures):
     barrier.wait()
     try:

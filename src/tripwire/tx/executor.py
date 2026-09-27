@@ -51,6 +51,10 @@ run(tool, args, forward) -> (result, replayed):
     that arrives at the same instant: the ledger holds one unresolved
     row per call. Once that one finishes, the call runs.
 
+  * 'in_flight' row written before sessions were recorded -> raise
+    DuplicateInFlight for every call to its tool. Such a row can't say
+    which call it was, so none of them can be told apart from it.
+
   * forward returns isError=True -> the intent row is DELETED and the
     error result returned, (result, False). The tool itself told us it
     failed, and we take its word: transient tool failures must stay
@@ -125,7 +129,7 @@ CREATE TABLE IF NOT EXISTS intents (
 """
 
 # added after the first ledgers were written; a ledger without them keeps
-# working, its old rows just can't be matched from another session
+# working, but its old rows can't be matched to a call from another session
 LATER_COLUMNS = ("call_key", "session")
 
 
@@ -197,6 +201,15 @@ class TxExecutor:
             raise DuplicateInFlight(
                 f"{tool} with these arguments was started by session {stranded[0]} and never "
                 f"recorded an outcome; inspect {self.path} before retrying"
+            )
+        legacy = self._one(
+            "SELECT 1 FROM intents WHERE call_key IS NULL AND tool = ? AND state = 'in_flight'",
+            (tool,),
+        )
+        if legacy is not None:
+            raise DuplicateInFlight(
+                f"a {tool} call from before sessions were recorded never recorded an outcome, "
+                f"and nothing says which call it was; inspect {self.path} before retrying"
             )
 
         # intent first, always: a side effect with no prior record is the

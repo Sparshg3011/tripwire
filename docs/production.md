@@ -174,6 +174,9 @@ sqlite3 ledger.db "DELETE FROM intents WHERE key = '<key>'"
 ```
 
 Delete the row only once you're sure: the next identical call will run.
+A row left by a version of tripwire from before sessions were recorded
+has no session and can't say which call it was, so until it's cleared it
+refuses every call to its tool.
 
 **Watch the exit codes.** `2` means refused to start (bad policy, dead
 upstream, unwritable log, missing or wrong audit key, unusable gate).
