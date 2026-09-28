@@ -184,7 +184,8 @@ CONTROL_SEGMENTS = frozenset(_fold(segment) for segment in _pinned("control_path
 
 # A bare host ending in one of these, without www., is usually a file name:
 # common file extensions that are also delegated TLDs. Not "com": a DOS
-# executable is rarer than a bare .com host by far.
+# executable is rarer than a bare .com host by far. "ly" is in: the bare
+# .ly hosts people write are link shorteners, which vouch for nothing.
 FILE_EXT_TLDS = frozenset(
     {
         # source and build files
@@ -192,11 +193,13 @@ FILE_EXT_TLDS = frozenset(
         "am",
         "cc",
         "cl",
+        "coffee",
         "cr",
         "gs",
         "in",
         "java",
         "la",
+        "ly",
         "mk",
         "ml",
         "mm",
@@ -215,16 +218,20 @@ FILE_EXT_TLDS = frozenset(
         "cf",
         "fish",
         "work",
-        # documents, data and bundles
+        # documents, data, archives and bundles
         "ai",
         "app",
+        "bz",
+        "cab",
         "md",
         "mo",
+        "mobi",
         "mov",
         "nc",
         "ps",
         "pt",
         "pub",
+        "run",
         "zip",
     }
 )
