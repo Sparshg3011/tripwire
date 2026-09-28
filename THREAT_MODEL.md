@@ -102,9 +102,12 @@ and Claude Code's prompt hook writes it there. What the file names
 anchors, so it has to be out of the agent's reach. The proxy does its
 part: no call naming the file in any argument, content included, is
 discharged by anchoring, and no `TRIPWIRE_` variable reaches the
-upstream, so the server it wraps isn't told where the file is. Tools
-that don't go through tripwire are another matter: Claude
-Code's own Write, Edit and Bash can reach it, and the deny rule in
+upstream. That keeps the path out of what the server it wraps is
+handed, not out of its reach: running as the same user, the server can
+read the proxy's command line and environment, and a server that
+misuses what it finds there is the malicious upstream above. Tools
+that don't go through tripwire are another matter: Claude Code's own
+Write, Edit and Bash can reach it, and the deny rule in
 [docs/claude-code.md](docs/claude-code.md) covers the first two but not
 a shell. The file holds the latest prompt only, read when a call
 arrives, so a prompt replaced before any call is lost; that costs

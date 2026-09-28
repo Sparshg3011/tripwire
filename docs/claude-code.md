@@ -90,6 +90,10 @@ policy names.
 
 - Claude Code's own Bash can still write the file. If the agent runs
   shell commands without asking you, it can name its own anchors.
+- The server tripwire wraps runs as you, and can read the file's path
+  off tripwire's command line or environment. Keeping `TRIPWIRE_`
+  variables from it only means it isn't handed the path; wrap servers
+  you would trust with the file.
 - The proxy reads the file when a call arrives. Submit two prompts
   before the agent calls a tool through tripwire and only the second
   counts: fewer anchors, never more.

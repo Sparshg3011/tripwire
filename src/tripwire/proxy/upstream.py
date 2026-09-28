@@ -43,8 +43,10 @@ class Upstream:
         # This is not a widening: without tripwire in the way, that
         # server was already being started with exactly this environment.
         # Less tripwire's own variables, which it would never have seen:
-        # they say where the audit key and the task file are, and a
-        # server that can write the task file can name its own anchors.
+        # they say where the audit key and the task file are. That keeps
+        # them out of what the server is handed and hands on, not out of
+        # its reach: running as us, it can read our command line and
+        # environment.
         given = env if env is not None else os.environ
         self._params = StdioServerParameters(
             command=argv[0],

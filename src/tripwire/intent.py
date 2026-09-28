@@ -8,8 +8,10 @@ changed. The file holds the text as UTF-8 and nothing else.
 
 Whoever can write the file decides what anchors, so the agent must not
 be able to: the proxy counts it among the protected paths no argument
-anchors to, and keeps the TRIPWIRE_ variables that name it from the
-upstream. The agent's host is another matter; see docs/claude-code.md.
+anchors to, and doesn't hand the upstream the TRIPWIRE_ variables that
+name it, though an upstream running as the same user can still read
+them off the proxy's command line or environment. The agent's host is
+another matter; see docs/claude-code.md.
 """
 
 from __future__ import annotations
