@@ -90,7 +90,8 @@ class SessionSnapshot:
     task: TaskView | None = None
     # where each value the session has seen was seen first
     provenance: ProvenanceView = field(default_factory=ProvenanceView)
-    # paths no argument may reach: the policy file, the audit log, the tx db
+    # paths no argument may reach: the policy file, the audit log, the tx
+    # db, the task file
     protected_paths: tuple[str, ...] = ()
 
 

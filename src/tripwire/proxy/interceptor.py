@@ -10,13 +10,15 @@ are injected so they can be faked in tests, but the defaults are the
 real ones and the proxy never passes anything else.
 
 Everything the session learns comes through here too: the user's task
-text (add_task()), the upstream's tool listing (observe_listing()), and
-what each executed call showed the agent, its result or the text of its
-failure, which _remember() hands the session before it counts the call.
+text (add_task(), or a task file read before each evaluation), the
+upstream's tool listing (observe_listing()), and what each executed call
+showed the agent, its result or the text of its failure, which
+_remember() hands the session before it counts the call.
 """
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
@@ -28,6 +30,7 @@ import anyio
 from mcp import types
 
 from tripwire.gate import ApprovalGate, ApprovalRequest
+from tripwire.intent import TaskFile, TaskRejected
 from tripwire.policy.canonical import canonicalize as real_canonicalize
 from tripwire.policy.canonical import checked_fields
 from tripwire.policy.evaluator import evaluate as real_evaluate
@@ -37,11 +40,12 @@ from tripwire.provenance import Observed
 from tripwire.proxy.denial import denied
 from tripwire.proxy.denial import refused as _refused
 from tripwire.proxy.upstream import Upstream
-from tripwire.session import SessionState, TaskRejected
+from tripwire.session import SessionState
 from tripwire.tx import AuditLog, AuditWriteError
 from tripwire.tx.executor import DuplicateInFlight, TxError, TxExecutor
 
 DECISIONS = ("allow", "block", "gate")
+TASK_FILE = "task_file"  # the source of a segment read from the task file
 
 _NO_ANSWER = object()  # distinct from any value a gate could return
 
@@ -84,7 +88,10 @@ class Interceptor:
         tx: TxExecutor | None = None,
         canonicalize: Canonicalizer = real_canonicalize,
         evaluate: Evaluator = real_evaluate,
+        task_file: TaskFile | None = None,
     ):
+        """task_file: read before each evaluation, and added as a task
+        segment whenever it changed."""
         self.policy = policy
         self.audit = audit
         self.upstream = upstream
@@ -93,6 +100,7 @@ class Interceptor:
         self.tx = tx
         self.canonicalize = canonicalize
         self.evaluate = evaluate
+        self.task_file = task_file
         self._lock = anyio.Lock()
 
     async def handle(self, name: str, arguments: Mapping[str, Any]) -> types.CallToolResult:
@@ -117,24 +125,41 @@ class Interceptor:
         over 64 KiB of it."""
         try:
             async with self._lock:
-                try:
-                    segment = self.session.add_task(text, source)
-                except TaskRejected as e:
-                    shown = source if isinstance(source, str) else None
-                    self.audit.append("intent_rejected", {"source": shown, "reason": str(e)})
-                    raise
-                self.audit.append(
-                    "task",
-                    {
-                        "segment": segment,
-                        "source": source,
-                        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-                        "chars": len(text),
-                    },
-                )
-                return segment
+                return self._add_task(text, source)
         except AuditWriteError as e:
             _halt(e)
+
+    def _add_task(self, text: str, source: str) -> int:
+        try:
+            segment = self.session.add_task(text, source)
+        except TaskRejected as e:
+            shown = source if isinstance(source, str) else None
+            self.audit.append("intent_rejected", {"source": shown, "reason": str(e)})
+            raise
+        self.audit.append(
+            "task",
+            {
+                "segment": segment,
+                "source": source,
+                "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                "chars": len(text),
+            },
+        )
+        return segment
+
+    def _read_task_file(self) -> None:
+        """A task file that changed since the last call becomes a segment;
+        one that can't be taken leaves an intent_rejected record, once."""
+        if self.task_file is None:
+            return
+        try:
+            text = self.task_file.poll()
+        except TaskRejected as e:
+            self.audit.append("intent_rejected", {"source": TASK_FILE, "reason": str(e)})
+            return
+        if text is not None:
+            with contextlib.suppress(TaskRejected):  # _add_task wrote it down
+                self._add_task(text, TASK_FILE)
 
     async def observe_listing(self, tools: Sequence[types.Tool]) -> None:
         """The upstream's tool listing, as the agent is shown it: every
@@ -147,6 +172,7 @@ class Interceptor:
             _halt(e)
 
     async def _handle(self, name: str, arguments: Mapping[str, Any]) -> types.CallToolResult:
+        self._read_task_file()
         verdict, args, snapshot = self._decide(name, arguments)
 
         decision: dict[str, Any] = {

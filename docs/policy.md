@@ -243,12 +243,15 @@ can't be both `destructive` and `self_scoped`.
 | credential | task, known |
 
 - **task**: the user's task text. A library host adds it with
-  `await interceptor.add_task(text, source)`, up to 64 KiB a segment;
-  segments add up for the rest of the session, and the audit log gets
-  their hash and size, never the text. An id under 6 characters anchors
-  only after a label: `id 13`, or a word of the argument's name (`file
-  13` for `file_id`). With `match: under`, a path below a task path of
-  two or more components anchors too.
+  `await interceptor.add_task(text, source)`, up to 64 KiB a segment.
+  `tripwire serve --task-file PATH` (or `TRIPWIRE_TASK_FILE`) reads the
+  file before each call and adds it as a segment whenever it changed.
+  Segments add up for the rest of the session, and the audit log gets
+  their hash and size, never the text.
+  An id under 6 characters anchors only after a label: `id 13`, or a
+  word of the argument's name (`file 13` for `file_id`). With `match:
+  under`, a path below a task path of two or more components anchors
+  too.
 - **known**: an entry under `known` of the value's type; a path below a
   known path anchors with `match: under`.
 - **trusted**: a whole field of a result from a `trusted` source, unless
@@ -264,8 +267,8 @@ can't be both `destructive` and `self_scoped`.
 Values are compared as normalized keys, exactly: a lookalike letter, a
 longer address around an anchored one, or a path through `..`, `~` or a
 control file (`.git`, `.claude`, `CLAUDE.md`, …) never anchors. Neither
-does the policy file, the audit log or the tx database under any
-spelling.
+does the policy file, the audit log, the tx database or the task file
+under any spelling.
 
 **Content** of a tool with a target argument is checked too. A value
 that is wholly an address, an IBAN or a URL is checked as a target;

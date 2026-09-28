@@ -75,11 +75,12 @@ A segment shaped like an 8.3 short name ("GIT~1") can alias any of them and
 counts as one. A path, id or name with a control segment, split at slashes
 and backslashes, is Unanchorable under every type, auto included.
 
-A protected path (the policy file, the audit log, the tx db) makes a path,
-id, name or host key Unanchorable when the key is at or under it, or when
-any segment of the key, read as control segments are, is the protected
-path's last one. Relative spellings and symlinked prefixes (/tmp for
-/private/tmp) reach the same file, and nothing here may resolve them.
+A protected path (the policy file, the audit log, the tx db, the task
+file) makes a path, id, name or host key Unanchorable when the key is at
+or under it, or when any segment of the key, read as control segments
+are, is the protected path's last one. Relative spellings and symlinked
+prefixes (/tmp for /private/tmp) reach the same file, and nothing here
+may resolve them.
 
 Every key is a fixed point: normalizing key.key under key.vtype gives the
 key back. TaskIndex.anchors() leans on that to refuse hand-built keys.
@@ -671,7 +672,8 @@ def normalize(
 
     known: the value is an operator's `known` entry, which may name a
     reserved name. protected_paths: absolute paths (the policy file, the
-    audit log, the tx db) that no path, id, name or host may reach.
+    audit log, the tx db, the task file) that no path, id, name or host
+    may reach.
     """
     try:
         return _normalize(value, vtype, known, protected_paths)

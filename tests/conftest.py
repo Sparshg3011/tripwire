@@ -12,13 +12,15 @@ FAKE_PYTHON = Path(__file__).parent / "fake_python.py"
 
 
 @pytest.fixture(autouse=True, scope="session")
-def no_audit_key_from_the_shell():
-    # docs/production.md suggests exporting it, and every proxy and cli
-    # the tests start would pick it up and key or check the log with it.
-    # Session-wide, because a module fixture is set up before any
-    # function one and the gym matrix starts its proxies in one.
+def no_settings_from_the_shell():
+    # The docs suggest exporting these, and every proxy and cli the tests
+    # start would pick them up: key or check the log with the one, read
+    # a task from the other. Session-wide, because a module fixture is
+    # set up before any function one and the gym matrix starts its
+    # proxies in one.
     with pytest.MonkeyPatch.context() as mp:
         mp.delenv("TRIPWIRE_AUDIT_KEY_FILE", raising=False)
+        mp.delenv("TRIPWIRE_TASK_FILE", raising=False)
         yield
 
 

@@ -24,6 +24,7 @@ from tripwire.tx import (
 )
 
 KEY_ENV = "TRIPWIRE_AUDIT_KEY_FILE"
+TASK_ENV = "TRIPWIRE_TASK_FILE"
 
 
 def audit_key(key_file: str | None) -> bytes | None:
@@ -113,6 +114,14 @@ def main(argv: list[str] | None = None) -> None:
         help=(
             "file holding a secret key; the audit log becomes an HMAC chain nobody "
             f"can rewrite without it (default: ${KEY_ENV})"
+        ),
+    )
+    p_serve.add_argument(
+        "--task-file",
+        default=os.environ.get(TASK_ENV),
+        help=(
+            "file holding the user's task text, read again whenever it changes; "
+            f"what it names anchors (default: ${TASK_ENV})"
         ),
     )
 
@@ -237,6 +246,15 @@ def main(argv: list[str] | None = None) -> None:
         from tripwire.proxy import UpstreamError, serve
         from tripwire.tx.executor import TxError
 
+        if args.task_file == "":
+            # an unset variable in `--task-file "$TASK"` looks like this,
+            # and it would quietly leave the session without its task
+            print(
+                f"tripwire: refusing to start: the task file name is empty; to go without "
+                f"one, unset {TASK_ENV} and leave out --task-file",
+                file=sys.stderr,
+            )
+            sys.exit(2)
         try:
             key = audit_key(args.audit_key_file)
             anyio.run(
@@ -248,6 +266,7 @@ def main(argv: list[str] | None = None) -> None:
                 args.gate_port,
                 args.tx_db,
                 key,
+                args.task_file,
             )
         except (
             PolicyError,
