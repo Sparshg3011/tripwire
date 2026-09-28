@@ -22,10 +22,12 @@ dotted path of the deciding rule):
      (allow / gate) and evaluation continues.
 
   2. Constraints, checked against the canonicalized args:
-       - if the rule sets allowed_args, an argument neither named there
-         nor read by the rule (checked_fields(): its constraint keys and
-         the field its budget sums) -> block, before any constraint is
-         checked (rule_id "tools.<name>.allowed_args")
+       - if the rule sets allowed_args or args, an argument named in
+         neither and not read by the rule (checked_fields(): its
+         constraint keys, the field its budget sums and its authority
+         arguments) -> block, before any constraint is checked (rule_id
+         "tools.<name>.args", code "unexpected_argument", when args is
+         set; else "tools.<name>.allowed_args")
        - constraint on an argument the call didn't provide -> block
          (fail closed; rule_id "tools.<name>.constraints.<arg>")
        - max_length: len(str(value)) must be <=; checked before the
@@ -37,6 +39,9 @@ dotted path of the deciding rule):
        - type number: value must be a finite int/float (bool doesn't
          count, nor do NaN and +-inf); anything else -> block
        - min/max: numeric bounds, inclusive, on a finite value
+       - after the constraints, a target leaf in args that can't be read
+         as a value of its type -> block (rule_id
+         "tools.<name>.args.<arg>", code "invalid_value"), tainted or not
      First failed constraint blocks and short-circuits.
 
   3. Limits, *including the current call*:
@@ -56,6 +61,12 @@ dotted path of the deciding rule):
      (rule_id "flows[i]", but only when the flow actually changes the
      decision — an already-gated call stays gated under its original
      rule_id). Escalation only: allow -> gate -> block. Never downward.
+     A flow with unless: anchored runs anchoring.check() first, once per
+     call, and is skipped when it discharges; otherwise it escalates
+     with the report's rule_id ("flows[i]" for no_contract), its code,
+     and its reason after the flow's. The report rides on the verdict
+     as `anchors` whenever the check ran. Anchoring skips only its own
+     flow, so the verdict is never below the one with that flow deleted.
 
   Severity is allow < gate < block. Stages 2-4 only ever produce block;
   stage 5 can produce gate or block. A later stage may raise severity,
@@ -77,9 +88,10 @@ import math
 import re
 from typing import Any, TypeGuard
 
+from tripwire.policy import anchoring
 from tripwire.policy.canonical import checked_fields
 from tripwire.policy.schema import REGEX_MODES, Constraint, Policy, ToolRule
-from tripwire.policy.types import Decision, SessionSnapshot, ToolCall, Verdict
+from tripwire.policy.types import AnchorReport, Decision, SessionSnapshot, ToolCall, Verdict
 
 SEVERITY: dict[Decision, int] = {"allow": 0, "gate": 1, "block": 2}
 
@@ -161,8 +173,14 @@ def _failed(error: Exception, policy: Policy) -> Verdict:
 def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict:
     shadow = not policy.enforce
 
-    def verdict(decision: Decision, rule_id: str, reason: str) -> Verdict:
-        return Verdict(decision=decision, rule_id=rule_id, reason=reason, shadow=shadow)
+    def verdict(
+        decision: Decision,
+        rule_id: str,
+        reason: str,
+        code: str | None = None,
+        anchors: AnchorReport | None = None,
+    ) -> Verdict:
+        return Verdict(decision, rule_id, reason, shadow, code, anchors)
 
     # --- 1. tool lookup ---
     rule = policy.tools.get(call.tool)
@@ -190,15 +208,17 @@ def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict
         )
 
     # --- 2. constraints, on the canonicalized args ---
-    if rule.allowed_args is not None:
-        read = checked_fields(call.tool, policy)
+    if rule.allowed_args is not None or rule.args is not None:
+        admitted = (
+            checked_fields(call.tool, policy) | set(rule.allowed_args or ()) | set(rule.args or ())
+        )
         for arg in call.args:
-            if arg not in rule.allowed_args and arg not in read:
-                return verdict(
-                    "block",
-                    f"tools.{call.tool}.allowed_args",
-                    f"{call.tool} doesn't take an argument called {arg!r}.",
-                )
+            if arg in admitted:
+                continue
+            reason = f"{call.tool} doesn't take an argument called {arg!r}."
+            if rule.args is not None:
+                return verdict("block", f"tools.{call.tool}.args", reason, "unexpected_argument")
+            return verdict("block", f"tools.{call.tool}.allowed_args", reason)
 
     for arg, constraint in rule.constraints.items():
         rule_id = f"tools.{call.tool}.constraints.{arg}"
@@ -208,6 +228,10 @@ def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict
             return verdict("block", rule_id, f"{call.tool} requires {arg}, which wasn't provided.")
         if not _constraint_holds(call.args[arg], constraint):
             return verdict("block", rule_id, f"{arg} fails the constraint on {call.tool}.")
+
+    invalid = anchoring.invalid_target(call, rule, state)
+    if invalid is not None:
+        return verdict("block", invalid.rule or "", invalid.reason, invalid.code, invalid)
 
     # --- 3. limits, counting this call ---
     if rule.limits is not None:
@@ -260,15 +284,29 @@ def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict
                 )
 
     # --- 5. flows: may tighten, never relax ---
+    code: str | None = None
+    report: AnchorReport | None = None
     for i, flow in enumerate(policy.flows):
         if flow.when != "context_tainted" or not state.tainted:
             continue
         if call.tool not in flow.tools:
             continue
+        # anchoring can only skip this flow, never lower another rule
+        if flow.unless == "anchored":
+            if report is None:
+                report = anchoring.check(call, rule, state, policy)
+            if report.code is None:
+                continue
         escalated = AS_DECISION[flow.action]
         if SEVERITY[escalated] > SEVERITY[provisional]:
             provisional = escalated
-            decided_by = f"flows[{i}]"
             reason = flow.reason or "Untrusted content is in this conversation."
+            if flow.unless == "anchored" and report is not None:
+                decided_by = report.rule or f"flows[{i}]"
+                reason = f"{reason} {report.reason}"
+                code = report.code
+            else:
+                decided_by = f"flows[{i}]"
+                code = None
 
-    return verdict(provisional, decided_by, reason)
+    return verdict(provisional, decided_by, reason, code, report)

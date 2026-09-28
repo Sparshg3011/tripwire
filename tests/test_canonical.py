@@ -146,6 +146,29 @@ def test_checked_fields_are_the_constraints_and_the_summed_field():
     assert checked_fields("no_such_tool", policy) == set()
 
 
+CONTRACT = Policy.model_validate(
+    {
+        "version": 1,
+        "tools": {
+            "send": {
+                "action": "allow",
+                "args": {"to": "target", "doc": "selector", "key": "credential", "body": "content"},
+            }
+        },
+    }
+)
+
+
+def test_authority_arguments_are_checked_and_content_is_not():
+    assert checked_fields("send", CONTRACT) == {"to", "doc", "key"}
+
+
+def test_authority_arguments_go_upstream_in_the_form_their_keys_come_from():
+    args = {"to": "ａlice@corp.example.", "doc": "ｄoc-1", "key": "k", "body": "ｂ"}
+    out = canonicalize("send", args, CONTRACT)
+    assert out == {"to": "alice@corp.example", "doc": "doc-1", "key": "k", "body": "ｂ"}
+
+
 def test_unchecked_fields_are_forwarded_verbatim(reference_policy):
     # send_email checks to and body; nothing reads subject or cc, so
     # nothing has any business rewriting them

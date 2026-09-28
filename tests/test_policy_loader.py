@@ -3,8 +3,9 @@ import yaml
 from hypothesis import given
 from hypothesis import strategies as st
 
+from tripwire.cli import main
 from tripwire.policy import PolicyError, load_policy
-from tripwire.policy.loader import _UniqueKeyLoader
+from tripwire.policy.loader import _UniqueKeyLoader, policy_warnings
 
 
 def write(tmp_path, text):
@@ -233,3 +234,40 @@ def test_error_message_is_readable(tmp_path):
         assert "extra_key" in str(e)
     else:
         pytest.fail("should not have loaded")
+
+
+def test_an_argument_contract_error_names_the_path(tmp_path):
+    p = write(tmp_path, "version: 1\ntools:\n  send: {action: allow, args: {to: recipient}}\n")
+    with pytest.raises(PolicyError, match="tools.send.args.to.role"):
+        load_policy(p)
+
+
+ANCHORED = """
+version: 1
+tools:
+  send_email: {action: allow, args: {to: target, body: content}}
+  post: {action: allow}
+flows:
+  - {when: context_tainted, tools: [send_email, post, shell], action: block, unless: anchored}
+  - {when: context_tainted, tools: [post], action: require_approval}
+"""
+
+
+def test_a_tool_an_anchored_flow_can_never_discharge_is_warned_about(tmp_path):
+    warning = "flows[0] says unless: anchored, but {} has no args contract, so the flow applies"
+    warnings = policy_warnings(load_policy(write(tmp_path, ANCHORED)))
+    assert [w.split(" to every")[0] for w in warnings] == [
+        warning.format("post"),
+        warning.format("shell"),
+    ]
+
+
+def test_validate_prints_the_warnings_and_still_passes(tmp_path, capsys):
+    main(["validate", str(write(tmp_path, ANCHORED))])
+    out, err = capsys.readouterr()
+    assert out.startswith("ok: ")
+    assert err.count("warning: ") == 2
+
+
+def test_a_v1_policy_has_nothing_to_warn_about(reference_policy):
+    assert policy_warnings(reference_policy) == []

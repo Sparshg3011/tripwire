@@ -7,6 +7,7 @@ import sys
 import anyio
 
 from tripwire.policy import PolicyError, load_policy
+from tripwire.policy.loader import policy_warnings
 from tripwire.tx import (
     AuditKeyError,
     AuditWriteError,
@@ -150,6 +151,8 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
         mode = "enforce" if policy.enforce else "shadow (nothing will be blocked)"
         print(f"ok: {args.policy} is valid, mode: {mode}, {len(policy.tools)} tool rules")
+        for warning in policy_warnings(policy):
+            print(f"warning: {warning}", file=sys.stderr)
 
     elif args.command == "verify":
         try:

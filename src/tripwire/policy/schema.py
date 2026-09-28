@@ -11,12 +11,21 @@ JSON it's null, the same as no bound at all.
 from __future__ import annotations
 
 import re
-from typing import Annotated, Literal
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from tripwire.policy.values import Key, KeyType, VType, normalize
+
 Action = Literal["allow", "block", "require_approval"]
 TrustClass = Literal["trusted", "untrusted"]
+# what an argument decides: who receives the effect (target), which
+# existing object it acts on (selector), which secret it sets
+# (credential); content decides none of those
+Role = Literal["target", "selector", "credential", "content"]
+
+_ARG_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 # A value has to match a policy regex twice, in ASCII mode and under
 # Unicode rules, because each is the strict reading somewhere. Under
@@ -131,6 +140,24 @@ class Limits(StrictModel):
     sum_per_session: SumLimit | None = None
 
 
+class ArgSpec(StrictModel):
+    """One argument of a tool's contract. `type` says how an authority
+    value is read (auto: by its shape); `match: under` lets a path anchor
+    below a task or known path as well as at one."""
+
+    role: Role
+    type: VType = "auto"
+    match: Literal["exact", "under"] = "exact"
+
+    @model_validator(mode="after")
+    def fits_the_role(self) -> ArgSpec:
+        if self.role == "content" and self.model_fields_set & {"type", "match"}:
+            raise ValueError("a content argument is never anchored, so it takes no type or match")
+        if self.match == "under" and self.type not in ("path", "auto"):
+            raise ValueError("match: under compares paths, so it needs type path or auto")
+        return self
+
+
 class ToolRule(StrictModel):
     action: Action
     constraints: dict[str, Constraint] = {}
@@ -140,6 +167,15 @@ class ToolRule(StrictModel):
     allowed_args: list[str] | None = None
     limits: Limits | None = None
     reason: str | None = None
+    # The argument contract a flow with `unless: anchored` reads. Its keys
+    # are admitted as allowed_args's are, and once it is set an argument
+    # named nowhere in the rule blocks, as with allowed_args.
+    args: dict[str, ArgSpec] | None = None
+    # its selectors anchor only to the task, known values and trusted
+    # tools, and a call naming none of those never discharges
+    destructive: bool = False
+    # a call with no authority argument may run after untrusted content
+    self_scoped: bool = False
 
     @field_validator("allowed_args")
     @classmethod
@@ -151,6 +187,28 @@ class ToolRule(StrictModel):
                     f"allowed_args lists {', '.join(map(repr, repeated))} more than once"
                 )
         return v
+
+    @field_validator("args", mode="before")
+    @classmethod
+    def bare_roles_are_specs(cls, v: Any) -> Any:
+        # `to: target` is short for `to: {role: target}`
+        if isinstance(v, dict):
+            return {name: {"role": s} if isinstance(s, str) else s for name, s in v.items()}
+        return v
+
+    @field_validator("args")
+    @classmethod
+    def args_are_top_level_names(cls, v: dict[str, ArgSpec] | None) -> dict[str, ArgSpec] | None:
+        for name in v or {}:
+            if not _ARG_NAME.fullmatch(name):
+                raise ValueError(f"args names {name!r}, which is not a top-level argument name")
+        return v
+
+    @model_validator(mode="after")
+    def self_scoped_is_not_destructive(self) -> ToolRule:
+        if self.self_scoped and self.destructive:
+            raise ValueError("a destructive tool can't be self_scoped")
+        return self
 
 
 class SequenceRule(StrictModel):
@@ -173,16 +231,63 @@ class FlowRule(StrictModel):
     tools: list[str]
     action: Literal["block", "require_approval"]
     reason: str | None = None
+    # the flow skips a call whose every authority value is anchored; it
+    # never lowers what any other rule decided
+    unless: Literal["anchored"] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class KnownValue:
+    """One `known` entry, read. With `domain` set, `key` is a domain that
+    stands for every address at it (email), or for it and every host
+    under it (host)."""
+
+    vtype: KeyType
+    key: str
+    domain: bool = False
+
+
+def read_known(vtype: KeyType, entry: object) -> KnownValue | None:
+    """A `known` entry as anchoring reads it; None if it doesn't normalize
+    under its type. "@corp.example" under email and ".corp.example" under
+    host are domains; every other entry is one value."""
+    if not isinstance(entry, str):
+        return None
+    if vtype == "email" and entry.startswith("@"):
+        address = normalize("x" + entry, "email")
+        if isinstance(address, Key):
+            return KnownValue("email", address.key.partition("@")[2], domain=True)
+        return None
+    if vtype == "host" and entry.startswith("."):
+        host = normalize(entry[1:], "host")
+        # a domain has no port, and an address has no subdomains
+        if isinstance(host, Key) and ":" not in host.key and not host.key[-1:].isdigit():
+            return KnownValue("host", host.key, domain=True)
+        return None
+    outcome = normalize(entry, vtype, known=True)
+    return KnownValue(vtype, outcome.key) if isinstance(outcome, Key) else None
 
 
 class Policy(StrictModel):
     version: Literal[1]
     enforce: bool = True
     defaults: Defaults = Defaults()
+    # Operator attestations: values of each type that anchor any authority
+    # argument of that type, whatever the session has seen.
+    known: dict[KeyType, list[str]] = {}
     sources: dict[str, TrustClass] = {}
     tools: dict[str, ToolRule] = {}
     sequences: list[SequenceRule] = []
     flows: list[FlowRule] = []
+
+    @field_validator("known")
+    @classmethod
+    def known_values_normalize(cls, v: dict[KeyType, list[str]]) -> dict[KeyType, list[str]]:
+        for vtype, entries in v.items():
+            for i, entry in enumerate(entries):
+                if read_known(vtype, entry) is None:
+                    raise ValueError(f"known.{vtype}[{i}] ({entry!r}) is not a usable {vtype}")
+        return v
 
     def source_class(self, tool: str) -> TrustClass:
         # Unlisted tools fall back to the "*" entry, and if there isn't
