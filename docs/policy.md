@@ -320,7 +320,9 @@ the task or what a tool returned. The decision record carries the code
 and each checked value's role, status, source and key hash, and each
 result adds a `provenance_observed` record. `tripwire trace` shows a
 failed value as, for example, `to: first seen in free text from
-read_email, turn 3; accepted: task, known, trusted`. An approval gate
+read_email, turn 3; accepted: task, known, trusted`, and for a call
+anchoring let through, each value and what anchored it (`to: anchored
+via task`), with a reason naming the flow it skipped. An approval gate
 lists the authority arguments first, each with a note on its values:
 `"to": "bob@corp.example"  anchored: task`, or `"cc": [...]  unanchored
 at cc[1]: first seen in free text from read_email, turn 3; accepted:

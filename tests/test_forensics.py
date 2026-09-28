@@ -371,6 +371,17 @@ def test_an_anchoring_failure_reads_as_where_the_value_came_from(log_path):
     assert "anchor cc" not in out  # only what failed
 
 
+def test_a_call_anchoring_let_through_shows_what_anchored(log_path):
+    leaves = [
+        {"arg": "to", "status": "anchored", "via": "task"},
+        {"arg": "cc", "status": "anchored", "via": "trusted"},
+    ]
+    kind, data = anchored("send_email", None, leaves)
+    emit(log_path, "s1", [(kind, {**data, "decision": "allow"})])
+    out = format_trace(trace(read_records(log_path), "s1"), "s1")
+    assert "      anchor to: anchored via task\n      anchor cc: anchored via trusted" in out
+
+
 @pytest.mark.parametrize(
     ("leaf", "shown"),
     [

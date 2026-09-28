@@ -243,9 +243,10 @@ def format_trace(steps: list[Step], session_id: str) -> str:
             out.append(f"      reason {_flat(step.reason)}")
         if step.code:
             out.append(f"      code   {_flat(step.code)}")
-        for leaf in step.anchors:
-            if leaf.get("status") != "anchored":
-                out.append(f"      anchor {_flat(explain_leaf(leaf))}")
+        # what failed, or, when nothing did, every value that let it through
+        failed = [leaf for leaf in step.anchors if leaf.get("status") != "anchored"]
+        for leaf in failed or step.anchors:
+            out.append(f"      anchor {_flat(explain_leaf(leaf))}")
         if step.shadow and step.decision != "allow":
             out.append("      NOTE   shadow mode: this ran anyway")
         for note in step.notes:

@@ -62,7 +62,8 @@ dotted path of the deciding rule):
      decision — an already-gated call stays gated under its original
      rule_id). Escalation only: allow -> gate -> block. Never downward.
      A flow with unless: anchored runs anchoring.check() first, once per
-     call, and is skipped when it discharges; otherwise it escalates
+     call, and is skipped when it discharges, the reason saying so when
+     the flow would have raised the decision; otherwise it escalates
      with the report's rule_id ("flows[i]" for no_contract), its code,
      and its reason after the flow's. The report rides on the verdict
      as `anchors` whenever the check ran. Anchoring skips only its own
@@ -291,13 +292,18 @@ def _evaluate(call: ToolCall, state: SessionSnapshot, policy: Policy) -> Verdict
             continue
         if call.tool not in flow.tools:
             continue
+        escalated = AS_DECISION[flow.action]
         # anchoring can only skip this flow, never lower another rule
         if flow.unless == "anchored":
             if report is None:
                 report = anchoring.check(call, rule, state, policy)
             if report.code is None:
+                if SEVERITY[escalated] > SEVERITY[provisional]:
+                    reason = (
+                        f"{reason} flows[{i}] let it through after untrusted content: "
+                        f"every value it checked is anchored."
+                    )
                 continue
-        escalated = AS_DECISION[flow.action]
         if SEVERITY[escalated] > SEVERITY[provisional]:
             provisional = escalated
             reason = flow.reason or "Untrusted content is in this conversation."
