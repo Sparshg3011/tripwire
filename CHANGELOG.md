@@ -39,6 +39,9 @@ refused to start.
   id `evaluator_error`.
 - A call that fails upstream taints the session whatever the tool's source
   class, since the agent is handed the exception's text.
+- The upstream server no longer inherits tripwire's own `TRIPWIRE_`
+  environment variables, which say where the audit key and the task file
+  are.
 
 ### Fixed
 
@@ -68,10 +71,16 @@ refused to start.
   Anchoring discharges only its own flow. Refusals it or a contract decides
   carry a code, a fixed explanation and a JSON object for the agent; the audit
   log gains `task`, `intent_rejected` and `provenance_observed` records and
-  the decision's code and anchor report; `tripwire trace` and both approval
-  gates say where each checked value came from; `tripwire validate` warns
-  about a tool such a flow can never discharge. Task text reaches a session
-  through the library's `Interceptor.add_task()`.
+  the decision's code and anchor report; `tripwire trace` says where each
+  failed value came from, and both approval gates list the authority
+  arguments first, each with where its values came from; `tripwire
+  validate` warns about a tool such a flow can never discharge, and
+  `tripwire explain` prints what anchors each argument. Task text reaches a
+  session through the library's `Interceptor.add_task()`, or through a file
+  `tripwire serve --task-file` (or `TRIPWIRE_TASK_FILE`) reads before each
+  call, which `tripwire hook claude-code` fills with each prompt from a
+  Claude Code `UserPromptSubmit` hook
+  ([docs/claude-code.md](docs/claude-code.md)).
 - `allowed_args` on a tool rule: an argument neither listed there nor read by
   the rule (a constraint key or the `sum_per_session` field) blocks the call.
 - `turns: session` on a sequence rule keeps it in force for the rest of the

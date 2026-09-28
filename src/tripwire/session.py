@@ -23,6 +23,7 @@ from typing import Any
 
 from mcp import types
 
+from tripwire.intent import MAX_TASK_BYTES, TaskRejected
 from tripwire.policy.canonical import _clean
 from tripwire.policy.evaluator import is_number
 from tripwire.policy.schema import Policy
@@ -30,13 +31,6 @@ from tripwire.policy.types import SessionSnapshot, TaskSegment, TaskView
 from tripwire.policy.values import TaskIndex
 from tripwire.provenance import Caps, Observed, ProvenanceRegistry
 from tripwire.taint import TaintTracker
-
-MAX_TASK_BYTES = 64 * 1024
-
-
-class TaskRejected(ValueError):
-    """Task text add_task() won't take. The message is the reason, never
-    the text."""
 
 
 class SessionBroken(Exception):
@@ -66,8 +60,8 @@ class SessionState:
         caps: Caps | None = None,
     ):
         """protected_paths: absolute paths no argument may anchor to, the
-        policy file, the audit log and the tx db. caps: what provenance
-        keeps before it degrades."""
+        policy file, the audit log, the tx db and the task file. caps:
+        what provenance keeps before it degrades."""
         self.policy = policy
         # A capability is bound to this live session, not an audit label that
         # an embedding application could accidentally reuse after a restart.

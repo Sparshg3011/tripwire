@@ -271,3 +271,66 @@ def test_validate_prints_the_warnings_and_still_passes(tmp_path, capsys):
 
 def test_a_v1_policy_has_nothing_to_warn_about(reference_policy):
     assert policy_warnings(reference_policy) == []
+
+
+CONTRACTS = """
+version: 1
+known:
+  email: ["@corp.example"]
+  path: ["/Users/me/project"]
+tools:
+  read_email: {action: allow}
+  send_email:
+    action: allow
+    args: {to: target, cc: {role: target, type: email}, body: content}
+  delete_file: {action: allow, destructive: true, args: {file_id: selector}}
+  write_file:
+    action: require_approval
+    args: {path: {role: selector, type: path, match: under}, text: content}
+  create_event: {action: allow, self_scoped: true, args: {title: content}}
+  set_token: {action: allow, args: {token: credential}}
+  post: {action: allow}
+flows:
+  - when: context_tainted
+    tools: [send_email, delete_file, write_file, create_event, set_token, post]
+    action: require_approval
+    unless: anchored
+"""
+
+
+def test_explain_says_what_anchors_each_argument(tmp_path, capsys):
+    main(["explain", str(write(tmp_path, CONTRACTS))])
+    out, err = capsys.readouterr()
+    assert out.splitlines() == [
+        "known email: @corp.example",
+        "known path: /Users/me/project",
+        "read_email: allow, no args contract",
+        "send_email: allow, flows[0] skips it when anchored",
+        "  to: target, anchored by task, known, trusted",
+        "  cc: target (email), anchored by task, known, trusted",
+        "  body: content, links in it anchored by task, known, trusted",
+        "delete_file: allow, destructive, flows[0] skips it when anchored",
+        "  file_id: selector, anchored by task, known, trusted",
+        "write_file: require_approval, flows[0] skips it when anchored",
+        (
+            "  path: selector (path), anchored by task, known, trusted, self, "
+            "or by a task or known path above it"
+        ),
+        "  text: content",
+        "create_event: allow, self_scoped, flows[0] skips it when anchored",
+        "  title: content",
+        "set_token: allow, flows[0] skips it when anchored",
+        "  token: credential, anchored by task, known",
+        "post: allow, no args contract",
+    ]
+    assert err == (
+        "warning: flows[0] says unless: anchored, but post has no args contract, "
+        "so the flow applies to every call of it\n"
+    )
+
+
+def test_explain_refuses_a_policy_that_doesnt_load(tmp_path, capsys):
+    with pytest.raises(SystemExit) as exit:
+        main(["explain", str(write(tmp_path, "version: 1\ntools: {a: {action: maybe}}\n"))])
+    assert exit.value.code == 1
+    assert "tools.a.action" in capsys.readouterr().err

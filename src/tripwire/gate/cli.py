@@ -27,10 +27,11 @@ except ImportError:  # windows: there is no controlling terminal to ask
 from tripwire.gate.base import (
     ApprovalRequest,
     GateUnavailable,
-    anchor_lines,
+    anchor_notes,
     clip,
     more_args,
     preview_args,
+    printable,
 )
 
 ARG_PREVIEW = 500  # per value: a 10k email body shouldn't flood the terminal
@@ -38,36 +39,33 @@ ARG_PREVIEW = 500  # per value: a 10k email body shouldn't flood the terminal
 # print first, and scrollback loses whatever scrolls out of it.
 ARG_BUDGET = 1000  # characters of preview, all lines together
 ARG_WIDTH = 70  # short args share a line this long, which fits 80 columns after the indent
-# The tool, rule, reason and taint trail. An unknown tool's name is the
-# caller's to pick, and the reason and the trail can repeat it.
+# The tool, rule, reason, taint trail and each anchoring note. An unknown
+# tool's name is the caller's to pick, and the rest can repeat it.
 FIELD_PREVIEW = 200
 
-# Args reach this prompt from tool calls the attacker may have authored.
-# Anything that can move the cursor, clear the screen, or recolour text
-# can redraw the question the human thinks they're answering, so nothing
-# outside plain printable text survives to the terminal.
-SAFE = set(range(0x20, 0x7F))
 
-
-def _flatten(text: str) -> str:
-    return "".join(c if ord(c) in SAFE else f"\\x{ord(c):02x}" for c in text)
-
-
+# Args reach this prompt from tool calls the attacker may have authored,
+# so nothing outside plain printable text survives to the terminal.
 def _field(text: str) -> str:
-    return clip(_flatten(text), FIELD_PREVIEW)
+    return clip(printable(text), FIELD_PREVIEW)
 
 
 def _arg_lines(
-    args: Mapping[str, Any], checked: Collection[str] = frozenset()
+    args: Mapping[str, Any],
+    checked: Collection[str] = frozenset(),
+    notes: Mapping[str, str] | None = None,
 ) -> tuple[list[str], str]:
     """The argument lines that fit, and what was left out ("" if nothing)."""
-    # no _flatten: encode_args already escapes everything outside SAFE
-    lines, _, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_WIDTH, ARG_BUDGET)
+    # no printable(): encode_args already escapes everything outside SAFE,
+    # and the notes come as _field() made them
+    lines, _, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_WIDTH, ARG_BUDGET, notes)
     return lines, more_args(hidden) if hidden else ""
 
 
 def _question(req: ApprovalRequest) -> str:
-    lines, left_out = _arg_lines(req.args, req.checked)
+    # where each authority argument's values came from, beside them
+    notes = {name: _field(note) for name, note in anchor_notes(req.authority, req.anchors).items()}
+    lines, left_out = _arg_lines(req.args, req.checked, notes)
     args = "\n          ".join(lines) or "{}"
     if left_out:
         # The terminal has no way to show the rest, so the human is
@@ -79,14 +77,10 @@ def _question(req: ApprovalRequest) -> str:
         trail = ", ".join(req.tainted_by) if req.tainted_by else "unknown source"
         taint = f"TAINTED session (untrusted content from: {_field(trail)})"
 
-    # where each checked value came from, right under the values
-    anchors = "".join(f"  anchor: {_field(line)}\n" for line in anchor_lines(req.anchors))
-
     return (
         f"\ntripwire: approval needed (turn {req.turn})\n"
         f"  tool:   {_field(req.tool)}\n"
         f"  args:   {args}\n"
-        f"{anchors}"
         f"  rule:   {_field(req.rule_id)}\n"
         f"  reason: {_field(req.reason)}\n"
         f"  taint:  {taint}\n"
