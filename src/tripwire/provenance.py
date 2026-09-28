@@ -112,7 +112,10 @@ class Sighting:
 @dataclass(frozen=True, slots=True)
 class Caps:
     """What one session keeps: typed keys sighted in all, characters of
-    one observation's text, and characters of text kept in all."""
+    one observation's text, and characters of text stored in all. Poison
+    text is stored scanned, and what a tool, the listing or an upstream
+    error wrote is stored again for the verbatim rule, so it counts
+    twice; the agent's arguments and a trusted result count once."""
 
     keys: int = 200_000
     result_chars: int = 2 * 2**20

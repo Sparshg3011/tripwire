@@ -328,12 +328,15 @@ lists the authority arguments first, each with a note on its values:
 at cc[1]: first seen in free text from read_email, turn 3; accepted:
 task, known, trusted`.
 
-**Bounds.** What a session remembers is capped (200,000 keys, 2 MiB of
-text per observation, 4 MiB in all). When something untrusted goes past
-a cap, or can't be read whole (an image, fields nested past 64 levels),
-the session degrades for good: trusted and self anchors stop, only the
-task and `known` still anchor, and only the task makes a URL verbatim. Like taint, all of this lives in the
-proxy's memory, and a restarted proxy starts with none of it.
+**Bounds.** What a session remembers is capped: 200,000 keys, 2 MiB of
+text per observation, and 4 MiB of stored text in all, where the text
+of an untrusted result, an error or the listing counts twice, once
+scanned and once kept for the verbatim rule. When something untrusted
+goes past a cap, or can't be read whole (an image, fields nested past
+64 levels), the session degrades for good: trusted and self anchors
+stop, only the task and `known` still anchor, and only the task makes a
+URL verbatim. Like taint, all of this lives in the proxy's memory, and
+a restarted proxy starts with none of it.
 
 ## Drafting a policy
 

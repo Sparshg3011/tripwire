@@ -393,6 +393,16 @@ def test_poison_over_the_text_cap_degrades():
     assert reg.degraded is not None
 
 
+def test_the_text_cap_counts_each_copy_stored():
+    reg = ProvenanceRegistry(Caps(text_chars=100))
+    reg.observe_arguments("save_note", 0, {"t": "a" * 30})  # 39 characters as JSON, scanned
+    trusted(reg, "directory", {"n": "b" * 5})  # 14, kept
+    untrusted(reg, "read_email", "c" * 23)  # 23 scanned and 23 kept: 99 in all
+    assert reg.degraded is None
+    untrusted(reg, "read_email", "d")
+    assert reg.degraded == "over the session's caps"
+
+
 def test_arguments_over_a_cap_degrade_too():
     reg = ProvenanceRegistry(Caps(result_chars=50))
     reg.observe_arguments("save_note", 0, {"body": "y" * 100})
