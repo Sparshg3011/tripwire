@@ -900,6 +900,18 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Reply to 'alice@corp.com'", E("alice@corp.com"), True),
         ("Reply to `alice@corp.com`", E("alice@corp.com"), True),
         ("Reply to mailto:alice@corp.com", E("alice@corp.com"), True),
+        ('Reply to "alice@corp.com" today', E("alice@corp.com"), True),
+        ("Reply to [alice@corp.com]", E("alice@corp.com"), True),
+        # and so does anything past ASCII, which SMTPUTF8 allows
+        ("Email o’brien@corp.com about it", E("brien@corp.com"), False),
+        ("Email d’souza@corp.com", E("souza@corp.com"), False),
+        ("Email x·alice@corp.com", E("alice@corp.com"), False),
+        ("Reply to ‘alice@corp.com’", E("alice@corp.com"), True),
+        ("Reply to “alice@corp.com”", E("alice@corp.com"), True),
+        # a quoted local part is part of one address
+        ('"attacker@evil.com"@corp.com is the list', E("attacker@evil.com"), False),
+        ('"x attacker@evil.com y"@corp.com is the list', E("attacker@evil.com"), False),
+        ('"see evil.com"@corp.com is the list', H("evil.com"), False),
         # a mark or format character inside a token joins it
         ("Reply to ab\u0301alice@corp.com", E("alice@corp.com"), False),
         ("Visit ab\u0301cd.com for the menu", H("cd.com"), False),
@@ -1948,17 +1960,31 @@ def test_names_never_anchor_from_inside_a_token(name, other, glue, before):
 
 
 # An address inside a longer one anchors nothing: RFC 5322 lets a local
-# part hold any of these.
+# part hold any of these, and SMTPUTF8 anything past ASCII.
 @given(
     email=emails,
     head=st.from_regex(r"[A-Za-z0-9]", fullmatch=True),
-    glue=st.text(alphabet="!#$%&'*+/=?^_`{|}~.-", min_size=1, max_size=3),
+    glue=st.text(
+        alphabet="!#$%&'*+/=?^_`{|}~.-\u2018\u2019\u201c\u201d\u00b7\u2013", min_size=1, max_size=3
+    ),
 )
 @SETTINGS
 def test_emails_never_anchor_from_inside_a_longer_address(email, head, glue):
     key = normalize(email, "email")
     assume(isinstance(key, Key))
     assert not anchored(f"Reply to {head}{glue}{email} today", key)
+
+
+@given(
+    email=emails,
+    before=st.text(alphabet=string.ascii_letters + " <", max_size=4),
+    after=st.text(alphabet=string.ascii_letters + " >", max_size=4),
+)
+@SETTINGS
+def test_emails_never_anchor_from_a_quoted_local_part(email, before, after):
+    key = normalize(email, "email")
+    assume(isinstance(key, Key))
+    assert not anchored(f'Reply to "{before}{email}{after}"@corp.com today', key)
 
 
 # A mark or format character joins the token it sits in, as it renders.

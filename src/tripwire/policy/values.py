@@ -697,14 +697,19 @@ def is_under(path: str, prefix: str) -> bool:
 # "xalice@corp.com" yields nothing rather than "alice@corp.com". A
 # backslash joins a token as a slash does: C:\repo\evil.com is a path.
 #
-# An address doesn't start after any RFC 5322 atext character either, so
-# "o'brien@corp.com" and "r&d@corp.com" yield nothing; a quote or backtick
-# starts one only where it doesn't follow atext itself ("'a@corp.com'").
+# An address starts only after whitespace, a delimiter or a quote: not
+# after RFC 5322 atext, nor after anything past ASCII, which SMTPUTF8 lets
+# a local part hold, so "o'brien@corp.com", the same with a typographic
+# apostrophe, and "r&d@corp.com" yield nothing. A quote starts one only
+# where it doesn't follow such a character itself ("'a@corp.com'").
 _T_EMAIL = re.compile(
-    r"(?<![\w.!#$%&*+/=?^{|}~\\-])(?<![\w.!#$%&'*+/=?^`{|}~-]['`])"
+    r"(?<![^\s<>()\[\],;:\"'`\u2018\u2019\u201c\u201d])"
+    r"(?<![^\s<>()\[\],;:\"]['`\u2018\u2019\u201c\u201d])"
     r"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,63}"
     r"(?![\w@\\-]|\.[\w-])"
 )
+# a quoted local part, which makes '"attacker@evil.com"@corp.com' one address
+_T_QUOTED = re.compile(r'"[^"]*"(?=@)')
 # no path character before it either, so a masked URL never splits a path
 _T_URL = re.compile(r"(?<![\w.~/\\+-])(?i:https?)://[^\s<>\"'`]+")
 # not after / or ~ either: "src/a.py", "/srv/example.com/x" and
@@ -824,6 +829,10 @@ def _task_keys(text: str) -> tuple[set[Key], set[Key], str]:
     def add(outcome: Outcome) -> None:
         if isinstance(outcome, Key):
             keys.add(outcome)
+
+    # A quoted local part is one token: nothing is read out of it, so
+    # '"attacker@evil.com"@corp.com' anchors nothing.
+    text = _mask(text, [m.span() for m in _T_QUOTED.finditer(text)])
 
     for m in _T_EMAIL.finditer(text):
         add(_email(m.group()))
