@@ -35,11 +35,12 @@ from mcp import types as mcp_types
 from pydantic_core import to_jsonable_python
 
 from tripwire.gate import ApprovalRequest
+from tripwire.intent import TaskRejected
 from tripwire.policy import load_policy
 from tripwire.policy.schema import Policy
 from tripwire.proxy.denial import refused
 from tripwire.proxy.interceptor import Interceptor
-from tripwire.session import SessionState, TaskRejected
+from tripwire.session import SessionState
 from tripwire.tx import AuditLog
 from tripwire_benchmarks import recipe_policies
 from tripwire_benchmarks.reviewer import PROMPT_SHA256, ActionReviewer
