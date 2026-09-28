@@ -1,6 +1,6 @@
 # tripwire recipe 1, taint arm
 # tools sha256:   84fff1437a1e5ac51820acae7d3eab37e446eb114c07c8a35ca05f3302113a15
-# lexicon sha256: 4e0100a5c9636b19a4cdd2e4c2578a757c667f3103102d140fe66fd90821a516
+# lexicon sha256: bc30a0ddea899efbdc524ce06badfa8ec2050980525a6aac41233749a4eca1c3
 # Drafted from tool names, input schemas and annotations, never descriptions.
 # Review every inferred role before enforcing it.
 version: 1
@@ -194,7 +194,7 @@ tools:
     action: allow  # write: no read verb
     self_scoped: true
     args:
-      address: target  # target cue "address"
+      address: selector  # place cue "address"
       bank_account_number: target  # target cue "account"
       email: target  # target cue "email"
       first_name: content  # no cue

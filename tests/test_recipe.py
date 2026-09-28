@@ -208,7 +208,11 @@ def test_additional_properties_false_names_every_argument():
         ("pay", "iban", ("target", "auto", "exact")),
         ("post", "webhook", ("target", "url", "exact")),
         ("post", "user_url", ("target", "url", "exact")),
-        # 7. an object's name, or a bare object noun
+        ("share", "email_address", ("target", "auto", "exact")),
+        # 7. a postal address, which may run past what a name holds
+        ("update_user_info", "street", ("selector", "auto", "exact")),
+        ("ship_order", "shipping_address", ("selector", "auto", "exact")),
+        # 8. an object's name, or a bare object noun
         ("book", "hotel_names", ("selector", "name", "exact")),
         ("clone", "repo_name", ("selector", "name", "exact")),
         ("reserve", "restaurant", ("selector", "name", "exact")),
@@ -216,12 +220,25 @@ def test_additional_properties_false_names_every_argument():
         ("update", "first_name", ("content", "auto", "exact")),
         ("rename", "new_name", ("content", "auto", "exact")),
         ("tag", "project_label", ("content", "auto", "exact")),
-        # 8. the rest
+        # 9. the rest
         ("write_note", "body", ("content", "auto", "exact")),
     ],
 )
 def test_the_first_rule_that_matches_an_argument_name_decides_its_role(tool_name, arg, role):
     assert roles(infer(tool(tool_name, {arg: {}})))[arg] == role
+
+
+def test_a_long_postal_address_is_never_blocked_for_its_length():
+    policy = load(recipe(source([tool("update_user_info", {"street": {}, "city": {}})])))
+    long = ToolCall("update_user_info", {"street": "Flat 3, The Old Mill House, 27 Lower Church"})
+    assert evaluate(long, SessionSnapshot(), policy).decision == "allow"
+    text = "Change my street to 12 Short Road, Springfield"
+    state = SessionSnapshot(
+        tainted=True, task=TaskView((TaskSegment(1, "test", TaskIndex.build(text), text),))
+    )
+    short = ToolCall("update_user_info", {"street": "12 Short Road, Springfield"})
+    assert evaluate(short, state, policy).decision == "allow"
+    assert evaluate(long, state, policy).code == "unanchored_argument"
 
 
 def test_a_format_pins_the_type_and_makes_content_a_target():

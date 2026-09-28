@@ -351,15 +351,16 @@ unless it takes a URL: then it is a fetch, and its URL must anchor.
 Every other tool is a write. A write is limited to 5 calls a session,
 or 1 with a password, token or key argument; gets an argument contract
 whose roles come from its argument names (`to`, `email` and `url` are
-targets, ids, paths and named objects like `repo_name` selectors,
-`password` a credential, the rest content); and is `self_scoped` unless
-it is destructive or sets a credential. One flow gates every write and
-fetch once the session is tainted, `unless: anchored`. A write that
-runs code (`run`, `exec`, a `command` argument) or sends somewhere it
-doesn't name (`push`, or `reply` with no target) gets no contract, so
-that flow gates it every time; so does one whose schema admits
-arguments it doesn't name. `--strict` makes no write `self_scoped`, so
-a write naming nothing anchorable is gated too.
+targets; ids, paths, named objects like `repo_name` and postal
+addresses are selectors, the last so that a long address is never
+refused as unreadable; `password` is a credential; the rest content);
+and is `self_scoped` unless it is destructive or sets a credential. One
+flow gates every write and fetch once the session is tainted, `unless:
+anchored`. A write that runs code (`run`, `exec`, a `command` argument)
+or sends somewhere it doesn't name (`push`, or `reply` with no target)
+gets no contract, so that flow gates it every time; so does one whose
+schema admits arguments it doesn't name. `--strict` makes no write
+`self_scoped`, so a write naming nothing anchorable is gated too.
 
 A comment names the word behind each tool's kind and each argument's
 role, and the header records the recipe version and the sha256 of the

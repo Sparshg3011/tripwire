@@ -35,9 +35,13 @@ Roles, per write argument, from its words; the first rule that matches:
   5. filename, or file then name      content on a CREATE verb, else
                                       selector, type path
   6. a word in TARGET or URL          target; type url for a URL word
-  7. name(s) with a word in OBJECT and none in PERSON, or one word in
+  7. a word in PLACE                  selector: auto reads a postal
+                                      address as a name, which may run
+                                      past 8 words, and an Invalid target
+                                      would block
+  8. name(s) with a word in OBJECT and none in PERSON, or one word in
      OBJECT                           selector, type name
-  8. anything else                    content
+  9. anything else                    content
 
 A property with format email or uri, or items with one, is read as that
 type (url for uri), and as a target when the rules make it content. On a
@@ -216,10 +220,9 @@ TARGET = frozenset(
         "channel",
         "channels",
         "room",
-        "address",
-        "street",
     }
 )
+PLACE = frozenset({"address", "street"})
 URL = frozenset(
     {
         "url",
@@ -319,6 +322,7 @@ LEXICON: dict[str, frozenset[str]] = {
     "id": ID,
     "path": PATH,
     "target": TARGET,
+    "place": PLACE,
     "url": URL,
     "name": NAME,
     "object": OBJECT,
@@ -602,6 +606,8 @@ def _by_name(name: str, verb: str | None, destructive: bool) -> Argument:
         return Argument(name, "target", "url", cue=f'URL cue "{url}"')
     if target := next((x for x in w if x in TARGET), None):
         return Argument(name, "target", cue=f'target cue "{target}"')
+    if place := next((x for x in w if x in PLACE), None):
+        return Argument(name, "selector", cue=f'place cue "{place}"')
     thing = next((x for x in w if x in OBJECT), None)
     if thing is not None and PERSON.isdisjoint(w):
         if not NAME.isdisjoint(w):
