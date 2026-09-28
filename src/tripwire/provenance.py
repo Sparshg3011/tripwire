@@ -5,7 +5,8 @@ come from? Each observation takes the next index, and every sighting in
 it shares that index:
 
   a tool result
-  the structuredContent of an untrusted result that shows another
+  the structuredContent of an untrusted result, when no text block
+  shows it
   the text of an upstream failure the agent was handed
   the tool listing, at startup
   the arguments of a call made after untrusted content
@@ -26,13 +27,13 @@ The last six poison, and their text is scanned greedily
 (values.scan_poison). A hidden sighting is never where a value was
 first seen: the model may not have been shown it, and a denial that
 named it would tell the model what it holds. The first two anchor, by
-the counting rule: a
-sighting of key k counts only when k was not poisoned before its index
-(values.is_poisoned), so a value first seen in poison is never promoted
-by a trusted tool that repeats it later, the agent's own writes read
-back included. Only the task and `known` override history, and neither
-lives here. Arguments of a call made before untrusted content are
-recorded as nothing, and an approval is not an observation.
+the counting rule: a sighting of key k counts only when k was not
+poisoned before its index (values.is_poisoned), so a value first seen
+in poison is never promoted by a trusted tool that repeats it later,
+the agent's own writes read back included. Only the task and `known`
+override history, and neither lives here. Arguments of a call made
+before untrusted content are recorded as nothing, and an approval is
+not an observation.
 
 What a result supplies:
 

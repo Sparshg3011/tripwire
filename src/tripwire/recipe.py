@@ -35,10 +35,9 @@ Roles, per write argument, from its words; the first rule that matches:
   5. filename, or file then name      content on a CREATE verb, else
                                       selector, type path
   6. a word in TARGET or URL          target; type url for a URL word
-  7. a word in PLACE                  selector: auto reads a postal
-                                      address as a name, which may run
-                                      past 8 words, and an Invalid target
-                                      would block
+  7. a word in PLACE                  selector: a postal address may run
+                                      past the 8 words a name holds, and
+                                      an Invalid target blocks
   8. name(s) with a word in OBJECT and none in PERSON, or one word in
      OBJECT                           selector, type name
   9. anything else                    content
@@ -69,10 +68,10 @@ hold.
 
 So an exec or indirect write is never discharged, nor is a call naming
 no target, selector or credential to a write that takes a credential,
-and in the strict arm to any write. A comment
-names the cue behind each tool's kind, each argument's role, a missing
-contract, destructive: true and per_session: 1. Comments quote only the
-tables' words, never a name the upstream chose.
+and in the strict arm to any write. A comment names the cue behind each
+tool's kind, each argument's role, a missing contract, destructive:
+true and per_session: 1. Comments quote only the tables' words, never a
+name the upstream chose.
 
 Contract: pure and deterministic. RecipeError for a source that isn't a
 listing; anything a listing may hold past that gets an answer.
