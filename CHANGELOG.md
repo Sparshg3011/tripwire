@@ -33,8 +33,9 @@ refused to start.
   still goes through sequences and flows.
 - Canonicalization rewrites only the arguments a tool's rule reads, its
   constraint keys, its `sum_per_session` field and its contract's authority
-  arguments, and forwards the rest exactly as they arrived. `--tx-db` keys each call by the arguments it
-  forwards, which in shadow mode are all of them as they arrived.
+  arguments, and forwards the rest exactly as they arrived. `--tx-db` keys
+  each call by the arguments it forwards, which in shadow mode are all of
+  them as they arrived.
 - `evaluate()` never raises: an error during evaluation is a block with rule
   id `evaluator_error`.
 - A call that fails upstream taints the session whatever the tool's source
