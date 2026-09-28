@@ -2,9 +2,9 @@
 
 AgentDojo and AgentDyn execute Python tools rather than MCP tools. Each
 task gets the proxy's own Interceptor, with the suite's functions as its
-upstream (InProcessUpstream), so a call is judged, audited, gated and
-remembered exactly as `tripwire serve` would judge the same call and
-result. The Python result and error reach AgentDojo exactly as
+upstream (InProcessUpstream), so a call is judged, gated, logged and
+remembered as `tripwire serve` handles the same call and result. The
+Python result and error reach AgentDojo exactly as
 FunctionsRuntime.run_function returned them, and results are scored by
 AgentDojo's own stateful environments and task checkers.
 """
