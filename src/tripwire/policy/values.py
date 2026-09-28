@@ -1129,11 +1129,12 @@ def is_poisoned(key: Key, scans: Iterable[PoisonScan], *, self_key: bool = False
 
       1. a scan sighted the key as typed, or
       2. a scan's text holds it: casefolded and whitespace-collapsed as the
-         text is, as a substring when the key is 6+ characters, else as an
-         alphanumeric-bounded token; path and host keys also against the
-         text respelled their way; IBAN and phone keys also against the
-         compacted text, a phone by its digits so that "00 49..." and
-         "+49..." match, or
+         text is, as a substring when the key is 6+ characters, else as a
+         token no alphanumeric extends at an end where the key has one
+         ("#13" is in "id#13", "13" is not in "113"); path and host keys
+         also against the text respelled their way; IBAN and phone keys
+         also against the compacted text, a phone by its digits so that
+         "00 49..." and "+49..." match, or
       3. a scan is truncated.
 
     self_key: testing a `self` id, for which a key under 6 characters is
@@ -1152,9 +1153,13 @@ def _is_poisoned(key: Key, scans: Iterable[PoisonScan], self_key: bool) -> bool:
     text = str.__str__(key.key)
     folded = " ".join(text.casefold().split())
     text_rule = not (self_key and len(text) < 6)
-    bounded = (
-        None if len(text) >= 6 else re.compile(r"(?<![^\W_])" + re.escape(folded) + r"(?![^\W_])")
-    )
+    bounded: re.Pattern[str] | None = None
+    if len(text) < 6:
+        # no alphanumeric may extend the key where it has one at that end:
+        # "13" is not in "113", but "#13" is in "id#13"
+        head = r"(?<![^\W_])" if folded[:1].isalnum() else ""
+        tail = r"(?![^\W_])" if folded[-1:].isalnum() else ""
+        bounded = re.compile(head + re.escape(folded) + tail)
     compact: str | None = None
     if key.vtype == "iban":
         compact = folded

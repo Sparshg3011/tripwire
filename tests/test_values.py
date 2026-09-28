@@ -1267,6 +1267,10 @@ def test_poison_text_is_stored_in_two_forms():
         (D("13"), "13th", False),
         (N("bob"), "@bob!", True),
         (N("bob"), "bobby", False),
+        # bounded by alphanumerics only where the key has one at that end
+        (D("#13"), "close id#13", True),
+        (D("-13"), "open id-13.", True),
+        (D("#13"), "close id#133", False),
         # whitespace folds in the key as it does in the text
         (PA("/srv/Q3  plan.txt"), "rm /srv/q3 plan.txt", True),
         (PA("/a\u2028b"), "rm /a b", True),
@@ -1283,6 +1287,25 @@ def test_poison_text_is_stored_in_two_forms():
 )
 def test_text_rule(key, folded, poisoned):
     assert is_poisoned(key, [text_only(folded)]) is poisoned
+
+
+# What a label anchors glued to it, the same text poisons: a short key that
+# starts or ends with punctuation is bounded there already.
+@pytest.mark.parametrize(
+    ("text", "key", "labels"),
+    [
+        ("Close id#13", D("#13"), ()),
+        ("Close ID#42 today", D("#42"), ()),
+        ("Pay invoice#13", D("#13"), ["invoice"]),
+        ("Open id:13", D(":13"), ()),
+        ("Open ID-13", D("-13"), ()),
+        ("Use id number#7", D("#7"), ()),
+        ("ID..x", D("..x"), ()),
+    ],
+)
+def test_poison_covers_ids_glued_to_their_label(text, key, labels):
+    assert anchored(text, key, labels=labels)
+    assert is_poisoned(key, [scan_poison(text)])
 
 
 def test_typed_rule():
@@ -1834,7 +1857,7 @@ def test_auto_hosts_and_ibans_key_only_their_own_spelling(value, data):
     value=st.one_of(plausible, respelled()),
     before=st.text(max_size=12),
     after=st.text(max_size=12),
-    label=st.sampled_from(["", "id ", "#", "no. "]),
+    label=st.sampled_from(["", "id ", "#", "no. ", "id", "ID#", "id:", "id no.", "id number "]),
 )
 @settings(max_examples=500, suppress_health_check=[HealthCheck.too_slow])
 def test_poison_covers_every_task_anchor(value, before, after, label):
