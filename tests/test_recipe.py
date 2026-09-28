@@ -71,6 +71,15 @@ def test_the_first_verb_word_decides_read_or_write(name, kind):
     assert infer(tool(name)).kind == kind
 
 
+def test_a_destructive_word_after_a_read_verb_makes_a_destructive_write():
+    reading = infer(tool("read_and_delete_email", {"email_id": {}}))
+    assert (reading.kind, reading.cue, reading.destructive) == (
+        "write",
+        'write: "delete"',
+        '"delete"',
+    )
+
+
 def test_words_split_at_separators_case_and_digits():
     assert words("getUserURL") == ["get", "user", "url"]
     assert words("git.create-repo_v2") == ["git", "create", "repo", "v", "2"]

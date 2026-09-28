@@ -353,7 +353,8 @@ It reads tool names, the names and `format`s of their arguments, and
 Every tool is `untrusted` and unknown tools block. A tool whose first
 verb word is a read (`get`, `list`, `search`, …) is allowed as it is,
 unless it takes a URL: then it is a fetch, and its URL must anchor.
-Every other tool is a write. A write is limited to 5 calls a session,
+Every other tool is a write, and so is one with a destructive word
+after its read verb (`read_and_delete_email`). A write is limited to 5 calls a session,
 or 1 with an argument named like a password, token or secret or a key
 of a named kind (`api_key`, `ssh_key`; a bare `key` is content); gets
 an argument contract whose roles come from its argument names (`to`,

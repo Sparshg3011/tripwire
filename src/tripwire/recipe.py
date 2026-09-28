@@ -14,8 +14,9 @@ an acronym's plural kept whole: "getUserURL" is get, user, url, and
 
 Kind. A tool's verb is the first of its words in a verb table (READ,
 DESTRUCTIVE, EXEC, INDIRECT, CREATE, LOGIN). A READ verb makes it a read,
-unless it has destructiveHint: true; any other verb, or none, a write.
-readOnlyHint never turns a write into a read. A read with a URL
+unless it has destructiveHint: true or a word in DESTRUCTIVE after it
+(read_and_delete_email); any other verb, or none, a write. readOnlyHint
+never turns a write into a read. A read with a URL
 argument, one with a URL word or format uri, is a fetch, whether or not
 its schema names every argument it takes.
 
@@ -406,9 +407,10 @@ def infer(tool: Mapping[str, Any]) -> Reading:
     verb = next((w for w in named if w in VERBS), None)
     annotations = tool.get("annotations")
     hinted = isinstance(annotations, Mapping) and annotations.get("destructiveHint") is True
+    destroys = next((w for w in named if w in DESTRUCTIVE), None)
     props = _properties(tool.get("inputSchema"))
 
-    if verb in READ and not hinted:
+    if verb in READ and not hinted and destroys is None:
         listed = _properties(tool.get("inputSchema"), every=False) or ()
         urls = [n for n, p in listed if _is_url(n, p)]
         if not urls:
@@ -425,10 +427,10 @@ def infer(tool: Mapping[str, Any]) -> Reading:
         return Reading(name, "fetch", cue, args)
 
     if verb in READ:
-        cue = "write: destructiveHint"
+        cue = "write: destructiveHint" if destroys is None else f'write: "{destroys}"'
     else:
         cue = "write: no read verb" if verb is None else f'write: "{verb}"'
-    destructive = next((f'"{w}"' for w in named if w in DESTRUCTIVE), None)
+    destructive = f'"{destroys}"' if destroys is not None else None
     if destructive is None and hinted:
         destructive = "destructiveHint"
     if props is None:
