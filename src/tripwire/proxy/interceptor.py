@@ -31,8 +31,8 @@ from mcp import types
 
 from tripwire.gate import ApprovalGate, ApprovalRequest
 from tripwire.intent import TaskFile, TaskRejected
+from tripwire.policy.canonical import authority_args, checked_fields
 from tripwire.policy.canonical import canonicalize as real_canonicalize
-from tripwire.policy.canonical import checked_fields
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
 from tripwire.policy.types import Canonicalizer, Evaluator, SessionSnapshot, ToolCall, Verdict
@@ -317,6 +317,7 @@ class Interceptor:
             checked=checked_fields(name, self.policy),
             approval_scope=self.session.approval_scope,
             anchors=verdict.anchors,
+            authority=authority_args(name, self.policy),
         )
         timeout = self.policy.defaults.gate_timeout_seconds
         self.audit.append(

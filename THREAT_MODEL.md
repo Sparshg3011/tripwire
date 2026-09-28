@@ -200,25 +200,29 @@ letters included) show as escapes. The caller writes their names and
 picks how many there are, so the preview is capped. Each name is
 clipped at 60 characters and each value at 500 (web: 1000), with a
 marker saying how much was cut. The arguments the policy checks come
-first, a line each, and are always shown. The rest follow shortest
-first, short ones sharing a line, and from the first one that would
-take the preview past 1000 characters (web: 4000) they are left out,
-with a line saying exactly how many arguments and encoded characters
-that was. So a long body can't push the recipient out of view, and junk
-can't push out an argument a rule checks. It can push out one no rule
-checks, which is every argument of a tool with no constraints or
-budget, such as an unknown tool, but only by filling the preview; the
-prompt then says what it left out, and the terminal adds that approving
-forwards it anyway. Both gates clip the tool, rule, reason and taint
-trail as well, at 200 characters each (web: 500), because an unknown
-tool's name comes from the caller too, and under the arguments a call
-anchoring checked show where its values came from, the failed one
-first, at most four and a count of the rest, clipped the same way, so
-nothing the caller sends can grow a question past a fixed size. A nested object is clipped as a
-whole, with its members shortest first, so a long member can't hide a
-short one. Enough short members can still push a longer one past the
-clip, though, since only the top-level arguments get a budget; and a
-list keeps its order, so a long first item can hide the ones after it.
+first, a line each, and are always shown. When anchoring ran, the
+tool's authority arguments lead, in contract order, then a content
+argument that failed anchoring, each with a note after its value saying
+where its values came from: "anchored: task", or the first that didn't
+anchor and where it was first seen. The rest follow shortest first,
+short ones sharing a line, and from the first one that would take the
+preview past 1000 characters (web: 4000) they are left out, with a line
+saying exactly how many arguments and encoded characters that was. So a
+long body can't push the recipient out of view, and junk can't push
+out an argument a rule checks. It can push out one no rule checks,
+which is every argument of a tool with no constraints or budget, such
+as an unknown tool, but only by filling the preview; the prompt then
+says what it left out, and the terminal adds that approving forwards it
+anyway. Both gates escape each note and clip it, with the tool, rule,
+reason and taint trail, at 200 characters (web: 500), because an
+unknown tool's name comes from the caller too, and so do the dict keys
+in a value's path; and there is one note an argument, however many
+values it holds, so nothing the caller sends can grow a question past a
+fixed size. A nested object is clipped as a whole, with its members
+shortest first, so a long member can't hide a short one. Enough short
+members can still push a longer one past the clip, though, since only
+the top-level arguments get a budget; and a list keeps its order, so a
+long first item can hide the ones after it.
 The marker says how much was cut, and the web gate keeps everything it
 clipped or left out on the page in full, escaped, a click away. It
 remains a human decision, and "make the human tired of saying yes" is a

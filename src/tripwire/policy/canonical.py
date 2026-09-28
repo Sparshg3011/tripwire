@@ -155,9 +155,17 @@ def checked_fields(tool: str, policy: Policy) -> frozenset[str]:
     fields = set(rule.constraints)
     if rule.limits is not None and rule.limits.sum_per_session is not None:
         fields.add(rule.limits.sum_per_session.field)
-    if rule.args is not None:
-        fields.update(name for name, spec in rule.args.items() if spec.role != "content")
+    fields.update(authority_args(tool, policy))
     return frozenset(fields)
+
+
+def authority_args(tool: str, policy: Policy) -> tuple[str, ...]:
+    """The top-level args the tool's contract gives an authority role, in
+    contract order."""
+    rule = policy.tools.get(tool)
+    if rule is None or rule.args is None:
+        return ()
+    return tuple(name for name, spec in rule.args.items() if spec.role != "content")
 
 
 def _numeric_fields(tool: str, policy: Policy) -> set[str]:

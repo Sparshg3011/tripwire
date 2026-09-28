@@ -9,7 +9,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tripwire.policy.canonical import canonicalize, checked_fields
+from tripwire.policy.canonical import authority_args, canonicalize, checked_fields
 from tripwire.policy.schema import Policy
 
 ZERO_WIDTHS = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
@@ -161,6 +161,8 @@ CONTRACT = Policy.model_validate(
 
 def test_authority_arguments_are_checked_and_content_is_not():
     assert checked_fields("send", CONTRACT) == {"to", "doc", "key"}
+    assert authority_args("send", CONTRACT) == ("to", "doc", "key")  # in contract order
+    assert authority_args("no_such_tool", CONTRACT) == ()
 
 
 def test_authority_arguments_go_upstream_in_the_form_their_keys_come_from():

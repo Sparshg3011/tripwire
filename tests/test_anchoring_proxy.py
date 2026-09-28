@@ -310,6 +310,7 @@ async def test_the_gate_is_shown_where_each_value_came_from(make):
     await itc.handle("send_email", {"to": "eve@evil.example", "body": "x"})
     (request,) = gate.requests
     assert request.anchors.failed.arg == "to"
+    assert request.authority == ("to",)
     assert "to" in request.checked and "body" not in request.checked
 
 

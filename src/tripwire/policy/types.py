@@ -151,10 +151,16 @@ def explain_leaf(record: Mapping[str, Any]) -> str:
     seen in free text from read_email, turn 3; accepted: task, known,
     trusted". Takes records read back from a log, so any field may be
     missing or malformed."""
-    arg = str(record.get("arg", "?"))
+    return f"{record.get('arg', '?')}: {explain_status(record)}"
+
+
+def explain_status(record: Mapping[str, Any]) -> str:
+    """explain_leaf() without the argument: "anchored via task", or why a
+    value didn't anchor, where it was first seen when that's why, and
+    what would have anchored it."""
     status = record.get("status")
     if status == "anchored":
-        return f"{arg}: anchored via {record.get('via')}"
+        return f"anchored via {record.get('via')}"
     reason = record.get("reason")
     seen = record.get("first_seen")
     if status == "invalid":
@@ -171,7 +177,7 @@ def explain_leaf(record: Mapping[str, Any]) -> str:
     accepted = record.get("accepted")
     if isinstance(accepted, list) and accepted:
         what += f"; accepted: {', '.join(map(str, accepted))}"
-    return f"{arg}: {what}"
+    return what
 
 
 def _turn(value: object) -> int:
