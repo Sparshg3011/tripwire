@@ -126,7 +126,7 @@ from __future__ import annotations
 import ipaddress
 import re
 import unicodedata
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from importlib.resources import files
 from typing import Literal, Self, TypeAlias
@@ -319,20 +319,24 @@ _SEGMENT_SEPARATOR = re.compile(r"[/\\]")
 _SHORT_NAME = re.compile(r"[^.~]{1,6}~[0-9]{1,6}(?:\.[^.]*)?")
 
 
-def _names(text: str) -> set[str]:
+def _names(text: str) -> Iterator[str]:
     """Every name a segment of text may open: the segment, and each part
     of it between colons, since NTFS reads both "C:.git" (on drive C) and
     ".git::$INDEX_ALLOCATION" as .git. None has the trailing dots and
     spaces Win32 drops."""
-    names: set[str] = set()
     for segment in _SEGMENT_SEPARATOR.split(text):
         folded = _fold(segment)
-        names.update(name.rstrip(". ") for name in (folded, *folded.split(":")))
-    return names
+        yield folded.rstrip(". ")
+        if ":" in folded:
+            for part in folded.split(":"):
+                yield part.rstrip(". ")
 
 
 def _is_control(text: str) -> bool:
-    return any(name in CONTROL_SEGMENTS or _SHORT_NAME.fullmatch(name) for name in _names(text))
+    for name in _names(text):
+        if name in CONTROL_SEGMENTS or _SHORT_NAME.fullmatch(name):
+            return True
+    return False
 
 
 def _email(text: str) -> Outcome:
@@ -491,7 +495,7 @@ def _is_protected(key: str, protected_paths: Sequence[str]) -> bool:
     if not protected_paths:
         return False
     folded = _fold(key)
-    names = _names(key)
+    names = set(_names(key))
     for entry in protected_paths:
         root = _protected_root(entry)
         if root is None:
