@@ -610,6 +610,12 @@ def test_path_keys(value, key):
         ("/a/b..c", Unanchorable("dotdot")),
         (".", Unanchorable("empty")),
         ("./", Unanchorable("empty")),
+        # keys that normalize again to something else: "~notes/x" is a home
+        # directory, and the pre-step trims a key's edge whitespace
+        ("./~notes/x", Unanchorable("home")),
+        ("/tmp/out /", Unanchorable("whitespace")),
+        ("/tmp/out\u2028/", Unanchorable("whitespace")),
+        ("./ x", Unanchorable("whitespace")),
     ],
 )
 def test_path_invalid_and_unanchorable(value, outcome):
@@ -1662,6 +1668,17 @@ def test_normalizers_are_idempotent(value, vtype):
         if isinstance(outcome, Key):
             assert normalize(outcome.key, outcome.vtype) == outcome
             assert normalize_all(outcome.key, outcome.vtype) == (outcome,)
+
+
+@given(text=st.text(alphabet=["a", "~", " ", ".", "/", "\u3000", "\u2028"], max_size=10))
+@SETTINGS
+def test_path_keys_are_fixed_points(text):
+    for vtype in ("path", "auto"):
+        key = normalize(text, vtype)
+        if isinstance(key, Key):
+            assert normalize(key.key, key.vtype) == key
+    for key in TaskIndex.build(f"use {text} now").keys:
+        assert normalize(key.key, key.vtype) == key
 
 
 @given(value=junk, vtype=st.one_of(vtypes, st.text(max_size=8)), known=st.booleans())

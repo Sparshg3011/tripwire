@@ -55,8 +55,9 @@ Normalizers:
          [A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}
   phone  drop " ().-", a leading 00 becomes +; Invalid unless 7-15 digits
   path   POSIX, case-sensitive: drop empty and . segments, keep a leading
-         /. Invalid with a backslash. Unanchorable: `..` anywhere, a
-         leading ~, a control segment, or a protected path (below).
+         /. Invalid with a backslash. Unanchorable: `..` anywhere, a key
+         that starts with ~ or that the pre-step would trim, a control
+         segment, or a protected path (below).
   id     as given, [A-Za-z0-9_.:/#-]{1,128}, case-sensitive
   name   lowercase, collapse whitespace; a leading @ or # stays, since
          "@random" and "#random" can name two things on one API. Invalid
@@ -499,13 +500,17 @@ def _is_protected(key: str, protected_paths: Sequence[str]) -> bool:
 def _path(text: str) -> Outcome:
     if "\\" in text:
         return Invalid("backslash")
-    if text.startswith("~"):
-        return Unanchorable("home")
     if ".." in text:
         return Unanchorable("dotdot")
     key = _path_key(text)
     if not key:
         return Unanchorable("empty")
+    # read off the key, which is what normalizes again: "./~notes/x" has
+    # the key "~notes/x", and "./ x" one the pre-step trims to "x"
+    if key.startswith("~"):
+        return Unanchorable("home")
+    if key != key.strip():
+        return Unanchorable("whitespace")
     if _is_control(key):
         return Unanchorable("control_path")
     return Key("path", key)
