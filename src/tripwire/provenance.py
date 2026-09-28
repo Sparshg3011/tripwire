@@ -44,7 +44,9 @@ What a result supplies:
              poison text when the result is untrusted or an error, inert
              when trusted. Either way it is kept for the verbatim rule,
              as the listing and upstream errors are; what the agent
-             wrote is not.
+             wrote is not, and a kept text vouches only for what it held
+             before the agent wrote it: a tool repeating what it was
+             sent, in a result or an error, vouches for nothing.
 
 A result from a tool whose name holds a create-like verb (create, new,
 add, copy, make, upload) is a write. It may mint one `self` id: when it
@@ -56,9 +58,10 @@ characters long. Every other leaf of a write is handled as untrusted.
 Caps bound what one session keeps. An observation that poisons and
 would go over a cap, or that can't be read whole (media, a scan past
 MAX_SCAN_KEYS, fields past the depth cap), is dropped and sets
-`degraded`, which is sticky and turns off every trusted and self anchor:
-poison left unrecorded can only cost anchors. A trusted result over a
-cap is dropped without degrading anything, since it only ever adds them.
+`degraded`, which is sticky and turns off every trusted and self anchor
+and every verbatim match in kept text: poison left unrecorded can only
+cost anchors. A trusted result over a cap is dropped without degrading
+anything, since it only ever adds them.
 
 view() is O(1). The tables only grow, a sighting never changes once
 recorded, and every entry carries its index, so a view reads the
@@ -334,8 +337,19 @@ class ProvenanceRegistry:
 
     def verbatim(self, text: str, upto: int) -> bool:
         """Whether text occurs, case and all, in what a tool, the listing
-        or an upstream error wrote below upto."""
-        return any(text in kept for idx, kept in self._texts if idx < upto)
+        or an upstream error wrote below upto, before the agent wrote it
+        in any case: a tool that repeats what it was sent, in a result or
+        an error, vouches for nothing."""
+        first = next((idx for idx, kept in self._texts if idx < upto and text in kept), None)
+        if first is None:
+            return False
+        folded = " ".join(_clean(text).casefold().split())
+        earlier = takewhile(lambda entry: entry[0].idx < first, self._scans)
+        return not any(
+            scan.truncated or folded in scan.folded
+            for sighting, scan in earlier
+            if sighting.cls == "agent"
+        )
 
     # --- internals ---------------------------------------------------------
 
@@ -467,4 +481,8 @@ class ProvenanceView:
         return self.registry.first_seen(key, self.upto)
 
     def verbatim(self, text: str) -> bool:
-        return self.registry is not None and self.registry.verbatim(text, self.upto)
+        """Never while degraded, when what the agent wrote may have gone
+        unrecorded."""
+        if self.registry is None or self.degraded:
+            return False
+        return self.registry.verbatim(text, self.upto)

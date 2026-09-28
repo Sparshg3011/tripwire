@@ -280,6 +280,9 @@ every link in it must point at a host the task names (a file name the
 task mentions counts), a known host, or one a trusted tool returned;
 and a URL with a path, query or fragment must appear exactly as the
 task or a tool wrote it, so it can't carry what the session gathered.
+A tool counts only where it wrote the URL before the agent did: one
+repeating what it was sent, in its result or its error, vouches for
+nothing.
 
 A call with no authority value at all escalates on a `destructive` tool
 and on any tool that isn't `self_scoped`. A tool the flow names without
@@ -319,8 +322,8 @@ task, known, trusted`.
 **Bounds.** What a session remembers is capped (200,000 keys, 2 MiB of
 text per observation, 4 MiB in all). When something untrusted goes past
 a cap, or can't be read whole (an image, fields nested past 64 levels),
-the session degrades for good: trusted and self anchors stop, and only
-the task and `known` still anchor. Like taint, all of this lives in the
+the session degrades for good: trusted and self anchors stop, only the
+task and `known` still anchor, and only the task makes a URL verbatim. Like taint, all of this lives in the
 proxy's memory, and a restarted proxy starts with none of it.
 
 ## Drafting a policy

@@ -443,6 +443,33 @@ def test_verbatim_reads_what_tools_wrote_and_not_what_the_agent_did():
     assert not view.verbatim("corp.example/B?y=2")
 
 
+def test_a_tool_repeating_the_agents_words_vouches_for_nothing():
+    url = "corp.example/a?x=1"
+    reg = ProvenanceRegistry()
+    reg.observe_arguments("search_notes", 0, {"query": url})
+    untrusted(reg, "search_notes", f"No notes match {url}", args={"query": url})
+    reg.observe_arguments("get_note", 1, {"id": url.upper()})
+    reg.observe_error("get_note", 1, f"ValueError: no note {url.upper()}")
+    assert not reg.view().verbatim(url)
+    assert not reg.view().verbatim(url.upper())
+
+
+def test_a_url_a_tool_wrote_first_stays_verbatim_once_the_agent_repeats_it():
+    url = "corp.example/a?x=1"
+    reg = ProvenanceRegistry()
+    untrusted(reg, "read_email", f"the agenda is at {url}")
+    reg.observe_arguments("save_note", 1, {"text": url})
+    assert reg.view().verbatim(url)
+
+
+def test_nothing_is_verbatim_in_kept_text_while_degraded():
+    reg = ProvenanceRegistry(Caps(result_chars=100))
+    untrusted(reg, "read_email", "see corp.example/b?y=2")
+    assert reg.view().verbatim("corp.example/b?y=2")
+    untrusted(reg, "read_email", "q" * 200)
+    assert not reg.view().verbatim("corp.example/b?y=2")
+
+
 def test_describe_says_where_in_words():
     assert describe("untrusted_text", "read_email", 3) == "free text from read_email, turn 3"
     assert describe("listing", "", 0) == "the tool listing"
@@ -507,3 +534,25 @@ def test_i6_caps_only_ever_take_anchors_away(events, keys, chars):
             key = Key("id", f"evt_{n}{value[4]}0000")
             if capped.view().minted(key) is not None:
                 assert free.view().minted(key) is not None
+    for value in POOL:
+        if capped.view().verbatim(value):
+            assert free.view().verbatim(value)
+
+
+@given(events=st.lists(st.sampled_from(["wrote", "sent", "echoed", "other"]), max_size=6))
+@settings(max_examples=200)
+def test_text_the_agent_wrote_first_is_never_verbatim(events):
+    url = "corp.example/a?x=1"
+    reg = ProvenanceRegistry()
+    for turn, event in enumerate(events):
+        if event == "wrote":
+            untrusted(reg, "read_email", f"see {url}", turn=turn)
+        elif event == "sent":
+            reg.observe_arguments("save_note", turn, {"text": f"https://{url}"})
+        elif event == "echoed":
+            reg.observe_arguments("find", turn, {"q": url})
+            reg.observe_error("find", turn, f"no match for {url}")
+        else:
+            untrusted(reg, "read_email", "nothing here", turn=turn)
+    first = next((e for e in events if e in ("wrote", "sent", "echoed")), None)
+    assert reg.view().verbatim(url) is (first == "wrote")

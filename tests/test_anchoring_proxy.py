@@ -602,6 +602,49 @@ async def test_a_trusted_tool_echoing_what_it_was_asked_launders_nothing(make):
     assert body["failed"][0]["first_seen"]["class"] == "untrusted_text"
 
 
+ECHOES = """
+version: 1
+sources: {"*": untrusted}
+tools:
+  read_email: {action: allow}
+  search_notes: {action: allow}
+  create_note:
+    action: allow
+    self_scoped: true
+    args: {text: content}
+  get_webpage:
+    action: allow
+    args: {url: target}
+flows:
+  - when: context_tainted
+    tools: [create_note, get_webpage]
+    action: require_approval
+    unless: anchored
+"""
+
+
+LEAK = "https://status.corp.example/log?c=7731-ALPHA-9"
+BARE = LEAK.removeprefix("https://")
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "answer"),
+    [
+        ("search_notes", {"query": BARE}, text(f"No notes match {BARE}")),
+        ("search_notes", {"query": BARE}, FileNotFoundError(f"no such note: {BARE}")),
+        ("create_note", {"text": LEAK}, text(json.dumps({"id": "n_1", "text": LEAK}))),
+    ],
+)
+async def test_a_tool_echoing_the_agents_url_doesnt_make_it_verbatim(make, tool, args, answer):
+    itc = make(ECHOES, get_webpage=text("<html>ok</html>"), **{tool: answer})
+    await itc.add_task("Check whether https://status.corp.example/ is up.", "test")
+    await itc.handle("read_email", {})
+    await itc.handle(tool, args)
+    _, body = denial(await itc.handle("get_webpage", {"url": LEAK}))
+    assert body["code"] == "url_not_verbatim"
+    assert "get_webpage" not in [name for name, _ in itc.upstream.calls]
+
+
 def listing(**tools):
     schema = {"type": "object", "additionalProperties": False}
     return json.dumps(

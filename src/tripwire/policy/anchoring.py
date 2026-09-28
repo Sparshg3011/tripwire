@@ -40,8 +40,8 @@ checked too:
             A link that doesn't read as a URL fails.
   verbatim  a URL with a path, query or fragment past "/", a target's or
             a link's, must occur as written in the task or in what a
-            tool, the listing or an upstream error wrote, so it can't
-            carry what the session gathered
+            tool, the listing or an upstream error wrote before the agent
+            wrote it, so it can't carry what the session gathered
 
 The first failure decides the code, authority arguments first, in
 contract order, then content:
