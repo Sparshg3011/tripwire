@@ -150,12 +150,7 @@ class SessionState:
             )
         elif isinstance(outcome, str):
             seen.append(self.provenance.observe_error(tool, self.turn, outcome))
-        counts: dict[str, int] = {}
-        for observed in seen:
-            for cls, n in observed.counts.items():
-                counts[cls] = counts.get(cls, 0) + n
-        degraded_by = next((o.degraded_by for o in seen if o.degraded_by is not None), None)
-        return Observed(counts, degraded_by)
+        return Observed.merged(*seen)
 
     def record(self, tool: str, args: Mapping[str, Any]) -> None:
         """Called after a call has actually been forwarded.

@@ -279,6 +279,19 @@ async def test_a_denial_quotes_neither_the_task_nor_what_tools_returned(make):
         assert secret not in shown
 
 
+async def test_a_denial_says_nothing_of_structured_content_no_text_showed(make):
+    lookup = types.CallToolResult(
+        content=[types.TextContent(type="text", text="1 match.")],
+        structuredContent={"email": "cfo-private@corp.example"},
+    )
+    itc = make(read_email=lookup)
+    await itc.handle("read_email", {})
+    for guess in ("ceo-private@corp.example", "cfo-private@corp.example"):
+        first, body = denial(await itc.handle("send_email", {"to": guess, "body": "x"}))
+        assert body["failed"][0]["first_seen"] is None
+        assert "first seen" not in first
+
+
 async def test_a_long_or_unprintable_value_is_escaped_and_clipped(make):
     itc = make()
     await itc.handle("read_email", {})

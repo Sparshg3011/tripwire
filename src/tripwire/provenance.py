@@ -5,6 +5,7 @@ come from? Each observation takes the next index, and every sighting in
 it shares that index:
 
   a tool result
+  the structuredContent of an untrusted result that shows another
   the text of an upstream failure the agent was handed
   the tool listing, at startup
   the arguments of a call made after untrusted content
@@ -15,13 +16,17 @@ A sighting has a class:
   self            the one fresh id a create-like call returned
   untrusted_field a whole field of any other result, or of an error
   untrusted_text  the text of any other result, or of an error
+  hidden          structuredContent no text block of its result shows
   agent           the arguments of a call made after untrusted content,
                   content included
   listing         the tool listing
   upstream_error  the text of an upstream failure
 
-The last five poison, and their text is scanned greedily
-(values.scan_poison). The first two anchor, by the counting rule: a
+The last six poison, and their text is scanned greedily
+(values.scan_poison). A hidden sighting is never where a value was
+first seen: the model may not have been shown it, and a denial that
+named it would tell the model what it holds. The first two anchor, by
+the counting rule: a
 sighting of key k counts only when k was not poisoned before its index
 (values.is_poisoned), so a value first seen in poison is never promoted
 by a trusted tool that repeats it later, the agent's own writes read
@@ -40,13 +45,17 @@ What a result supplies:
              sights nothing: a tool asked about a value hasn't vouched
              for it.
   text       every text block, embedded text resource and resource
-             link, and structuredContent when no text block equals it:
+             link, and structuredContent when there is no text block:
              poison text when the result is untrusted or an error, inert
              when trusted. Either way it is kept for the verbatim rule,
              as the listing and upstream errors are; what the agent
              wrote is not, and a kept text vouches only for what it held
              before the agent wrote it: a tool repeating what it was
              sent, in a result or an error, vouches for nothing.
+  hidden     structuredContent beside text blocks none of which equals
+             it: of an untrusted result or an error, an observation of
+             its own that poisons and is not kept; of a trusted one,
+             nothing.
 
 A result from a tool whose name holds a create-like verb (create, new,
 add, copy, make, upload) before any read verb the recipe knows is a
@@ -89,12 +98,13 @@ SightingClass = Literal[
     "self",
     "untrusted_field",
     "untrusted_text",
+    "hidden",
     "agent",
     "listing",
     "upstream_error",
 ]
 POISON: frozenset[str] = frozenset(
-    {"untrusted_field", "untrusted_text", "agent", "listing", "upstream_error"}
+    {"untrusted_field", "untrusted_text", "hidden", "agent", "listing", "upstream_error"}
 )
 
 CREATE_VERBS = frozenset({"create", "new", "add", "copy", "make", "upload"})
@@ -129,6 +139,17 @@ class Observed:
 
     counts: Mapping[str, int]
     degraded_by: str | None = None
+
+    @classmethod
+    def merged(cls, *seen: Observed) -> Observed:
+        """Several observations as one: their counts summed, and the
+        first reason one degraded the session."""
+        counts: dict[str, int] = {}
+        for observed in seen:
+            for sighting_cls, n in observed.counts.items():
+                counts[sighting_cls] = counts.get(sighting_cls, 0) + n
+        degraded_by = next((o.degraded_by for o in seen if o.degraded_by is not None), None)
+        return cls(counts, degraded_by)
 
 
 def describe(cls: str, tool: str, turn: int) -> str:
@@ -193,6 +214,8 @@ class _Reading:
     texts: list[str]
     structure: list[object]
     unreadable: bool
+    # structuredContent no text block shows, as JSON text
+    hidden: str | None = None
 
 
 def _read(result: types.CallToolResult) -> _Reading:
@@ -221,8 +244,9 @@ def _read(result: types.CallToolResult) -> _Reading:
     dumped = _dump(structured)
     if dumped is None:
         return _Reading(texts, parsed, True)
-    texts.append(dumped)
-    return _Reading(texts, parsed if blocks else [structured], unreadable)
+    if blocks:
+        return _Reading(texts, parsed, unreadable, dumped)
+    return _Reading([*texts, dumped], [structured], unreadable)
 
 
 def _echoes(args: Mapping[str, Any]) -> frozenset[Key]:
@@ -309,7 +333,7 @@ class ProvenanceRegistry:
         if write and may_mint and not result.isError and len(candidates) == 1:
             minted = candidates[0] if self._fresh(candidates[0]) else None
 
-        return self._poison(
+        observed = self._poison(
             Sighting(idx, "untrusted_text", tool, turn),
             "\n".join(reading.texts),
             [k for k in fields if k != minted],
@@ -318,6 +342,10 @@ class ProvenanceRegistry:
             fields_cls="untrusted_field",
             minted=minted,
         )
+        if reading.hidden is None:
+            return observed
+        hidden = Sighting(self._take(), "hidden", tool, turn)
+        return Observed.merged(observed, self._poison(hidden, reading.hidden, (), verbatim=False))
 
     # --- reading, for views ------------------------------------------------
 
@@ -336,7 +364,7 @@ class ProvenanceRegistry:
         first = self._first.get(key)
         bound = first.idx if first is not None and first.idx < upto else upto
         for sighting, scan in takewhile(lambda entry: entry[0].idx < bound, self._scans):
-            if is_poisoned(key, (scan,)):
+            if sighting.cls != "hidden" and is_poisoned(key, (scan,)):
                 return sighting
         return first if bound < upto else None
 
@@ -379,7 +407,8 @@ class ProvenanceRegistry:
         return self._keys + keys <= self.caps.keys and self._chars + chars <= self.caps.text_chars
 
     def _sight(self, sighting: Sighting, key: Key) -> None:
-        self._first.setdefault(key, sighting)
+        if sighting.cls != "hidden":
+            self._first.setdefault(key, sighting)
         if sighting.cls in POISON:
             self._first_poison.setdefault(key, sighting)
         else:

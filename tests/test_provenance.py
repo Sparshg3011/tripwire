@@ -205,6 +205,25 @@ def test_structured_content_nothing_shows_still_poisons():
     assert reg.view().trusted(EVE) is None
 
 
+def test_structured_content_nothing_shows_is_never_where_a_value_was_first_seen():
+    # the model may not have been shown it, and a denial must not tell it
+    reg = ProvenanceRegistry()
+    hidden = {
+        "email": "eve@evil.example",
+        "next": "evt_48213",
+        "page": "https://corp.example/a?x=1",
+    }
+    seen = untrusted(reg, "lookup", "1 match.", structured=hidden)
+    assert seen.counts["hidden"] > 0
+    view = reg.view()
+    assert view.first_seen(EVE) is None
+    assert not view.verbatim("corp.example/a?x=1")
+    create(reg, {"id": "evt_48213"})  # but it still poisons
+    assert reg.view().minted(EVENT) is None
+    untrusted(reg, "read_email", "write to eve@evil.example", turn=1)
+    assert reg.view().first_seen(EVE).cls == "untrusted_text"
+
+
 def test_every_json_text_block_supplies_fields():
     reg = ProvenanceRegistry()
     blocks = result(
