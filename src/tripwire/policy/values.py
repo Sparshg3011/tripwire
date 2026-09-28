@@ -84,13 +84,16 @@ Extraction runs in two directions and is asymmetric on purpose:
 
   TaskIndex    conservative. Maximal tokens bounded on both sides, so a
                token that is part of something longer anchors nothing; a
-               mark or format character left inside a token after NFKC
+               hidden character (a mark, a format character or another
+               default-ignorable one) left inside a token after NFKC
                joins it. Ids only at 6+ characters or next to a label;
                names only as whole phrases, not glued by -./@#' and the
                like to a longer token.
   scan_poison  greedy. The same extractors with every limit removed, plus
                the text itself in the forms is_poisoned()'s text rule
-               reads. Whatever the task extractors find in a text, and
+               reads, over the text as written and again with its hidden
+               characters deleted, since a reader may drop what it can't
+               see. Whatever the task extractors find in a text, and
                whatever key a whole field of it registers, that text
                scanned as poison poisons. A scan stops at MAX_SCAN_KEYS
                typed keys and then poisons every key.
@@ -715,11 +718,14 @@ _ID_HASH = r"(?<![\w&#/.:?=@%+-])\#\s*"
 _ID_END = r"(?=[.:]*+(?![\w.:/\\#@%+-]))"
 
 # A mark or format character left after NFKC renders inside the token
-# around it ("ab\u0301cd.com", "co\u00adrp.com"), but \w matches neither.
-# The extractors see this letter in its place instead: it joins the token
-# and is in no ASCII key, and a path holding it is dropped.
+# around it ("ab\u0301cd.com", "co\u00adrp.com"), and so does any other
+# default-ignorable code point: the Hangul fillers, and those Unicode
+# reserves. \w matches few of them. The extractors see this letter in its
+# place instead: it joins the token and is in no ASCII key, and a path
+# holding it is dropped.
 _JOINER = "\u02b0"
 _JOINING = frozenset({"Mn", "Mc", "Me", "Cf"})
+_IGNORABLE = re.compile("[\u115f\u1160\u2065\u3164\uffa0\ufff0-\ufff8\U000e0000-\U000e0fff]")
 # what joins the words on either side into one token, for names
 _GLUE = frozenset("-./\\:'\u2019+&=~%")
 
@@ -729,10 +735,14 @@ def _text(text: str) -> str:
     return _SURROGATE.sub("\ufffd", _clean(text))
 
 
+def _hidden(c: str) -> bool:
+    return unicodedata.category(c) in _JOINING or _IGNORABLE.match(c) is not None
+
+
 def _plain(text: str) -> str:
     if text.isascii():
         return text
-    return "".join(_JOINER if unicodedata.category(c) in _JOINING else c for c in text)
+    return "".join(_JOINER if _hidden(c) else c for c in text)
 
 
 def _mask(text: str, spans: Sequence[tuple[int, int]]) -> str:
@@ -750,7 +760,7 @@ def _mask(text: str, spans: Sequence[tuple[int, int]]) -> str:
 
 def _wordlike(c: str) -> bool:
     # a sigil too: "#random" is not the name "random"
-    return c.isalnum() or c in "_@#" or unicodedata.category(c) in _JOINING
+    return c.isalnum() or c in "_@#" or _hidden(c)
 
 
 def _starts(text: str, i: int) -> bool:
@@ -955,9 +965,10 @@ class PoisonScan:
     poisons every key."""
 
     keys: frozenset[Key]
-    # NFKC, casefolded, whitespace-collapsed
+    # NFKC, casefolded, whitespace-collapsed: a line for the text, and one
+    # for it with its hidden characters deleted when that differs
     folded: str
-    # folded, with whitespace and -.() removed
+    # each line of folded, with whitespace and -.() removed
     compact: str
     # folded, respelled as path keys and host keys spell it: every "//"
     # and "/./" run made "/"; the dots before a port and the zeros leading
@@ -1018,10 +1029,25 @@ def scan_poison(text: str) -> PoisonScan:
         return PoisonScan(frozenset(), "", "", truncated=True)
 
 
+def _unmarked(text: str) -> str:
+    """text with every hidden character deleted, as a reader may drop what
+    it can't see. Decomposed first, so that a mark NFKC composed into the
+    letter before it goes too, as U+0301 after the m of "evil.com" does."""
+    if text.isascii():
+        return text
+    decomposed = unicodedata.normalize("NFD", text)
+    hidden = {ord(c): None for c in set(decomposed) if c > "\x7f" and _hidden(c)}
+    if not hidden:
+        return text
+    return unicodedata.normalize("NFKC", decomposed.translate(hidden))
+
+
 def _scan(text: str) -> PoisonScan:
     # prepared exactly as task text is, so every token a task extractor
-    # can find here is a token the greedy ones see too
+    # can find here is a token the greedy ones see too; and read again
+    # without its hidden characters, which split what they sit in
     source = _text(text)
+    copies = dict.fromkeys((source, _unmarked(source)))
     keys: set[Key] = set()
 
     def add(outcome: Outcome) -> None:
@@ -1030,6 +1056,21 @@ def _scan(text: str) -> PoisonScan:
             if len(keys) > MAX_SCAN_KEYS:
                 raise _Full
 
+    for copy in copies:
+        _sight(copy, add)
+
+    lines = [" ".join(copy.casefold().split()) for copy in copies]
+    folded = "\n".join(lines)
+    return PoisonScan(
+        frozenset(keys),
+        folded,
+        "\n".join(_P_COMPACT.sub("", line) for line in lines),
+        _P_EMPTY_SEGMENTS.sub("/", folded),
+        _P_PORT_PADDING.sub("", folded),
+    )
+
+
+def _sight(source: str, add: Callable[[Outcome], None]) -> None:
     _emails(source, add)
 
     for m in _P_URL.finditer(source):
@@ -1060,15 +1101,6 @@ def _scan(text: str) -> PoisonScan:
     for m in _P_ID.finditer(source):
         add(_id(m.group()))
         add(_id(m.group().rstrip(".:")))
-
-    folded = " ".join(source.casefold().split())
-    return PoisonScan(
-        frozenset(keys),
-        folded,
-        _P_COMPACT.sub("", folded),
-        _P_EMPTY_SEGMENTS.sub("/", folded),
-        _P_PORT_PADDING.sub("", folded),
-    )
 
 
 def is_poisoned(key: Key, scans: Iterable[PoisonScan], *, self_key: bool = False) -> bool:

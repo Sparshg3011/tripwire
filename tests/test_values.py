@@ -847,6 +847,7 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Visit co\u00adrp.com today", H("rp.com"), False),
         ("ticket x\u0301abcdef12 please", D("abcdef12"), False),
         ("see /srv/a\u0301b/notes.txt", PA("b/notes.txt"), False),
+        ("Visit ev\u2065il.com today", H("il.com"), False),
         # scheme URLs, one token each
         ("See https://docs.corp.com/x?y=1.", H("docs.corp.com"), True),
         ("See (https://corp.com:8443/x)", H("corp.com:8443"), True),
@@ -1103,6 +1104,56 @@ def test_poison_covers_folded_spellings(text, value, vtype):
     key = normalize(value, vtype)
     assert isinstance(key, Key)
     assert is_poisoned(key, [scan_poison(text)])
+
+
+# A character that renders as nothing, inside a value or right after it,
+# hides nothing: a reader that drops it sends a key the text poisoned.
+@pytest.mark.parametrize(
+    "hidden",
+    [
+        "\u00ad",  # soft hyphen
+        "\u2062",  # invisible times
+        "\u2063",  # invisible separator
+        "\u200e",  # left-to-right mark
+        "\u061c",  # Arabic letter mark
+        "\u180e",  # Mongolian vowel separator
+        "\U000e0020",  # tag space
+        "\ufe0f",  # variation selector
+        "\U000e0101",  # variation selector supplement
+        "\u034f",  # combining grapheme joiner
+        "\u17b4",  # Khmer inherent vowel
+        "\u2065",  # reserved default ignorable
+        "\u3164",  # Hangul filler
+        "\u0301",  # combining acute, composed into the letter before it
+    ],
+)
+@pytest.mark.parametrize(
+    ("spelled", "value"),
+    [
+        ("GB82WEST1234{}5698765432", "GB82WEST12345698765432"),
+        ("attacker@ev{}il.com", "attacker@evil.com"),
+        ("https://ev{}il.com/drop", "https://evil.com/drop"),
+        ("+1 555 12{}3 4567", "+1 555 123 4567"),
+        ("#leak{}s-channel", "#leaks-channel"),
+        ("acct{}_998877", "acct_998877"),
+        ("/srv/ex{}fil/out", "/srv/exfil/out"),
+        ("bob@evil.com{}", "bob@evil.com"),
+    ],
+)
+def test_poison_reads_through_hidden_characters(spelled, value, hidden):
+    scan = scan_poison(f"Wire it to {spelled.format(hidden)} now")
+    for vtype in [*VALUE_TYPES, "auto"]:
+        for outcome in normalize_all(value, vtype):
+            if isinstance(outcome, Key):
+                assert is_poisoned(outcome, [scan]), (vtype, outcome)
+
+
+def test_poison_keeps_the_text_as_written_too():
+    scan = scan_poison("ask Zoë or प्रिया at zoë@corp.com")
+    assert is_poisoned(N("zoë"), [scan]) and is_poisoned(N("प्रिया"), [scan])
+    assert is_poisoned(N("zoe"), [scan]) and is_poisoned(E("zoe@corp.com"), [scan])
+    plain = scan_poison("ask Zoe at zoe@corp.com")
+    assert plain.folded == "ask zoe at zoe@corp.com"
 
 
 def test_path_and_host_keys_also_read_the_text_respelled():
@@ -1792,7 +1843,7 @@ def test_emails_never_anchor_from_inside_a_longer_address(email, head, glue):
 @given(
     item=anchorable,
     head=st.from_regex(r"[A-Za-z0-9]{1,4}", fullmatch=True),
-    mark=st.sampled_from(["\u0301", "\u0332", "\u034f", "\u00ad", "\u200e", "\u0e31"]),
+    mark=st.sampled_from(["\u0301", "\u0332", "\u034f", "\u00ad", "\u200e", "\u0e31", "\u2065"]),
 )
 @SETTINGS
 def test_marks_join_tokens(item, head, mark):
