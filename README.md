@@ -385,6 +385,7 @@ fire, and replay a candidate policy against the recorded history before tighteni
 |:--|:--|
 | `tripwire serve` | Run the MCP proxy in front of an upstream server. |
 | `tripwire validate` | Reject an invalid policy before deployment. |
+| `tripwire recipe` | Draft a starting policy from an MCP server's tool listing. |
 | `tripwire report` | Summarize policy decisions, interventions, and rules that fired. |
 | `tripwire trace` | Reconstruct one session as a causal chain with arguments and reasons. |
 | `tripwire replay` | Re-judge recorded traffic under a candidate policy without executing tools. |

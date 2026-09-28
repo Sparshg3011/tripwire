@@ -309,3 +309,37 @@ a cap, or can't be read whole (an image, fields nested past 64 levels),
 the session degrades for good: trusted and self anchors stop, and only
 the task and `known` still anchor. Like taint, all of this lives in the
 proxy's memory, and a restarted proxy starts with none of it.
+
+## Drafting a policy
+
+`tripwire recipe` drafts a starting policy from an MCP server's tool
+listing, and prints it:
+
+```bash
+tripwire recipe --upstream "npx -y @modelcontextprotocol/server-filesystem /path" > policy.yaml
+tripwire recipe --tools tools.json > policy.yaml   # a saved tools/list result
+```
+
+It reads tool names, the names and `format`s of their arguments, and
+`destructiveHint`, and never a description, which the server writes.
+Every tool is `untrusted` and unknown tools block. A tool whose first
+verb word is a read (`get`, `list`, `search`, …) is allowed as it is,
+unless it takes a URL: then it is a fetch, and its URL must anchor.
+Every other tool is a write. A write is limited to 5 calls a session,
+or 1 with a password, token or key argument; gets an argument contract
+whose roles come from its argument names (`to`, `email` and `url` are
+targets, ids, paths and named objects like `repo_name` selectors,
+`password` a credential, the rest content); and is `self_scoped` unless
+it is destructive. One flow gates every write and fetch once the
+session is tainted, `unless: anchored`. A write that runs code (`run`,
+`exec`, a `command` argument) or sends somewhere it doesn't name
+(`push`, or `reply` with no target) gets no contract, so that flow
+gates it every time; so does one whose schema admits arguments it
+doesn't name. `--strict` makes no write `self_scoped`, so a write
+naming nothing anchorable is gated too.
+
+Each inferred line carries a comment naming the word it was inferred
+from, and the header records the recipe version and the sha256 of the
+listing and of the word tables, so the same listing always drafts the
+same file. It is a draft: read every role before you enforce it. The
+full rules are in [`src/tripwire/recipe.py`](../src/tripwire/recipe.py).

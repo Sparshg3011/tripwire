@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 
 import anyio
 
@@ -80,6 +82,21 @@ def check_chain(path: str, key_file: str | None) -> None:
     print(f"{message} Run `tripwire verify` for detail.\n", file=sys.stderr)
 
 
+async def listed(command: str) -> bytes:
+    """An upstream's tool listing, as `recipe --tools` reads it."""
+    from tripwire.proxy import Upstream
+
+    upstream = Upstream(command)
+    await upstream.start()
+    try:
+        tools = [
+            t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in upstream.tools
+        ]
+    finally:
+        await upstream.aclose()
+    return (json.dumps(tools, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tripwire", description="MCP firewall for AI agents")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -119,6 +136,20 @@ def main(argv: list[str] | None = None) -> None:
     p_validate = sub.add_parser("validate", help="check a policy file")
     p_validate.add_argument("policy")
 
+    p_recipe = sub.add_parser(
+        "recipe", help="draft a policy from an MCP server's tool listing, to stdout"
+    )
+    listing = p_recipe.add_mutually_exclusive_group(required=True)
+    listing.add_argument("--tools", help="a tools/list result saved as JSON")
+    listing.add_argument(
+        "--upstream", help='an MCP server command to read the listing from, e.g. "npx some-server"'
+    )
+    p_recipe.add_argument(
+        "--strict",
+        action="store_true",
+        help="make no tool self_scoped, so a write naming nothing anchorable is always gated",
+    )
+
     p_verify = sub.add_parser("verify", help="check an audit log's hash chain")
     p_verify.add_argument("log")
 
@@ -153,6 +184,20 @@ def main(argv: list[str] | None = None) -> None:
         print(f"ok: {args.policy} is valid, mode: {mode}, {len(policy.tools)} tool rules")
         for warning in policy_warnings(policy):
             print(f"warning: {warning}", file=sys.stderr)
+
+    elif args.command == "recipe":
+        from tripwire.proxy import UpstreamError
+        from tripwire.recipe import RecipeError, recipe
+
+        try:
+            if args.tools is not None:
+                source = Path(args.tools).read_bytes()
+            else:
+                source = anyio.run(listed, args.upstream)
+            print(recipe(source, arm="strict" if args.strict else "primary"), end="")
+        except (OSError, RecipeError, UpstreamError) as e:
+            print(f"tripwire recipe: {e}", file=sys.stderr)
+            sys.exit(1)
 
     elif args.command == "verify":
         try:
