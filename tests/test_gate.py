@@ -5,6 +5,7 @@ argument previews are also driven directly by hypothesis, since a real
 terminal per example would leave it too slow to search.
 """
 
+import dataclasses
 import html
 import http.client
 import json
@@ -36,6 +37,7 @@ from tripwire.gate.cli import CliGate, _arg_lines, _question
 from tripwire.gate.web import ARG_BUDGET as WEB_BUDGET
 from tripwire.gate.web import ARG_PREVIEW as WEB_PREVIEW
 from tripwire.gate.web import WebGate, _args_html, _card
+from tripwire.policy.types import AnchorReport, FirstSeen, LeafReport
 
 
 def req(tool="send_email", **kw):
@@ -847,3 +849,57 @@ def test_the_terminal_shows_a_bounded_plain_preview_and_counts_the_rest(args):
 def test_no_terminal_refuses_at_startup():
     with pytest.raises(GateUnavailable):
         CliGate("/nonexistent/tty")
+
+
+# --- where the checked values came from ---
+
+EVE = LeafReport(
+    "to",
+    "target",
+    "email",
+    "unanchored",
+    ("task", "known", "trusted"),
+    first_seen=FirstSeen("untrusted_text", "read_email", 2),
+    value="eve@evil.example",
+)
+ALICE = LeafReport("cc", "target", "email", "anchored", ("task", "known", "trusted"), via="task")
+
+
+def test_the_terminal_says_where_each_checked_value_came_from():
+    report = AnchorReport("unanchored_argument", leaves=(ALICE, EVE))
+    question = _question(req(anchors=report))
+    failed = "first seen in free text from read_email, turn 2; accepted: task, known, trusted"
+    assert f"  anchor: to: {failed}\n  anchor: cc: anchored via task\n" in question
+
+
+def test_the_page_says_where_each_checked_value_came_from():
+    report = AnchorReport("unanchored_argument", leaves=(ALICE, EVE))
+    card = _card("rid", req(anchors=report), "token")
+    assert "to: first seen in free text from read_email, turn 2" in card
+
+
+leaves = st.builds(
+    LeafReport,
+    arg=nasty | long_text,
+    role=st.sampled_from(["target", "selector", "credential"]),
+    vtype=st.none() | nasty,
+    status=st.sampled_from(["anchored", "unanchored", "invalid", "unanchorable", "not_verbatim"]),
+    accepted=st.lists(nasty, max_size=3).map(tuple),
+    reason=st.none() | nasty | long_text,
+    first_seen=st.none() | st.builds(FirstSeen, nasty, nasty | long_text, st.integers()),
+)
+reports = st.builds(
+    AnchorReport, st.none() | nasty, leaves=st.lists(leaves, max_size=40).map(tuple)
+)
+
+
+@given(request=approvals, report=reports)
+def test_the_values_a_call_checked_cannot_flood_either_gate(request, report):
+    request = dataclasses.replace(request, anchors=report)
+    question = _question(request)
+    assert len(question) < 3_500
+    assert all(0x20 <= ord(c) < 0x7F or c == "\n" for c in CLIP.sub("", question))
+    card = _card("rid", request, "token")
+    tags = {"div", "b", "span", "pre", "details", "summary", "p", "form", "input", "button"}
+    assert set(Rendered(card).tags) <= tags
+    assert len(folded_away(card.split("<form")[0])) < 9_000

@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from tripwire.policy.types import explain_leaf
+
 
 class LogError(Exception):
     pass
@@ -80,6 +82,9 @@ class Step:
     args: dict[str, Any] = field(default_factory=dict)
     outcome: str = ""  # ok | error | cancelled | not forwarded
     notes: list[str] = field(default_factory=list)
+    code: str | None = None  # an argument contract's or anchoring's, when one decided
+    # the values anchoring checked, as the decision record has them
+    anchors: list[dict[str, Any]] = field(default_factory=list)
 
 
 def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
@@ -110,6 +115,8 @@ def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
                 shadow=bool(data.get("shadow")),
                 tainted=bool(data.get("tainted")),
                 outcome="not forwarded",
+                code=data.get("code"),
+                anchors=_leaves(data.get("anchors")),
             )
             steps.append(current)
             continue
@@ -137,8 +144,26 @@ def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
             current.notes.append(f"session bookkeeping failed: {data.get('error', '')}")
         elif kind.startswith("gate_"):
             current.notes.append(_gate_note(kind, data))
+        elif kind == "provenance_observed" and data.get("degraded_by"):
+            current.notes.append(
+                f"provenance degraded ({data['degraded_by']}): from here on only the task "
+                f"and known values anchor"
+            )
+        elif kind == "task":
+            current.notes.append(f"task text added: segment {data.get('segment')}")
+        elif kind == "intent_rejected":
+            current.notes.append(f"task text refused ({data.get('reason')})")
 
     return steps
+
+
+def _leaves(anchors: object) -> list[dict[str, Any]]:
+    """The leaf records of a decision's anchor report, whatever the log
+    holds there."""
+    leaves = anchors.get("leaves") if isinstance(anchors, dict) else None
+    if not isinstance(leaves, list):
+        return []
+    return [leaf for leaf in leaves if isinstance(leaf, dict)]
 
 
 def _gate_note(kind: str, data: dict[str, Any]) -> str:
@@ -188,6 +213,11 @@ def format_trace(steps: list[Step], session_id: str) -> str:
         out.append(f"      rule   {_flat(step.rule)}")
         if step.reason:
             out.append(f"      reason {_flat(step.reason)}")
+        if step.code:
+            out.append(f"      code   {_flat(step.code)}")
+        for leaf in step.anchors:
+            if leaf.get("status") != "anchored":
+                out.append(f"      anchor {_flat(explain_leaf(leaf))}")
         if step.shadow and step.decision != "allow":
             out.append("      NOTE   shadow mode: this ran anyway")
         for note in step.notes:

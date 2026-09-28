@@ -40,6 +40,7 @@ from tripwire.gate.base import (
     NAME_PREVIEW,
     ApprovalRequest,
     GateUnavailable,
+    anchor_lines,
     clip,
     more_args,
     preview_arg,
@@ -188,7 +189,7 @@ LATE = '<p class="late">That answer did not reach its request in time, so it cha
 
 CARD = """<div class="card" data-rid="{rid}">
 <b>{tool}</b> (turn {turn}) — {taint}
-{args}
+{args}{anchors}
 <p>{rule}: {reason}</p>{fields}
 <form method="post" action="/decide"><input type="hidden" name="k" value="{k}">
 <input type="hidden" name="rid" value="{rid}"><input type="hidden" name="action" value="approve">
@@ -236,11 +237,15 @@ def _card(rid: str, req: ApprovalRequest, token: str) -> str:
     if trail:
         taint += f" (via {_field(trail)})"
     fields = {"tool": req.tool, "rule": req.rule_id, "reason": req.reason, "taint trail": trail}
+    # where each checked value came from, right under the values
+    lines = "\n".join(_field(line) for line in anchor_lines(req.anchors))
+    anchors = f"<pre>{lines}</pre>" if lines else ""
     return CARD.format(
         tool=_field(req.tool),
         turn=req.turn,
         taint=taint,
         args=_args_html(req.args, req.checked),
+        anchors=anchors,
         rule=_field(req.rule_id),
         reason=_field(req.reason),
         fields="".join(

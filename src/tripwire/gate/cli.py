@@ -27,6 +27,7 @@ except ImportError:  # windows: there is no controlling terminal to ask
 from tripwire.gate.base import (
     ApprovalRequest,
     GateUnavailable,
+    anchor_lines,
     clip,
     more_args,
     preview_args,
@@ -78,10 +79,14 @@ def _question(req: ApprovalRequest) -> str:
         trail = ", ".join(req.tainted_by) if req.tainted_by else "unknown source"
         taint = f"TAINTED session (untrusted content from: {_field(trail)})"
 
+    # where each checked value came from, right under the values
+    anchors = "".join(f"  anchor: {_field(line)}\n" for line in anchor_lines(req.anchors))
+
     return (
         f"\ntripwire: approval needed (turn {req.turn})\n"
         f"  tool:   {_field(req.tool)}\n"
         f"  args:   {args}\n"
+        f"{anchors}"
         f"  rule:   {_field(req.rule_id)}\n"
         f"  reason: {_field(req.reason)}\n"
         f"  taint:  {taint}\n"

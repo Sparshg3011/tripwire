@@ -14,7 +14,11 @@ from collections.abc import Collection, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
+from tripwire.policy.types import AnchorReport, explain_leaf
+
 NAME_PREVIEW = 60  # a real argument name is a word or two; past this it's padding
+# a call's anchoring lines; one failed, and a list of recipients can be long
+ANCHOR_LINES = 4
 
 
 class GateUnavailable(Exception):
@@ -43,6 +47,8 @@ class ApprovalRequest:
     # Set by the host interceptor, never taken from tool arguments.
     checked: frozenset[str] = frozenset()  # the args the policy reads (checked_fields())
     approval_scope: str = ""
+    # what anchoring found, when a flow with `unless: anchored` applied
+    anchors: AnchorReport | None = None
 
 
 class ApprovalGate(Protocol):
@@ -134,6 +140,19 @@ def preview_args(
         else:
             rest.append(arg)
     return lines + rest, shown, hidden
+
+
+def anchor_lines(report: AnchorReport | None) -> list[str]:
+    """Where each value anchoring checked came from, the one that failed
+    first: at most ANCHOR_LINES of them, then how many more there were.
+    Unescaped, since a value's path holds dict keys the caller wrote."""
+    if report is None:
+        return []
+    leaves = sorted(report.leaves, key=lambda leaf: leaf.status == "anchored")
+    lines = [explain_leaf(leaf.record()) for leaf in leaves[:ANCHOR_LINES]]
+    if len(leaves) > ANCHOR_LINES:
+        lines.append(f"{len(leaves) - ANCHOR_LINES} more values checked")
+    return lines
 
 
 def more_args(hidden: list[tuple[str, str]]) -> str:

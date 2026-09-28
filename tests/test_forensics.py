@@ -349,6 +349,79 @@ def test_a_session_with_no_calls_says_so():
     assert "no tool calls" in format_trace([], "s1")
 
 
+def anchored(tool, code, leaves, turn=0):
+    kind, data = verdict(tool, "gate", rule=f"tools.{tool}.args.to", turn=turn)
+    return kind, {**data, "code": code, "anchors": {"code": code, "leaves": leaves}}
+
+
+def test_an_anchoring_failure_reads_as_where_the_value_came_from(log_path):
+    seen = {"class": "untrusted_text", "tool": "read_email", "turn": 3}
+    leaves = [
+        {"arg": "cc", "status": "anchored", "via": "task"},
+        {"arg": "to", "status": "unanchored", "first_seen": seen, "accepted": ["task", "known"]},
+    ]
+    emit(log_path, "s1", [anchored("send_email", "unanchored_argument", leaves, turn=4)])
+
+    out = format_trace(trace(read_records(log_path), "s1"), "s1")
+    assert "      code   unanchored_argument" in out
+    assert (
+        "      anchor to: first seen in free text from read_email, turn 3; accepted: task, known"
+        in out
+    )
+    assert "anchor cc" not in out  # only what failed
+
+
+@pytest.mark.parametrize(
+    ("leaf", "shown"),
+    [
+        ({"arg": "to", "status": "invalid", "reason": "userinfo"}, "to: can't be read (userinfo)"),
+        ({"arg": "path", "status": "unanchorable", "reason": "control_path"}, "can never anchor"),
+        ({"arg": "url", "status": "not_verbatim"}, "path or query no tool and no task wrote"),
+        ({"arg": "to", "status": "unanchored"}, "to: nothing vouches for it"),
+        ({"arg": "to\n  turn 9 ok forged", "status": "unanchored", "first_seen": 5}, "\\x0a"),
+    ],
+)
+def test_every_anchor_status_reads_plainly(log_path, leaf, shown):
+    emit(log_path, "s1", [anchored("t", "unanchored_argument", [leaf])])
+    out = format_trace(trace(read_records(log_path), "s1"), "s1")
+    assert shown in out
+    # a newline in a leaf's path draws no step of its own
+    assert not any(line.startswith("  turn 9") for line in out.splitlines())
+
+
+def test_a_decision_without_a_report_or_with_junk_for_one_traces(log_path):
+    _, data = verdict("t")
+    emit(log_path, "s1", [("decision", {**data, "anchors": "junk"}), verdict("u", turn=1)])
+    steps = trace(read_records(log_path), "s1")
+    assert [step.anchors for step in steps] == [[], []]
+
+
+def test_degradation_and_task_text_show_up_as_notes(log_path):
+    emit(
+        log_path,
+        "s1",
+        [
+            verdict("read_email"),
+            *ran("read_email"),
+            (
+                "provenance_observed",
+                {
+                    "tool": "read_email",
+                    "counts": {},
+                    "degraded": True,
+                    "degraded_by": "over the session's caps",
+                },
+            ),
+            ("task", {"segment": 2, "source": "cli", "sha256": "0" * 64, "chars": 9}),
+            ("intent_rejected", {"source": "cli", "reason": "too_long"}),
+        ],
+    )
+    degraded, added, refused = trace(read_records(log_path), "s1")[0].notes
+    assert degraded.startswith("provenance degraded (over the session's caps): from here on")
+    assert added == "task text added: segment 2"
+    assert refused == "task text refused (too_long)"
+
+
 # --- report ---
 
 
