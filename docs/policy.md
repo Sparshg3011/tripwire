@@ -245,9 +245,10 @@ can't be both `destructive` and `self_scoped`.
 - **task**: the user's task text. A library host adds it with
   `await interceptor.add_task(text, source)`, up to 64 KiB a segment.
   `tripwire serve --task-file PATH` (or `TRIPWIRE_TASK_FILE`) reads the
-  file before each call and adds it as a segment whenever it changed.
-  Segments add up for the rest of the session, and the audit log gets
-  their hash and size, never the text.
+  file before each call and adds it as a segment whenever it changed;
+  `tripwire hook claude-code` writes each prompt there
+  ([Claude Code](claude-code.md)). Segments add up for the rest of the
+  session, and the audit log gets their hash and size, never the text.
   An id under 6 characters anchors only after a label: `id 13`, or a
   word of the argument's name (`file 13` for `file_id`). With `match:
   under`, a path below a task path of two or more components anchors

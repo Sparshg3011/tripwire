@@ -1,10 +1,14 @@
-"""The task file from both ends: the writer a host's hook runs, and the
-reader the proxy polls before each evaluation. Every task here is
-synthetic.
+"""The task file from both ends: the writer the Claude Code hook runs, and
+the reader the proxy polls before each evaluation. Every task and prompt
+here is synthetic.
 """
 
+import io
+import json
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 import threading
 import types
@@ -14,9 +18,29 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
-from tripwire.intent import MAX_TASK_BYTES, TaskFile, TaskRejected, write_task
+from tripwire.intent import (
+    MAX_TASK_BYTES,
+    TaskFile,
+    TaskRejected,
+    claude_code_hook,
+    claude_code_prompt,
+    write_task,
+)
 
 TASK = "Send the summary to alice@corp.example"
+
+
+def event(prompt=TASK, **fields):
+    # the UserPromptSubmit input, as the Claude Code hooks reference shows it
+    return {
+        "session_id": "abc123",
+        "transcript_path": "/home/user/.claude/projects/p/transcript.jsonl",
+        "cwd": "/home/user/project",
+        "permission_mode": "default",
+        "hook_event_name": "UserPromptSubmit",
+        "prompt": prompt,
+        **fields,
+    }
 
 
 # --- reading ---
@@ -204,3 +228,79 @@ def test_a_write_that_fails_takes_its_temporary_file_with_it(tmp_path, monkeypat
     with pytest.raises(PermissionError):
         write_task(tmp_path / "task", TASK)
     assert list(tmp_path.iterdir()) == []
+
+
+# --- the Claude Code hook ---
+
+
+def test_the_prompt_is_read_from_a_user_prompt_submit_event():
+    assert claude_code_prompt(json.dumps(event()).encode()) == TASK
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"",
+        b"not json",
+        b"[1, 2]",
+        b"[" * 100_000,
+        json.dumps(event(hook_event_name="PostToolUse")).encode(),
+        json.dumps({k: v for k, v in event().items() if k != "hook_event_name"}).encode(),
+        json.dumps(event(prompt=None)).encode(),
+        json.dumps(event(prompt=["x"])).encode(),
+    ],
+)
+def test_anything_else_is_no_prompt(payload):
+    assert claude_code_prompt(payload) is None
+
+
+@given(prompt=st.text())
+def test_every_prompt_is_read_as_it_was_submitted(prompt):
+    assert claude_code_prompt(json.dumps(event(prompt)).encode()) == prompt
+
+
+@given(payload=st.binary() | st.text().map(str.encode))
+def test_the_reader_never_raises(payload):
+    prompt = claude_code_prompt(payload)
+    assert prompt is None or isinstance(prompt, str)
+
+
+def test_the_hook_writes_the_prompt(tmp_path):
+    claude_code_hook(tmp_path / "task", io.BytesIO(json.dumps(event()).encode()))
+    assert (tmp_path / "task").read_text() == TASK
+
+
+@pytest.mark.parametrize("payload", [b"not json", json.dumps(event("lone \ud800")).encode()])
+def test_a_hook_that_cant_write_leaves_the_file_as_it_was(tmp_path, payload):
+    write_task(tmp_path / "task", TASK)
+    claude_code_hook(tmp_path / "task", io.BytesIO(payload))
+    assert (tmp_path / "task").read_text() == TASK
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["task"]
+
+
+def hook(tmp_path, stdin, target=None):
+    target = target if target is not None else tmp_path / "task"
+    return subprocess.run(
+        [sys.executable, "-m", "tripwire", "hook", "claude-code", "--task-file", str(target)],
+        input=stdin,
+        capture_output=True,
+        timeout=60,
+        check=False,
+    )
+
+
+def test_the_hook_command_says_nothing_and_exits_0(tmp_path):
+    done = hook(tmp_path, json.dumps(event()).encode())
+    assert (done.returncode, done.stdout, done.stderr) == (0, b"", b"")
+    assert (tmp_path / "task").read_text() == TASK
+    assert stat.S_IMODE(os.stat(tmp_path / "task").st_mode) == 0o600
+
+
+@pytest.mark.parametrize("where", ["here", "nowhere"])
+def test_the_hook_command_says_nothing_and_exits_0_when_it_fails(tmp_path, where):
+    target = tmp_path / "task" if where == "here" else tmp_path / "nowhere" / "task"
+    done = hook(tmp_path, b"\xff not an event", target)
+    assert (done.returncode, done.stdout, done.stderr) == (0, b"", b"")
+    done = hook(tmp_path, json.dumps(event()).encode(), target)
+    assert (done.returncode, done.stdout, done.stderr) == (0, b"", b"")
+    assert target.exists() == (where == "here")

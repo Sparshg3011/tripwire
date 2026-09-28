@@ -6,6 +6,7 @@ import sys
 
 import anyio
 
+from tripwire.intent import claude_code_hook
 from tripwire.policy import PolicyError, load_policy
 from tripwire.policy.loader import policy_warnings
 from tripwire.tx import (
@@ -128,6 +129,11 @@ def main(argv: list[str] | None = None) -> None:
     p_validate = sub.add_parser("validate", help="check a policy file")
     p_validate.add_argument("policy")
 
+    p_hook = sub.add_parser("hook", help="hand an agent host's prompts to serve --task-file")
+    hosts = p_hook.add_subparsers(dest="host", required=True)
+    p_claude = hosts.add_parser("claude-code", help="Claude Code's UserPromptSubmit hook")
+    p_claude.add_argument("--task-file", required=True, help="the file serve --task-file reads")
+
     p_verify = sub.add_parser("verify", help="check an audit log's hash chain")
     p_verify.add_argument("log")
 
@@ -152,7 +158,12 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
-    if args.command == "validate":
+    if args.command == "hook":
+        # what it prints reaches the model, and the prompt must go through
+        # whatever happens here: it says nothing and exits 0
+        claude_code_hook(args.task_file)
+
+    elif args.command == "validate":
         try:
             policy = load_policy(args.policy)
         except PolicyError as e:

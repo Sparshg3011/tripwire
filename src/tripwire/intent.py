@@ -1,22 +1,26 @@
 """The task file: how the user's task text reaches a running proxy.
 
 A host that can run a command when the user submits a prompt writes the
-prompt to a file (write_task()), and `tripwire serve --task-file` reads
-the file before each evaluation (TaskFile), adding it as a new task
-segment whenever it changed. The file holds the text as UTF-8 and
-nothing else.
+prompt to a file (write_task(); `tripwire hook claude-code` does it for
+Claude Code), and `tripwire serve --task-file` reads the file before
+each evaluation (TaskFile), adding it as a new task segment whenever it
+changed. The file holds the text as UTF-8 and nothing else.
 
 Whoever can write the file decides what anchors, so the agent must not
 be able to: the proxy counts it among the protected paths no argument
-anchors to.
+anchors to, and keeps the TRIPWIRE_ variables that name it from the
+upstream. The agent's host is another matter; see docs/claude-code.md.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import stat
+import sys
 import tempfile
+from typing import BinaryIO
 
 MAX_TASK_BYTES = 64 * 1024
 
@@ -107,3 +111,29 @@ def write_task(path: str | os.PathLike[str], text: str) -> None:
         with contextlib.suppress(OSError):
             os.unlink(temporary)
         raise
+
+
+def claude_code_prompt(payload: bytes) -> str | None:
+    """The prompt of a Claude Code UserPromptSubmit hook event, given its
+    JSON input; None for anything else."""
+    # https://code.claude.com/docs/en/hooks: the UserPromptSubmit input
+    # holds "hook_event_name": "UserPromptSubmit" and the submitted text
+    # as "prompt"
+    try:
+        event = json.loads(payload)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(event, dict) or event.get("hook_event_name") != "UserPromptSubmit":
+        return None
+    prompt = event.get("prompt")
+    return prompt if isinstance(prompt, str) else None
+
+
+def claude_code_hook(path: str | os.PathLike[str], stdin: BinaryIO | None = None) -> None:
+    """Write the prompt of the UserPromptSubmit event on stdin to the task
+    file. Never raises: a hook that fails must not keep the user's prompt
+    from the model, and one that fails loudly might."""
+    with contextlib.suppress(Exception):
+        prompt = claude_code_prompt((stdin or sys.stdin.buffer).read())
+        if prompt is not None:
+            write_task(path, prompt)
