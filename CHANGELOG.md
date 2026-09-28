@@ -39,6 +39,9 @@ refused to start.
   id `evaluator_error`.
 - A call that fails upstream taints the session whatever the tool's source
   class, since the agent is handed the exception's text.
+- The upstream server no longer inherits tripwire's own `TRIPWIRE_`
+  environment variables, which say where the audit key and the task file
+  are.
 
 ### Fixed
 

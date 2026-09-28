@@ -171,7 +171,7 @@ def test_a_malformed_scenario_exits_with_a_message_not_a_traceback(tmp_path):
 
 # --- behind the real proxy ---
 #
-# The proxy spawns its upstream with a scrubbed environment, so
+# The proxy keeps every TRIPWIRE_ variable from its upstream, so
 # TRIPWIRE_GYM_CALLS can't just be exported here — it has to ride in on
 # the upstream command itself.
 

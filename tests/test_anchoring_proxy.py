@@ -486,10 +486,8 @@ async def test_end_to_end_through_the_proxy_and_a_real_toolbox(tmp_path):
     scenario.write_text(yaml.safe_dump(SCENARIO))
     executed = tmp_path / "calls.jsonl"
     audit = tmp_path / "audit.jsonl"
-    upstream = Upstream(
-        f"{shlex.quote(sys.executable)} -m tripwire_gym.mock_server {shlex.quote(str(scenario))}",
-        env={**os.environ, "TRIPWIRE_GYM_CALLS": str(executed)},
-    )
+    mock = [sys.executable, "-m", "tripwire_gym.mock_server", str(scenario)]
+    upstream = Upstream(shlex.join(["env", f"TRIPWIRE_GYM_CALLS={executed}", *mock]))
     await upstream.start()
     try:
         policy = Policy.model_validate(yaml.safe_load(POLICY))

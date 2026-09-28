@@ -10,6 +10,8 @@ from typing import Any
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
 
+ENV_PREFIX = "TRIPWIRE_"  # no variable named so reaches the upstream
+
 
 class UpstreamError(Exception):
     pass
@@ -21,7 +23,8 @@ class Upstream:
     Spawns the server as a subprocess, introspects its tools once at
     startup, and forwards calls. Tool list is a startup snapshot — if
     an upstream mutates its tools mid-session, we keep advertising what
-    we vetted at start.
+    we vetted at start. The child's environment is `env`, or ours, with
+    every TRIPWIRE_ variable taken out.
     """
 
     def __init__(self, command: str, env: dict[str, str] | None = None):
@@ -39,8 +42,14 @@ class Upstream:
         #
         # This is not a widening: without tripwire in the way, that
         # server was already being started with exactly this environment.
+        # Less tripwire's own variables, which it would never have seen:
+        # they say where the audit key and the task file are, and a
+        # server that can write the task file can name its own anchors.
+        given = env if env is not None else os.environ
         self._params = StdioServerParameters(
-            command=argv[0], args=argv[1:], env=dict(env if env is not None else os.environ)
+            command=argv[0],
+            args=argv[1:],
+            env={name: value for name, value in given.items() if not name.startswith(ENV_PREFIX)},
         )
         self._stack = AsyncExitStack()
         self._session: ClientSession | None = None
