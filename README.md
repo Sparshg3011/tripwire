@@ -427,7 +427,8 @@ tripwire/
 │   ├── taint/                  # sticky session information-flow state
 │   ├── tx/                     # audit chain, forensics, and idempotency ledger
 │   ├── replay.py               # re-judge captured traffic under a candidate policy
-│   └── cli.py                  # serve · validate · verify · trace · report · replay
+│   ├── recipe.py               # draft a policy from a server's tool listing
+│   └── cli.py                  # serve · validate · recipe · verify · trace · report · replay
 ├── src/tripwire_gym/           # paired adversarial benchmark harness
 ├── src/tripwire_benchmarks/    # AgentDojo/AgentDyn adapters and publication analysis
 ├── gym/                        # scenarios, policies, frozen plans, and runners
