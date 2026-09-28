@@ -1038,6 +1038,27 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Send it to Priya Raman\u2019s team", N("priya raman"), True),
         ("Send it to Priya Raman'sx team", N("priya raman"), False),
         ("Ask ab\u0301cdef", N("cdef"), False),
+        # and not by the typographic joiners smart punctuation writes
+        ("Invite the acme\u2011labs team", N("labs"), False),
+        ("Invite the acme\u2010labs team", N("acme"), False),
+        ("Ask o\u2018brien", N("brien"), False),
+        ("Ask the col\u00b7lega", N("lega"), False),
+        ("Open acme\u2215widgets", N("widgets"), False),
+        ("Ask bob\u2013smith", N("smith"), False),
+        ("Ask bob\u2212smith", N("smith"), False),
+        ("Ask bob`smith", N("smith"), False),
+        ("Ask bob\u2032smith", N("smith"), False),
+        ("Ask bob|smith", N("smith"), False),
+        ("Ask bob\u2044smith", N("smith"), False),
+        ("Ask bob\u201bsmith", N("smith"), False),
+        ("Ask bob\uff65smith", N("smith"), False),
+        # quotes, brackets and emphasis around a name are no glue
+        ("Ask \u201calice\u201d first", N("alice"), True),
+        ("Ask \u00abalice\u00bb first", N("alice"), True),
+        ("Ask \u2018alice\u2019 first", N("alice"), True),
+        ("Ask [alice], then bob", N("alice"), True),
+        ("Ask **Priya Raman** first", N("priya raman"), True),
+        ("Ask `alice` first", N("alice"), True),
         ("Message प्रिया", N("रिया"), False),
         ("Message प्रिया", N("प्रिया"), True),
     ],
@@ -1912,7 +1933,9 @@ def test_no_value_with_a_control_segment_anchors(prefix, drive, segment, suffix,
 @given(
     name=st.from_regex(r"[a-z]{3,8}", fullmatch=True),
     other=st.from_regex(r"[a-z0-9]{1,6}", fullmatch=True),
-    glue=st.sampled_from(sorted("-./\\:'\u2019+&=~%@#_")),
+    glue=st.sampled_from(
+        sorted("-./\\:'\u2019+&=~%@#_|`*\u2010\u2011\u2013\u2212\u2215\u2044\u2018\u00b7\u2032")
+    ),
     before=st.booleans(),
 )
 @SETTINGS

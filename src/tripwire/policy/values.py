@@ -746,8 +746,11 @@ _ID_END = r"(?=[.:]*+(?![\w.:/\\#@%+-]))"
 _JOINER = "\u02b0"
 _JOINING = frozenset({"Mn", "Mc", "Me", "Cf"})
 _IGNORABLE = re.compile("[\u115f\u1160\u2065\u3164\uffa0\ufff0-\ufff8\U000e0000-\U000e0fff]")
-# what joins the words on either side into one token, for names
-_GLUE = frozenset("-./\\:'\u2019+&=~%")
+# What sets a name apart from a word beside it: whitespace, and the
+# punctuation that ends or quotes a phrase. Anything else between two words
+# joins them into one token: "acme-labs", "o'brien", "col\u00b7lega", and
+# the same with any dash, slash, quote or dot smart punctuation writes.
+_BREAKS = frozenset(' ,;!?"()[]{}<>\u201c\u201d\u201e\u00ab\u00bb')
 
 
 def _text(text: str) -> str:
@@ -786,14 +789,14 @@ def _wordlike(c: str) -> bool:
 def _starts(text: str, i: int) -> bool:
     before = text[i - 1 : i]
     return not before or (
-        not _wordlike(before) and (before not in _GLUE or i == 1 or not _wordlike(text[i - 2]))
+        not _wordlike(before) and (before in _BREAKS or i == 1 or not _wordlike(text[i - 2]))
     )
 
 
 def _ends(text: str, i: int) -> bool:
     after = text[i : i + 1]
     return not after or (
-        not _wordlike(after) and (after not in _GLUE or not _wordlike(text[i + 1 : i + 2] or " "))
+        not _wordlike(after) and (after in _BREAKS or not _wordlike(text[i + 1 : i + 2] or " "))
     )
 
 
