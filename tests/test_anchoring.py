@@ -4,6 +4,7 @@ and stage 5's `unless: anchored`. Every value here is synthetic.
 
 import json
 import random
+import time
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -484,13 +485,23 @@ def test_links_are_found_however_they_are_written(body):
         "unzip notes.zip first",
         "e.g. version 1.2 of the doc",
         "see //corp.example/wiki/minutes",
-        "the http: and https: schemes",
+        "the http: and https: schemes, and my profile:alice",
         "// TODO: read C:\\Users\\me\\notes.txt and a//b",
     ],
 )
 def test_content_without_unvouched_links_passes(body):
     task = TASK + " and unzip notes.zip"
     assert send(snap(task), to="alice@corp.example", body=body).decision == "allow"
+
+
+@pytest.mark.parametrize("unit", ["a", "a.", "a+", "ab:/"])
+def test_reading_content_for_links_is_linear(unit):
+    # a scheme may start anywhere in a run of scheme characters; trying
+    # each start took minutes
+    body = unit * (400_000 // len(unit))
+    start = time.perf_counter()
+    send(snap(TASK), to="alice@corp.example", body=body)
+    assert time.perf_counter() - start < 2.0
 
 
 def test_a_query_string_to_an_anchored_host_is_exfiltration():
