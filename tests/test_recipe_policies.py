@@ -92,3 +92,14 @@ def test_the_committed_listing_is_what_the_suite_dumps(suite):
     except KeyError:
         pytest.skip(f"this AgentDojo has no {suite} suite; AgentDyn's does")
     assert listing_bytes(tools) == (ROOT / "tools" / f"{suite}.json").read_bytes()
+
+
+def test_dump_writes_a_suites_listing_where_generate_reads_it(tmp_path):
+    pytest.importorskip("agentdojo")
+    main(["--root", str(tmp_path), "dump", "banking"])
+    dumped = tmp_path / "tools" / "banking.json"
+    assert dumped.read_bytes() == (ROOT / "tools" / "banking.json").read_bytes()
+    main(["--root", str(tmp_path), "generate"])
+    assert (tmp_path / "taint" / "banking.yaml").read_bytes() == (
+        ROOT / "taint" / "banking.yaml"
+    ).read_bytes()
