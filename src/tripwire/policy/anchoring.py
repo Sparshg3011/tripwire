@@ -37,7 +37,9 @@ checked too:
             http(s) URL is checked as a target
   links     every link in a leaf needs an anchored host: task (a host
             the task names only as a file name too), known or trusted.
-            A link that doesn't read as a URL fails.
+            A link is a URL of any scheme, one with no scheme ("//host"),
+            or a bare www. host or host with a pinned TLD; one that
+            doesn't read as an http(s) URL fails.
   verbatim  a URL with a path, query or fragment past "/", a target's or
             a link's, must occur as written in the task or in what a
             tool, the listing or an upstream error wrote before the agent
@@ -117,6 +119,13 @@ _ID_WORDS = frozenset({"id", "ids", "uuid", "guid"})
 # a run of text a reader takes for one token
 _RUN = re.compile(r"[^\s<>\"'`]+")
 _SCHEME = re.compile(r"(?i:https?)://")
+# Where a link may start: a scheme a browser reads a host after however
+# many slashes or backslashes follow ("https:/x.com", "https:\\x.com"),
+# any other scheme followed by two, or two with no scheme before them,
+# which the page's own fills in ("//x.com").
+_LINK = re.compile(
+    r"(?i:(?:https?|wss?|ftp|file):|[a-z][a-z0-9+.-]+:[/\\]{2})|(?<![\w:/\\])[/\\]{2}"
+)
 _AUTHORITY_END = re.compile(r"[/?#]")
 # what a sentence may end a link with, which no one need have written
 _PROSE_END = re.compile(r"[)\]}]?[.,;:!?]?\Z")
@@ -392,8 +401,15 @@ class _Check:
             yield self._verbatim(leaf, link, prose=True), "url_not_verbatim"
 
     def _link(self, arg: str, link: str) -> LeafReport:
+        # a bare link reads as http and one with no scheme as https; of
+        # the rest, only http(s) and two slashes read as a URL at all
         read = link.rstrip(TRAILING)
-        url = read if _is_url(read) else "http://" + read
+        if _LINK.match(read) is None:
+            url = "http://" + read
+        elif read[:1] in "/\\":
+            url = "https:" + read
+        else:
+            url = read
         outcome = normalize(url, "url", protected_paths=self.protected)
         if not isinstance(outcome, Key):
             status: LeafStatus = "unanchorable" if isinstance(outcome, Unanchorable) else "invalid"
@@ -522,17 +538,13 @@ def _hashed(key: Key, role: Role) -> str | None:
     return None if role == "credential" else key_sha256(key)
 
 
-def _is_url(text: str) -> bool:
-    return _SCHEME.match(text) is not None or text[:4].lower() == "www."
-
-
 def _needles(url: str, prose: bool) -> tuple[str, ...]:
     """What must occur verbatim for a URL to pass: nothing when it carries
-    no path, query or fragment past "/"; else the URL past its scheme,
-    or, in prose, that or the same without the one closing bracket and
-    one mark of punctuation a sentence may end it with."""
+    no path, query or fragment past "/"; else the URL past its scheme or
+    leading "//", or, in prose, that or the same without the one closing
+    bracket and one mark of punctuation a sentence may end it with."""
     scheme = _SCHEME.match(url)
-    rest = url[scheme.end() :] if scheme else url
+    rest = url[scheme.end() :] if scheme else url.removeprefix("//")
     short = _PROSE_END.sub("", rest, count=1) if prose else rest
     end = _AUTHORITY_END.search(short)
     if end is None or short[end.start() :] == "/":
@@ -542,17 +554,19 @@ def _needles(url: str, prose: bool) -> tuple[str, ...]:
 
 def _links(text: str) -> Iterator[str]:
     """Every link a reader may follow in text, as written, sentence
-    punctuation after it included: each scheme URL wherever it starts,
-    and each run, or start of a run before a scheme, whose host part is a
-    www. host or ends in a pinned TLD."""
+    punctuation after it included: from each place a link may start
+    (_LINK) to the next, when something follows its slashes, and each
+    run, or start of a run before such a place, whose host part is a www.
+    host or ends in a pinned TLD."""
     # a browser reads the ideographic full stop in a host as a dot
     dotted = text.replace("\u3002", ".")
     for m in _RUN.finditer(dotted):
         run, written = m.group(), text[m.start() : m.end()]
-        starts = [s.start() for s in _SCHEME.finditer(run)]
-        for start, end in pairwise([*starts, len(run)]):
-            yield written[start:end]
-        bare = run[: starts[0]] if starts else run
+        spans = [s.span() for s in _LINK.finditer(run)]
+        for (start, head), (stop, _) in pairwise([*spans, (len(run), len(run))]):
+            if run[head:stop].lstrip("/\\").rstrip(TRAILING):
+                yield written[start:stop]
+        bare = run[: spans[0][0]] if spans else run
         lead = len(bare) - len(bare.lstrip("([{"))
         host = _AUTHORITY_END.split(bare[lead:].rstrip(TRAILING), maxsplit=1)[0]
         if "@" in host or "." not in host:

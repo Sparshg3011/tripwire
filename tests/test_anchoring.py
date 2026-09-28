@@ -446,6 +446,16 @@ def test_a_link_to_an_unvouched_host_escalates():
         "see evil-mail\u3002com",
         "see evil-mail.com/https://corp.example",
         "(evil-mail.com)",
+        '<img src="//evil.example/p.gif?d=1">',
+        "<img src=//evil.example/p.gif>",
+        "[notes](//evil.example/n)",
+        "<a href=\\\\evil.example\\share>",
+        "see https:/evil.example/p",
+        "see https:evil.example/p",
+        "see https:\\\\evil.example\\p",
+        "see https:///evil.example/p",
+        "see ftp://evil.example/p",
+        "see smb://evil.example/share",
     ],
 )
 def test_links_are_found_however_they_are_written(body):
@@ -462,6 +472,9 @@ def test_links_are_found_however_they_are_written(body):
         "reply to alice@corp.example",
         "unzip notes.zip first",
         "e.g. version 1.2 of the doc",
+        "see //corp.example/wiki/minutes",
+        "the http: and https: schemes",
+        "// TODO: read C:\\Users\\me\\notes.txt and a//b",
     ],
 )
 def test_content_without_unvouched_links_passes(body):
