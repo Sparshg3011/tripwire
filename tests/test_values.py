@@ -723,6 +723,53 @@ def test_protected_paths(value, protected, outcome):
     assert normalize(value, "path", protected_paths=protected) == outcome
 
 
+PROTECTED = [
+    "/private/tmp/proj/tripwire.yaml",
+    "/Users/me/proj/audit.jsonl",
+    "/Users/me/proj/tx.db",
+    "/srv/tw/policy.sh",
+]
+
+
+# As control files are: "tripwire.yaml" is an id under auto, "policy.sh" a
+# host, and a declared id or name may name the file all the same.
+@pytest.mark.parametrize(
+    "value",
+    [
+        "tripwire.yaml",
+        "audit.jsonl",
+        "tx.db",
+        "TX.DB",
+        "proj/audit.jsonl",
+        "Users/me/proj/tx.db",
+        "Users\\me\\proj\\tx.db",
+        "C:tripwire.yaml",
+        "policy.sh",
+    ],
+)
+def test_protected_paths_are_unanchorable_under_every_type(value):
+    for vtype in [*VALUE_TYPES, "auto"]:
+        outcomes = normalize_all(value, vtype, protected_paths=PROTECTED)
+        assert not any(isinstance(o, Key) for o in outcomes), vtype
+    assert normalize(value, "name", protected_paths=PROTECTED) == Unanchorable("protected_path")
+
+
+def test_protected_paths_match_host_keys():
+    assert normalize("www.policy.sh", protected_paths=PROTECTED) == Unanchorable("protected_path")
+    assert normalize("policy.sh:8443", "host", protected_paths=PROTECTED) == Unanchorable(
+        "protected_path"
+    )
+
+
+def test_protected_paths_leave_other_values_alone():
+    assert normalize("tx.db.bak", protected_paths=PROTECTED) == D("tx.db.bak")
+    assert normalize("my tx.db notes", "name", protected_paths=PROTECTED) == N("my tx.db notes")
+    assert normalize("@tx.db", "name", protected_paths=PROTECTED) == N("@tx.db")
+    assert normalize("policy.sh.example", "host", protected_paths=PROTECTED) == H(
+        "policy.sh.example"
+    )
+
+
 @pytest.mark.parametrize(
     ("path", "prefix", "under"),
     [

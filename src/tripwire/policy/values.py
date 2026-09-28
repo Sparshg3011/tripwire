@@ -73,11 +73,11 @@ A segment shaped like an 8.3 short name ("GIT~1") can alias any of them and
 counts as one. A path, id or name with a control segment, split at slashes
 and backslashes, is Unanchorable under every type, auto included.
 
-A protected path (the policy file, the audit log, the tx db) makes a path
-Unanchorable when the path is at or under it, or when any segment of the
-path is the protected path's last one. Relative spellings and symlinked
-prefixes (/tmp for /private/tmp) reach the same file, and nothing here may
-resolve them.
+A protected path (the policy file, the audit log, the tx db) makes a path,
+id, name or host key Unanchorable when the key is at or under it, or when
+any segment of the key, read as control segments are, is the protected
+path's last one. Relative spellings and symlinked prefixes (/tmp for
+/private/tmp) reach the same file, and nothing here may resolve them.
 
 Every key is a fixed point: normalizing key.key under key.vtype gives the
 key back. TaskIndex.anchors() leans on that to refuse hand-built keys.
@@ -471,6 +471,8 @@ def _protected_root(entry: object) -> str | None:
 
 
 def _is_protected(key: str, protected_paths: Sequence[str]) -> bool:
+    if not protected_paths:
+        return False
     folded = _fold(key)
     names = _names(key)
     for entry in protected_paths:
@@ -487,7 +489,7 @@ def _is_protected(key: str, protected_paths: Sequence[str]) -> bool:
     return False
 
 
-def _path(text: str, protected_paths: Sequence[str]) -> Outcome:
+def _path(text: str) -> Outcome:
     if "\\" in text:
         return Invalid("backslash")
     if text.startswith("~"):
@@ -499,8 +501,6 @@ def _path(text: str, protected_paths: Sequence[str]) -> Outcome:
         return Unanchorable("empty")
     if _is_control(key):
         return Unanchorable("control_path")
-    if _is_protected(key, protected_paths):
-        return Unanchorable("protected_path")
     return Key("path", key)
 
 
@@ -535,7 +535,7 @@ def _name(text: str, known: bool) -> Outcome:
     return Key("name", name)
 
 
-def _typed(text: str, vtype: str, known: bool, protected_paths: Sequence[str]) -> Outcome:
+def _by_type(text: str, vtype: str, known: bool) -> Outcome:
     if vtype == "email":
         return _email(text)
     if vtype == "url":
@@ -547,12 +547,25 @@ def _typed(text: str, vtype: str, known: bool, protected_paths: Sequence[str]) -
     if vtype == "phone":
         return _phone(text)
     if vtype == "path":
-        return _path(text, protected_paths)
+        return _path(text)
     if vtype == "id":
         return _id(text)
     if vtype == "name":
         return _name(text, known)
     return Invalid("type")
+
+
+def _typed(text: str, vtype: str, known: bool, protected_paths: Sequence[str]) -> Outcome:
+    outcome = _by_type(text, vtype, known)
+    # as with control files: "tripwire.yaml" is an id under auto and
+    # "policy.sh" a host, and a declared id or name may be the file too
+    if (
+        isinstance(outcome, Key)
+        and outcome.vtype in ("host", "path", "id", "name")
+        and _is_protected(outcome.key, protected_paths)
+    ):
+        return Unanchorable("protected_path")
+    return outcome
 
 
 def _detect(text: str) -> ValueType:
@@ -632,7 +645,7 @@ def normalize(
 
     known: the value is an operator's `known` entry, which may name a
     reserved name. protected_paths: absolute paths (the policy file, the
-    audit log, the tx db) at or under which no path anchors.
+    audit log, the tx db) that no path, id, name or host may reach.
     """
     try:
         return _normalize(value, vtype, known, protected_paths)
@@ -846,7 +859,7 @@ def _task_keys(text: str) -> tuple[set[Key], set[Key], str]:
         if _JOINER in token:
             continue
         if "/" in token or _STEM_EXT.fullmatch(token):
-            outcome = _path(token, ())
+            outcome = _path(token)
             # a lone "/" in prose is not the root directory
             if isinstance(outcome, Key) and outcome.key != "/":
                 keys.add(outcome)
@@ -1102,8 +1115,8 @@ def _sight(source: str, add: Callable[[Outcome], None]) -> None:
     for m in _P_PATH.finditer(source):
         token = m.group()
         if "/" in token:
-            add(_path(token, ()))
-            add(_path(token.rstrip("."), ()))
+            add(_path(token))
+            add(_path(token.rstrip(".")))
 
     for m in _P_ID.finditer(source):
         add(_id(m.group()))
