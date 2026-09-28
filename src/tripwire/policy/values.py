@@ -694,9 +694,10 @@ _T_EMAIL = re.compile(
 )
 # no path character before it either, so a masked URL never splits a path
 _T_URL = re.compile(r"(?<![\w.~/\\+-])(?i:https?)://[^\s<>\"'`]+")
-# not after / either: "src/a.py" and "/srv/example.com/x" are paths
+# not after / or ~ either: "src/a.py", "/srv/example.com/x" and
+# "backup~corp.com" are paths
 _T_HOST = re.compile(
-    r"(?<![\w@./\\-])(?>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)(?>(?::[0-9]+)?)(?![\w@\\-]|\.[\w-])"
+    r"(?<![\w@./\\~-])(?>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)(?>(?::[0-9]+)?)(?![\w@\\-]|\.[\w-])"
 )
 # unspaced, or the printed form in groups of four
 _T_IBAN = re.compile(
@@ -711,7 +712,8 @@ _T_PHONE = re.compile(
 )
 _T_PATH = re.compile(r"(?<![\w.~/\\@-])[\w.~/-]++(?![@\\])")
 _STEM_EXT = re.compile(r"[\w-][\w.-]*\.[A-Za-z0-9]{1,8}")
-_T_ID = re.compile(r"(?<![\w@%+.:/\\#-])[A-Za-z0-9_.:/#-]++(?![\w@%+\\])")
+# not inside a path token either: "GIT~1/config"
+_T_ID = re.compile(r"(?<![\w@%+.:/\\#~-])[A-Za-z0-9_.:/#-]++(?![\w@%+\\])")
 
 # Label words an id may follow: "id 13", "ID: 13", "no. 13", "number 13".
 # "#13" needs no word. Callers add words of their own (an argument's noun).

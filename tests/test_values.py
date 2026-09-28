@@ -675,6 +675,7 @@ def test_control_paths_are_unanchorable(value):
         "D:.mcp.json",
         "C:.ssh/authorized_keys",
         "C:.GIT/config",
+        "C:GIT~1/config",
     ],
 )
 def test_control_files_are_unanchorable_under_every_type(value):
@@ -879,6 +880,7 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Visit corp.example", H("corp.example"), False),
         ("Visit 1.2.3.4", H("1.2.3.4"), False),
         ("Visit corp.com_x", H("corp.com"), False),
+        ("Restore backup~corp.com", H("corp.com"), False),
         # file-extension TLDs are mentioned, not anchored, unless www.
         ("Open notes.md", H("notes.md"), False),
         ("Open notes.zip", H("notes.zip"), False),
@@ -926,6 +928,8 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Open file-abcdef", D("abcdef"), False),
         ("Open abcdef@corp.com", D("abcdef"), False),
         ("Open C:\\Users\\me\\Project-1234", D("Project-1234"), False),
+        ("Edit GIT~1/config now", D("1/config"), False),
+        ("Edit notes~abcdef12", D("abcdef12"), False),
         ("Open abcde", D("abcde"), False),
         # short ids only next to a label
         ("Ticket 13", D("13"), False),
