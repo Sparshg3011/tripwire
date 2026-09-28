@@ -253,6 +253,16 @@ def test_a_credential_argument_limits_the_tool_to_one_call_whatever_its_role():
     assert load(recipe(source([tool("post", {"body": {}})]))).tools["post"].limits.per_session == 5
 
 
+def test_a_write_that_sets_a_credential_is_never_self_scoped():
+    listed = [tool("update_password", {"password": {}}), tool("login", {"password": {}})]
+    policy = load(recipe(source(listed)))
+    assert not policy.tools["update_password"].self_scoped
+    assert policy.tools["login"].self_scoped  # a password it checks, not one it sets
+    for password in ("", None):
+        call = ToolCall("update_password", {"password": password})
+        assert evaluate(call, SessionSnapshot(tainted=True), policy).code == "vacuous_write"
+
+
 def test_names_the_upstream_chose_are_quoted_and_never_commented():
     evil = "x\n  y: {action: block}\n# "
     text = recipe(source([tool(f"send_{evil}", {"to": {}}), tool("post", {f"to_{evil}": {}})]))
@@ -345,7 +355,6 @@ tools:
     limits: {per_session: 5}
   set_api_key:
     action: allow  # write: no read verb
-    self_scoped: true
     args:
       api_key: credential  # credential cue "api key"
     limits: {per_session: 1}  # a credential argument

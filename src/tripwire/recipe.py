@@ -52,7 +52,9 @@ The policy, per arm:
   write        allow, per_session: 5, or 1 with a rule-1 argument; an
                args contract unless it is exec or indirect;
                destructive: true when destructive; self_scoped: true when
-               it has a contract and is not destructive (primary and taint)
+               it has a contract, is not destructive and has no
+               credential argument, which an empty value would otherwise
+               set unchecked (primary and taint)
   flow         one, over every write and fetch: require_approval once
                the session is tainted, unless: anchored (not in taint)
 
@@ -61,8 +63,9 @@ every argument it takes (it has patternProperties, or
 additionalProperties other than false), or names one a contract can't
 hold.
 
-So an exec or indirect write is never discharged, and in the strict arm
-neither is a write naming no target, selector or credential. A comment
+So an exec or indirect write is never discharged, nor is a call naming
+no target, selector or credential to a write that takes a credential,
+and in the strict arm to any write. A comment
 names the cue behind each tool's kind, each argument's role, a missing
 contract, destructive: true and per_session: 1. Comments quote only the
 tables' words, never a name the upstream chose.
@@ -483,7 +486,12 @@ def _tool(tool: Reading, arm: Arm) -> Iterator[str]:
         return
     if tool.destructive is not None:
         yield f"    destructive: true  # {tool.destructive}"
-    elif tool.kind == "write" and tool.args is not None and arm != "strict":
+    elif (
+        tool.kind == "write"
+        and tool.args is not None
+        and not any(arg.role == "credential" for arg in tool.args)
+        and arm != "strict"
+    ):
         yield "    self_scoped: true"
     if tool.args is not None:
         yield "    args: {}" if not tool.args else "    args:"

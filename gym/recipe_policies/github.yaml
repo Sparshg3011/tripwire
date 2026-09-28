@@ -67,7 +67,6 @@ tools:
     action: allow  # read: "get"
   git_add_ssh_key:
     action: allow  # write: no read verb
-    self_scoped: true
     args:
       ssh_key: credential  # credential cue "ssh key"
     limits: {per_session: 1}  # a credential argument
@@ -182,7 +181,6 @@ tools:
     limits: {per_session: 5}
   update_github_account_password:
     action: allow  # write: no read verb
-    self_scoped: true
     args:
       password: credential  # credential cue "password"
     limits: {per_session: 1}  # a credential argument

@@ -290,11 +290,13 @@ wrote the URL before the agent did: one repeating what it was sent, in
 its result or its error, vouches for nothing.
 
 A call with no authority value at all escalates on a `destructive` tool
-and on any tool that isn't `self_scoped`. A tool the flow names without
-an `args` contract is never discharged, and `tripwire validate` warns
-about it. `tripwire explain policy.yaml` prints, for each tool, the
-flows that skip its anchored calls, each argument's role, and what
-anchors it, with the same warnings.
+and on any tool that isn't `self_scoped`. Null and `""` are no value, so
+don't make a tool that sets a secret `self_scoped`: a call emptying it
+would go through. A tool the flow names without an `args` contract is
+never discharged, and `tripwire validate` warns about it. `tripwire
+explain policy.yaml` prints, for each tool, the flows that skip its
+anchored calls, each argument's role, and what anchors it, with the
+same warnings.
 
 **Codes.** The first failure decides:
 
@@ -351,13 +353,13 @@ or 1 with a password, token or key argument; gets an argument contract
 whose roles come from its argument names (`to`, `email` and `url` are
 targets, ids, paths and named objects like `repo_name` selectors,
 `password` a credential, the rest content); and is `self_scoped` unless
-it is destructive. One flow gates every write and fetch once the
-session is tainted, `unless: anchored`. A write that runs code (`run`,
-`exec`, a `command` argument) or sends somewhere it doesn't name
-(`push`, or `reply` with no target) gets no contract, so that flow
-gates it every time; so does one whose schema admits arguments it
-doesn't name. `--strict` makes no write `self_scoped`, so a write
-naming nothing anchorable is gated too.
+it is destructive or sets a credential. One flow gates every write and
+fetch once the session is tainted, `unless: anchored`. A write that
+runs code (`run`, `exec`, a `command` argument) or sends somewhere it
+doesn't name (`push`, or `reply` with no target) gets no contract, so
+that flow gates it every time; so does one whose schema admits
+arguments it doesn't name. `--strict` makes no write `self_scoped`, so
+a write naming nothing anchorable is gated too.
 
 A comment names the word behind each tool's kind and each argument's
 role, and the header records the recipe version and the sha256 of the

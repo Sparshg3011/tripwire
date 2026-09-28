@@ -42,7 +42,6 @@ tools:
     limits: {per_session: 5}
   update_password:
     action: allow  # write: no read verb
-    self_scoped: true
     args:
       password: credential  # credential cue "password"
     limits: {per_session: 1}  # a credential argument
