@@ -74,6 +74,26 @@ v0.1 promises. Taint lives in the proxy's memory, so restarting the
 proxy starts a clean session, even if the agent still carries the text
 that tainted the old one.
 
+**Anchoring discharges one flow and nothing else.** A flow with `unless:
+anchored` lets a tainted call through when every target, selector and
+credential value is anchored: named by the user's task text, listed
+under `known`, first seen in a trusted tool's field, or minted by the
+session's own create call. It never lowers a constraint, limit,
+sequence, other flow or `require_approval`. What it doesn't stop:
+swapping one anchored value for another (a task-named recipient given
+the wrong document, a payee named in the task paid twice under the
+limit); an attacker's address or host the user typed into the task,
+negated or not; content with no link or target in it sent to an
+anchored recipient; a self-scoped write carrying injected content; a
+trusted tool whose store other people can write to; and anything the
+proxy never sees, such as another server's results or text the agent
+only restates in chat, since arguments sent before untrusted content are
+recorded as nothing. Task text and provenance live in memory like taint,
+with no ledger across sessions, so a value laundered through a store in
+one session starts fresh in the next. A denial tells the agent which of
+its own values failed and where the session first saw it, nothing it
+hadn't seen, but each refused call still answers one yes-or-no question.
+
 **Canonicalization stops where stated.** NFKC, invisible-character
 stripping, trailing-dot hosts, numeric-string parsing — and nothing
 else. No HTML-entity decoding, no percent-decoding, no base64, no
@@ -178,8 +198,10 @@ budget, such as an unknown tool, but only by filling the preview; the
 prompt then says what it left out, and the terminal adds that approving
 forwards it anyway. Both gates clip the tool, rule, reason and taint
 trail as well, at 200 characters each (web: 500), because an unknown
-tool's name comes from the caller too, so nothing the caller sends can
-grow a question past a fixed size. A nested object is clipped as a
+tool's name comes from the caller too, and under the arguments a call
+anchoring checked show where its values came from, the failed one
+first, at most four and a count of the rest, clipped the same way, so
+nothing the caller sends can grow a question past a fixed size. A nested object is clipped as a
 whole, with its members shortest first, so a long member can't hide a
 short one. Enough short members can still push a longer one past the
 clip, though, since only the top-level arguments get a budget; and a

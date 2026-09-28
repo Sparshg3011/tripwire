@@ -32,11 +32,13 @@ refused to start.
 - With `unknown_tools: allow` or `require_approval`, a tool without an entry
   still goes through sequences and flows.
 - Canonicalization rewrites only the arguments a tool's rule reads, its
-  constraint keys and its `sum_per_session` field, and forwards the rest
-  exactly as they arrived. `--tx-db` keys each call by the arguments it
+  constraint keys, its `sum_per_session` field and its contract's authority
+  arguments, and forwards the rest exactly as they arrived. `--tx-db` keys each call by the arguments it
   forwards, which in shadow mode are all of them as they arrived.
 - `evaluate()` never raises: an error during evaluation is a block with rule
   id `evaluator_error`.
+- A call that fails upstream taints the session whatever the tool's source
+  class, since the agent is handed the exception's text.
 
 ### Fixed
 
@@ -57,6 +59,19 @@ refused to start.
 
 ### Added
 
+- Argument anchoring. A flow may say `unless: anchored`, and then skips a call
+  whose every target, selector and credential value came from the user's task
+  text, a `known` value, a trusted tool's field first seen there, or an id this
+  session's own create call returned. Tool rules gain an argument contract
+  (`args`), `destructive` and `self_scoped`; policies gain `known`. Content of
+  an outward call may only link to vouched hosts, by URLs someone else wrote.
+  Anchoring discharges only its own flow. Refusals it or a contract decides
+  carry a code, a fixed explanation and a JSON object for the agent; the audit
+  log gains `task`, `intent_rejected` and `provenance_observed` records and
+  the decision's code and anchor report; `tripwire trace` and both approval
+  gates say where each checked value came from; `tripwire validate` warns
+  about a tool such a flow can never discharge. Task text reaches a session
+  through the library's `Interceptor.add_task()`.
 - `allowed_args` on a tool rule: an argument neither listed there nor read by
   the rule (a constraint key or the `sum_per_session` field) blocks the call.
 - `turns: session` on a sequence rule keeps it in force for the rest of the
