@@ -646,6 +646,8 @@ def test_path_invalid_and_unanchorable(value, outcome):
         "/repo/CLAUDE.md::$DATA",
         "/repo/CLAUDE.md.:stream",
         "/repo/.git::$INDEX_ALLOCATION/hooks/pre-commit",
+        "C:GIT~1/hooks/pre-commit",
+        "C:.git./hooks/pre-commit",
     ],
 )
 def test_control_paths_are_unanchorable(value):
@@ -666,6 +668,13 @@ def test_control_paths_are_unanchorable(value):
         "AGENTS.md",
         "My Project/.git/config",
         "My Project\\.git\\config",
+        # drive-relative: NTFS reads "C:.git" as .git on drive C
+        "C:.git/hooks/pre-commit",
+        "C:CLAUDE.md",
+        "c:.claude/settings.json",
+        "D:.mcp.json",
+        "C:.ssh/authorized_keys",
+        "C:.GIT/config",
     ],
 )
 def test_control_files_are_unanchorable_under_every_type(value):
@@ -704,6 +713,8 @@ def test_hosts_named_as_control_files_are_unanchorable():
         ("proj/audit.jsonl", ["/Users/me/proj/audit.jsonl"], Unanchorable("protected_path")),
         ("/tmp/tw-state/ledger.bin", ["/private/tmp/tw-state"], Unanchorable("protected_path")),
         ("/var/tw/Audit.log.", ["/var/tw/audit.log"], Unanchorable("protected_path")),
+        ("C:tripwire.yaml", ["/Users/me/proj/tripwire.yaml"], Unanchorable("protected_path")),
+        ("/var/tw/x:audit.log", ["/var/tw/audit.log"], Unanchorable("protected_path")),
         ("/srv/audit.jsonl.bak", ["/Users/me/proj/audit.jsonl"], PA("/srv/audit.jsonl.bak")),
     ],
 )
@@ -1793,15 +1804,16 @@ def test_no_path_with_a_control_segment_anchors(prefix, segment, rest, data):
 # anchors, and neither does anything a task names inside it.
 @given(
     prefix=st.from_regex(r"(?:/?[a-z]{1,6}/){0,3}", fullmatch=True),
+    drive=st.sampled_from(["", "C:", "d:"]),
     segment=st.sampled_from(sorted(CONTROL_SEGMENTS)),
     suffix=st.sampled_from(["", ".", " ", ". ", "::$DATA", ":x"]),
     rest=st.from_regex(r"(/[a-z]{1,6}){0,2}", fullmatch=True),
     data=st.data(),
 )
 @SETTINGS
-def test_no_value_with_a_control_segment_anchors(prefix, segment, suffix, rest, data):
+def test_no_value_with_a_control_segment_anchors(prefix, drive, segment, suffix, rest, data):
     value = "".join(data.draw(st.sampled_from([c, c.upper()])) for c in segment) + suffix
-    value = f"{prefix}{value}{rest}"
+    value = f"{prefix}{drive}{value}{rest}"
     for vtype in [*VALUE_TYPES, "auto"]:
         assert not any(isinstance(o, Key) for o in normalize_all(value, vtype)), vtype
     assert whole_fields([value]) == ()

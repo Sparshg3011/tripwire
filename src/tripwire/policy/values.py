@@ -65,8 +65,10 @@ Normalizers:
          `known` entry).
 
 Control segments (data/control_paths.txt) are compared the way APFS and
-NTFS read a segment: NFKC and casefolded, without an NTFS stream suffix
-("CLAUDE.md::$DATA") or the trailing dots and spaces Win32 drops (".git.").
+NTFS read a segment: NFKC and casefolded, whole and part by part between
+colons, since NTFS reads a drive prefix ("C:.git") and a stream suffix
+("CLAUDE.md::$DATA") off the name, and without the trailing dots and
+spaces Win32 drops (".git.").
 A segment shaped like an 8.3 short name ("GIT~1") can alias any of them and
 counts as one. A path, id or name with a control segment, split at slashes
 and backslashes, is Unanchorable under every type, auto included.
@@ -308,17 +310,20 @@ _SEGMENT_SEPARATOR = re.compile(r"[/\\]")
 _SHORT_NAME = re.compile(r"[^.~]{1,6}~[0-9]{1,6}(?:\.[^.]*)?")
 
 
-def _segment(segment: str) -> str:
-    # the name NTFS opens: no ":stream" suffix, no trailing dots or spaces
-    return _fold(segment).partition(":")[0].rstrip(". ")
+def _names(text: str) -> set[str]:
+    """Every name a segment of text may open: the segment, and each part
+    of it between colons, since NTFS reads both "C:.git" (on drive C) and
+    ".git::$INDEX_ALLOCATION" as .git. None has the trailing dots and
+    spaces Win32 drops."""
+    names: set[str] = set()
+    for segment in _SEGMENT_SEPARATOR.split(text):
+        folded = _fold(segment)
+        names.update(name.rstrip(". ") for name in (folded, *folded.split(":")))
+    return names
 
 
 def _is_control(text: str) -> bool:
-    for segment in _SEGMENT_SEPARATOR.split(text):
-        name = _segment(segment)
-        if name in CONTROL_SEGMENTS or _SHORT_NAME.fullmatch(name):
-            return True
-    return False
+    return any(name in CONTROL_SEGMENTS or _SHORT_NAME.fullmatch(name) for name in _names(text))
 
 
 def _email(text: str) -> Outcome:
@@ -467,7 +472,7 @@ def _protected_root(entry: object) -> str | None:
 
 def _is_protected(key: str, protected_paths: Sequence[str]) -> bool:
     folded = _fold(key)
-    segments = {_segment(segment) for segment in key.split("/")}
+    names = _names(key)
     for entry in protected_paths:
         root = _protected_root(entry)
         if root is None:
@@ -476,8 +481,8 @@ def _is_protected(key: str, protected_paths: Sequence[str]) -> bool:
             return True
         # "tripwire.yaml", "./audit.jsonl" and "/tmp/x/audit.jsonl" may all
         # be /private/tmp/x/audit.jsonl; only its last segment is certain
-        base = _segment(root.rpartition("/")[2])
-        if base and base in segments:
+        base = root.rpartition("/")[2].rstrip(". ")
+        if base and base in names:
             return True
     return False
 

@@ -1,7 +1,8 @@
 # Path segments that never anchor (tripwire.policy.values). A path with any
 # of these as a segment is unanchorable whatever the task or known prefixes
 # say. Compared after NFKC and casefolding, because APFS and NTFS are
-# case-insensitive by default, and without the NTFS stream suffixes and
+# case-insensitive by default, part by part between colons as well, because
+# NTFS reads drive prefixes and stream suffixes off a name, and without the
 # trailing dots and spaces Win32 ignores.
 
 # agent, editor and CI configuration
