@@ -337,6 +337,13 @@ def test_a_short_id_anchors_only_after_a_label():
     assert evaluate(call, snap("I have 13 files, delete the oldest"), policy).decision == "gate"
 
 
+def test_a_plural_acronym_labels_with_its_noun_alone():
+    policy = load({"archive": {"action": "allow", "args": {"fileIDs": "selector"}}})
+    call = ToolCall("archive", {"fileIDs": [13]})
+    assert evaluate(call, snap("archive file 13"), policy).decision == "allow"
+    assert evaluate(call, snap("see ds 13 and i 13"), policy).decision == "gate"
+
+
 FILES = {
     "write_file": {
         "action": "allow",

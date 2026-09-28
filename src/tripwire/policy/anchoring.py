@@ -103,6 +103,7 @@ from tripwire.policy.values import (
     normalize_all,
 )
 from tripwire.provenance import POISON, describe
+from tripwire.recipe import words
 
 _ACCEPTED: dict[str, tuple[Via, ...]] = {
     "target": ("task", "known", "trusted"),
@@ -114,7 +115,6 @@ _VOUCHED: tuple[Via, ...] = ("task", "known", "trusted")
 # how the shape rule reads a content leaf
 _AS_TARGET = ArgSpec(role="target")
 
-_WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+")
 _ID_WORDS = frozenset({"id", "ids", "uuid", "guid"})
 # a run of text a reader takes for one token
 _RUN = re.compile(r"[^\s<>\"'`]+")
@@ -517,7 +517,7 @@ def _leaves(name: str, value: object, *, keys: bool = False) -> Iterator[tuple[s
 def _labels(name: str) -> list[str]:
     """The words an argument's name gives a short id: file_id labels
     "file 13"."""
-    return [w for w in (m.lower() for m in _WORDS.findall(name)) if w not in _ID_WORDS]
+    return [w for w in words(name) if w not in _ID_WORDS and not w.isdigit()]
 
 
 def _read_as(value: object, vtype: str) -> str | None:

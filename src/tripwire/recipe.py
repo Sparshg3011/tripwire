@@ -8,8 +8,9 @@ sha256 of the listing and of the word tables below, so the same listing
 drafts the same YAML, byte for byte, and can be diffed; reordering its
 tools or their properties changes only the listing's hash.
 
-Words. A name splits at _, -, ., case changes and digits, lowercased:
-"getUserURL" is get, user, url.
+Words. A name splits at _, -, ., case changes and digits, lowercased,
+an acronym's plural kept whole: "getUserURL" is get, user, url, and
+"messageIDs" message, ids.
 
 Kind. A tool's verb is the first of its words in a verb table (READ,
 DESTRUCTIVE, EXEC, INDIRECT, CREATE, LOGIN). A READ verb makes it a read,
@@ -325,7 +326,8 @@ LEXICON_SHA256 = hashlib.sha256(
 
 VERBS = READ | DESTRUCTIVE | EXEC | INDIRECT | CREATE | LOGIN
 
-_WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
+# an acronym's plural is one word: "imageURLs" is image, urls
+_WORDS = re.compile(r"[A-Z]{2,}s(?![a-z])|[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 _PLAIN = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
 _FORMATS: dict[str, VType] = {"email": "email", "uri": "url"}
 

@@ -75,6 +75,14 @@ def test_words_split_at_separators_case_and_digits():
     assert words("getUserURL") == ["get", "user", "url"]
     assert words("git.create-repo_v2") == ["git", "create", "repo", "v", "2"]
     assert words("HTTPRequest") == ["http", "request"]
+    assert words("imageURLsForIDs") == ["image", "urls", "for", "ids"]
+    assert words("URLSearch") == ["url", "search"]
+
+
+def test_an_acronyms_plural_keeps_its_cue():
+    assert infer(tool("fetch_images", {"imageURLs": {"type": "array"}})).kind == "fetch"
+    reading = infer(tool("archive_messages", {"messageIDs": {"type": "array"}}))
+    assert roles(reading) == {"messageIDs": ("selector", "id", "exact")}
 
 
 def test_a_read_with_a_url_argument_is_a_fetch_whose_url_is_a_target():
