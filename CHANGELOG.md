@@ -42,6 +42,11 @@ refused to start.
 - The upstream server no longer inherits tripwire's own `TRIPWIRE_`
   environment variables, which say where the audit key and the task file
   are.
+- The AgentDojo-family adapter runs each task through the proxy's own
+  Interceptor, with the task's prompt as its task text, and writes each
+  case's audit log beside its trace. A refused call's error is now the
+  proxy's refusal, so a call the deny bound refused ends with "The approval
+  gate denied this call."
 
 ### Fixed
 
@@ -81,6 +86,18 @@ refused to start.
   call, which `tripwire hook claude-code` fills with each prompt from a
   Claude Code `UserPromptSubmit` hook
   ([docs/claude-code.md](docs/claude-code.md)).
+- `tripwire recipe` drafts a policy from an MCP server's tool listing, read
+  from the server (`--upstream`) or a saved `tools/list` result (`--tools`):
+  every tool untrusted, reads allowed, and every write and URL fetch under one
+  `unless: anchored` flow, with argument contracts inferred from argument
+  names and each inference commented. It reads names, schemas and
+  `destructiveHint`, never descriptions. `--strict` makes no write
+  `self_scoped`.
+- Recipe policies for AgentDojo's banking, slack, travel and workspace suites
+  and AgentDyn's github, shopping and dailylife, drafted from their tool
+  schemas alone in three arms (primary, strict, and a taint-only comparator),
+  with the listings they were drafted from; CI fails if redrafting them
+  changes a byte. The AgentDojo adapter runs with one arm under `--recipe`.
 - `allowed_args` on a tool rule: an argument neither listed there nor read by
   the rule (a constraint key or the `sum_per_session` field) blocks the call.
 - `turns: session` on a sequence rule keeps it in force for the rest of the

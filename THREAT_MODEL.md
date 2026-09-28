@@ -107,6 +107,15 @@ a shell. The file holds the latest prompt only, read when a call
 arrives, so a prompt replaced before any call is lost; that costs
 anchors, never adds them.
 
+**A drafted policy is only as good as the names it was drafted from.**
+`tripwire recipe` reads tool and argument names, never descriptions, so
+nothing a server writes about its tools can loosen the draft. But a
+name can mislead: a tool named like a read (`check_and_fix`) is left
+ungated, one that runs code or sends somewhere under a name no word
+table knows is an ordinary write, `self_scoped` in the primary arm, and
+an argument named like content is never anchored. The draft says in a
+comment what each inference rests on; read them before enforcing it.
+
 **Canonicalization stops where stated.** NFKC, invisible-character
 stripping, trailing-dot hosts, numeric-string parsing — and nothing
 else. No HTML-entity decoding, no percent-decoding, no base64, no

@@ -386,6 +386,7 @@ fire, and replay a candidate policy against the recorded history before tighteni
 | `tripwire serve` | Run the MCP proxy in front of an upstream server. |
 | `tripwire validate` | Reject an invalid policy before deployment. |
 | `tripwire explain` | Show each tool's argument roles and what can anchor them. |
+| `tripwire recipe` | Draft a starting policy from an MCP server's tool listing. |
 | `tripwire hook claude-code` | Hand each Claude Code prompt to `serve --task-file` ([setup](docs/claude-code.md)). |
 | `tripwire report` | Summarize policy decisions, interventions, and rules that fired. |
 | `tripwire trace` | Reconstruct one session as a causal chain with arguments and reasons. |
@@ -428,7 +429,8 @@ tripwire/
 │   ├── taint/                  # sticky session information-flow state
 │   ├── tx/                     # audit chain, forensics, and idempotency ledger
 │   ├── replay.py               # re-judge captured traffic under a candidate policy
-│   └── cli.py                  # serve · validate · verify · trace · report · replay
+│   ├── recipe.py               # draft a policy from a server's tool listing
+│   └── cli.py                  # serve · validate · recipe · verify · trace · report · replay
 ├── src/tripwire_gym/           # paired adversarial benchmark harness
 ├── src/tripwire_benchmarks/    # AgentDojo/AgentDyn adapters and publication analysis
 ├── gym/                        # scenarios, policies, frozen plans, and runners

@@ -124,3 +124,22 @@ def test_heldout_passes_the_resume_flag_only_when_asked(tmp_path, fake_python, r
     (call,) = calls()
     assert call[:2] == ["-m", "tripwire_benchmarks.heldout"]
     assert ("--allow-transport-resume" in call) is resume
+
+
+def test_recipe_policies_dump_each_benchmark_with_its_own_python(tmp_path, fake_python):
+    python, calls = fake_python
+    # the same fake, marked, so the calls say which interpreter ran them
+    agentdyn = tmp_path / "agentdyn python"
+    agentdyn.write_text(f'#!/bin/sh\nexec {shlex.quote(str(python))} agentdyn "$@"\n')
+    agentdyn.chmod(0o755)
+    env = {**os.environ, "PY": str(python), "DYN_PY": str(agentdyn)}
+
+    done = run("make_recipe_policies.sh", cwd=tmp_path, env=env)
+
+    assert done.returncode == 0, done.stderr
+    module = ["-m", "tripwire_benchmarks.recipe_policies"]
+    assert calls() == [
+        [*module, "dump", "banking", "slack", "travel", "workspace"],
+        ["agentdyn", *module, "dump", "github", "shopping", "dailylife"],
+        [*module, "generate"],
+    ]

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 
 import anyio
 
@@ -121,6 +123,21 @@ def explain(policy: Policy) -> list[str]:
     return out
 
 
+async def listed(command: str) -> bytes:
+    """An upstream's tool listing, as `recipe --tools` reads it."""
+    from tripwire.proxy import Upstream
+
+    upstream = Upstream(command)
+    await upstream.start()
+    try:
+        tools = [
+            t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in upstream.tools
+        ]
+    finally:
+        await upstream.aclose()
+    return (json.dumps(tools, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tripwire", description="MCP firewall for AI agents")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -170,6 +187,20 @@ def main(argv: list[str] | None = None) -> None:
 
     p_explain = sub.add_parser("explain", help="say what anchors each argument of a policy")
     p_explain.add_argument("policy")
+
+    p_recipe = sub.add_parser(
+        "recipe", help="draft a policy from an MCP server's tool listing, to stdout"
+    )
+    listing = p_recipe.add_mutually_exclusive_group(required=True)
+    listing.add_argument("--tools", help="a tools/list result saved as JSON")
+    listing.add_argument(
+        "--upstream", help='an MCP server command to read the listing from, e.g. "npx some-server"'
+    )
+    p_recipe.add_argument(
+        "--strict",
+        action="store_true",
+        help="make no tool self_scoped, so a write naming nothing anchorable is always gated",
+    )
 
     p_hook = sub.add_parser("hook", help="hand an agent host's prompts to serve --task-file")
     hosts = p_hook.add_subparsers(dest="host", required=True)
@@ -226,6 +257,21 @@ def main(argv: list[str] | None = None) -> None:
             print(line)
         for warning in policy_warnings(policy):
             print(f"warning: {warning}", file=sys.stderr)
+
+    elif args.command == "recipe":
+        from tripwire.proxy import UpstreamError
+        from tripwire.recipe import recipe
+
+        try:
+            if args.tools is not None:
+                source = Path(args.tools).read_bytes()
+            else:
+                source = anyio.run(listed, args.upstream)
+            print(recipe(source, arm="strict" if args.strict else "primary"), end="")
+        # ValueError: a RecipeError, or a command shlex can't split
+        except (OSError, ValueError, UpstreamError) as e:
+            print(f"tripwire recipe: {e}", file=sys.stderr)
+            sys.exit(1)
 
     elif args.command == "verify":
         try:

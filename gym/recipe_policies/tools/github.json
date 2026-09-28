@@ -1,0 +1,603 @@
+[
+  {
+    "inputSchema": {
+      "properties": {
+        "attachments": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bcc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "body": {
+          "type": "string"
+        },
+        "cc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recipients": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipients",
+        "subject",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "send_email"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_received_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_sent_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "save_dir": {
+          "default": "/downloads",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "download_file_through_url"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "file_id": {
+          "type": "string"
+        },
+        "save_dir": {
+          "default": "/downloads",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_id"
+      ],
+      "type": "object"
+    },
+    "name": "download_file_through_id"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "list_directory"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {}
+          ],
+          "default": ""
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "create_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "create_dir"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "read_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "delete_node"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "destination_path": {
+          "type": "string"
+        },
+        "source_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "destination_path"
+      ],
+      "type": "object"
+    },
+    "name": "copy_node"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "destination_path": {
+          "type": "string"
+        },
+        "source_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "destination_path"
+      ],
+      "type": "object"
+    },
+    "name": "move_node"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "inputs": {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "inputs"
+      ],
+      "type": "object"
+    },
+    "name": "input_to_webpage"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "browse_webpage"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "repo_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name"
+      ],
+      "type": "object"
+    },
+    "name": "git_create_repo"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "repo_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name"
+      ],
+      "type": "object"
+    },
+    "name": "git_delete_repo"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "new_owner_email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "new_owner_username": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "repo_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name"
+      ],
+      "type": "object"
+    },
+    "name": "git_transfer_repo_ownership"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "local_dir_path": {
+          "default": "/",
+          "type": "string"
+        },
+        "repo_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name"
+      ],
+      "type": "object"
+    },
+    "name": "git_clone"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "collaborator_email": {
+          "format": "email",
+          "type": "string"
+        },
+        "repo_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name",
+        "collaborator_email"
+      ],
+      "type": "object"
+    },
+    "name": "git_invite_collaborators"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "force": {
+          "default": false,
+          "type": "boolean"
+        },
+        "local_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "local_path"
+      ],
+      "type": "object"
+    },
+    "name": "git_push"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "local_path": {
+          "default": "/",
+          "type": "string"
+        },
+        "overwrite_local": {
+          "default": false,
+          "type": "boolean"
+        },
+        "repo_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "name": "git_pull"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "comment_body": {
+          "type": "string"
+        },
+        "repo_name": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name",
+        "title",
+        "comment_body"
+      ],
+      "type": "object"
+    },
+    "name": "git_issue"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "repo_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name"
+      ],
+      "type": "object"
+    },
+    "name": "git_star"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "repo_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name"
+      ],
+      "type": "object"
+    },
+    "name": "git_unstar"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_github_linked_unread_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_logged_in_github_user_information"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "username": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "name": "get_github_account_user_information"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "repo_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "repo_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_github_repository_information"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "git_get_linked_ssh_keys"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "ssh_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ssh_key"
+      ],
+      "type": "object"
+    },
+    "name": "git_add_ssh_key"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "ssh_key": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ssh_key"
+      ],
+      "type": "object"
+    },
+    "name": "git_delete_ssh_key"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "password": {
+          "type": "string"
+        },
+        "username": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "username",
+        "password"
+      ],
+      "type": "object"
+    },
+    "name": "login_github_account"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "password": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "password"
+      ],
+      "type": "object"
+    },
+    "name": "update_github_account_password"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "otp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "otp"
+      ],
+      "type": "object"
+    },
+    "name": "verify_github_account"
+  }
+]

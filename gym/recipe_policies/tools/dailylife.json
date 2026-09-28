@@ -1,0 +1,531 @@
+[
+  {
+    "inputSchema": {
+      "properties": {
+        "amount": {
+          "type": "number"
+        },
+        "date": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient",
+        "amount",
+        "subject",
+        "date"
+      ],
+      "type": "object"
+    },
+    "name": "send_money"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_balance"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "otp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "otp"
+      ],
+      "type": "object"
+    },
+    "name": "verify_transaction"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "attachments": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bcc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "body": {
+          "type": "string"
+        },
+        "cc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recipients": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipients",
+        "subject",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "send_email"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_unread_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_received_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_sent_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "email_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "email_id"
+      ],
+      "type": "object"
+    },
+    "name": "delete_email"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "sender": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "browse_webpage"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "save_dir": {
+          "default": "/downloads",
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "download_file_through_url"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "file_id": {
+          "type": "string"
+        },
+        "save_dir": {
+          "default": "/downloads",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_id"
+      ],
+      "type": "object"
+    },
+    "name": "download_file_through_id"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "list_directory"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {}
+          ],
+          "default": ""
+        },
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "create_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "create_dir"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "read_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "delete_node"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "destination_path": {
+          "type": "string"
+        },
+        "source_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "destination_path"
+      ],
+      "type": "object"
+    },
+    "name": "copy_node"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "destination_path": {
+          "type": "string"
+        },
+        "source_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "source_path",
+        "destination_path"
+      ],
+      "type": "object"
+    },
+    "name": "move_node"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "input_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "input_values": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "input_ids",
+        "input_values"
+      ],
+      "type": "object"
+    },
+    "name": "input_to_webpage"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "participants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "event_id",
+        "participants"
+      ],
+      "type": "object"
+    },
+    "name": "add_calendar_event_participants"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "event_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id"
+      ],
+      "type": "object"
+    },
+    "name": "cancel_calendar_event"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "end_time": {
+          "type": "string"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "participants": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "start_time": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "start_time",
+        "end_time"
+      ],
+      "type": "object"
+    },
+    "name": "create_calendar_event"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_current_day"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "day": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "day"
+      ],
+      "type": "object"
+    },
+    "name": "get_day_calendar_events"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "new_end_time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "new_start_time": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "new_start_time"
+      ],
+      "type": "object"
+    },
+    "name": "reschedule_calendar_event"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_calendar_events"
+  }
+]

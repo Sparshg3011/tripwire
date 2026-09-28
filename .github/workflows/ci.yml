@@ -53,7 +53,7 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev,publication]"
-      - run: pytest -q tests/test_agentdojo_adapter.py tests/test_autodojo.py tests/test_heldout.py tests/test_protectai_heldout.py tests/test_action_reviewer.py tests/test_agentdojo_review.py tests/test_benchmark_transport.py tests/test_review_smoke.py tests/test_review_policy_v2.py tests/test_review_audit.py
+      - run: pytest -q tests/test_agentdojo_adapter.py tests/test_autodojo.py tests/test_heldout.py tests/test_protectai_heldout.py tests/test_action_reviewer.py tests/test_agentdojo_review.py tests/test_benchmark_transport.py tests/test_review_smoke.py tests/test_review_policy_v2.py tests/test_review_audit.py tests/test_recipe_policies.py tests/test_agentdojo_interceptor.py
 
   package:
     runs-on: ubuntu-latest
