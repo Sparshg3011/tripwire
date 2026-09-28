@@ -92,7 +92,16 @@ more directly. They can be added later as clearly labelled secondary results.
   reruns of one attack do not become five independently authored attacks.
 - The AgentDojo-family adapter enforces Tripwire **before** a Python tool runs.
   Blocked calls do not alter the stateful application and do not appear in the
-  executed trace used by official benchmark checkers.
+  executed trace used by official benchmark checkers. Each task runs through
+  the proxy's own Interceptor, with the suite's functions as its upstream, the
+  task's prompt as its task text, and a hash-chained audit log written beside
+  the task's trace (`<injection task or none>.tripwire.jsonl`, whose sha256 the
+  trace records). A test replays what the adapter saw through the real proxy
+  and a stdio server and gets the same audit records. AgentDojo still receives
+  each function's own result and error; a refused call's error is the proxy's
+  refusal, which for a gated call ends with the gate's answer ("The approval
+  gate denied this call."). The frozen runs above predate this and handed the
+  model the verdict's reason alone.
 - The frozen AgentDojo primary matrix is complete: 844 paired attacks and 85
   benign tasks per condition, zero trace errors, a hashed selection and policy
   contract, an explicit transport-resume receipt, and predeclared clustered

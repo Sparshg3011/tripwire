@@ -39,6 +39,11 @@ refused to start.
   id `evaluator_error`.
 - A call that fails upstream taints the session whatever the tool's source
   class, since the agent is handed the exception's text.
+- The AgentDojo-family adapter runs each task through the proxy's own
+  Interceptor, with the task's prompt as its task text, and writes each
+  case's audit log beside its trace. A refused call's error is now the
+  proxy's refusal, so a call the deny bound refused ends with "The approval
+  gate denied this call."
 
 ### Fixed
 
