@@ -94,6 +94,15 @@ one session starts fresh in the next. A denial tells the agent which of
 its own values failed and where the session first saw it, nothing it
 hadn't seen, but each refused call still answers one yes-or-no question.
 
+**A drafted policy is only as good as the names it was drafted from.**
+`tripwire recipe` reads tool and argument names, never descriptions, so
+nothing a server writes about its tools can loosen the draft. But a
+name can mislead: a tool named like a read (`check_and_fix`) is left
+ungated, one that runs code or sends somewhere under a name no word
+table knows is an ordinary write, `self_scoped` in the primary arm, and
+an argument named like content is never anchored. The draft says in a
+comment what each inference rests on; read them before enforcing it.
+
 **Canonicalization stops where stated.** NFKC, invisible-character
 stripping, trailing-dot hosts, numeric-string parsing — and nothing
 else. No HTML-entity decoding, no percent-decoding, no base64, no
