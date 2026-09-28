@@ -16,7 +16,8 @@ Kind. A tool's verb is the first of its words in a verb table (READ,
 DESTRUCTIVE, EXEC, INDIRECT, CREATE, LOGIN). A READ verb makes it a read,
 unless it has destructiveHint: true; any other verb, or none, a write.
 readOnlyHint never turns a write into a read. A read with a URL
-argument, one with a URL word or format uri, is a fetch.
+argument, one with a URL word or format uri, is a fetch, whether or not
+its schema names every argument it takes.
 
   write        destructive when a word is in DESTRUCTIVE, or it has
                destructiveHint: true. exec when a word is in EXEC or an
@@ -402,7 +403,8 @@ def infer(tool: Mapping[str, Any]) -> Reading:
     props = _properties(tool.get("inputSchema"))
 
     if verb in READ and not hinted:
-        urls = [n for n, p in props or () if _is_url(n, p)]
+        listed = _properties(tool.get("inputSchema"), every=False) or ()
+        urls = [n for n, p in listed if _is_url(n, p)]
         if not urls:
             return Reading(name, "read", f'read: "{verb}"')
         cue = f'fetch: "{verb}" with a URL argument'
@@ -512,15 +514,20 @@ def _scalar(text: str) -> str:
     return yaml.safe_dump(text, default_style='"', width=2**31).rstrip("\n")
 
 
-def _properties(schema: object) -> list[tuple[str, Mapping[str, Any]]] | None:
-    """An input schema's arguments, sorted by name; None when it doesn't
-    name every argument it takes."""
+def _properties(
+    schema: object, *, every: bool = True
+) -> list[tuple[str, Mapping[str, Any]]] | None:
+    """An input schema's named arguments, sorted by name; None when it
+    has no properties to read or, with every, when they aren't every
+    argument it takes."""
     if not isinstance(schema, Mapping):
         return None
     props = schema.get("properties", {})
-    if not isinstance(props, Mapping) or schema.get("patternProperties"):
+    if not isinstance(props, Mapping):
         return None
-    if schema.get("additionalProperties") not in (None, False):
+    if every and (
+        schema.get("patternProperties") or schema.get("additionalProperties") not in (None, False)
+    ):
         return None
     named = [(str(n), p if isinstance(p, Mapping) else {}) for n, p in props.items()]
     return sorted(named, key=lambda arg: arg[0])

