@@ -18,7 +18,9 @@ Two security properties, both load-bearing:
 
 Stdlib http.server on a daemon thread; no new dependencies. Decisions
 cross from that thread by plain assignment, and request() polls for
-them — humans take seconds, so a 200ms poll is invisible.
+them — humans take seconds, so a 200ms poll is invisible. The thread
+that brought an answer waits for that poll, so the page can say
+whether the answer counted.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from __future__ import annotations
 import html
 import secrets
 import threading
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -34,24 +36,42 @@ from urllib.parse import parse_qs, urlsplit
 
 import anyio
 
-from tripwire.gate.base import ApprovalRequest, GateUnavailable, clip, encode_args
+from tripwire.gate.base import (
+    NAME_PREVIEW,
+    ApprovalRequest,
+    GateUnavailable,
+    clip,
+    more_args,
+    preview_arg,
+    preview_args,
+)
 
 POLL_SECONDS = 0.2
+ANSWER_WAIT = 2.0  # for request() to take an answer; it looks every POLL_SECONDS
 
 
 @dataclass
 class _Pending:
     req: ApprovalRequest
     decision: bool | None = None
+    taken: bool = False  # request() handed the decision to its caller
 
 
 ARG_PREVIEW = 1000  # per value; the rest of a longer one sits folded below the preview
+# In all, too, so a flood of arguments can't push the rule and the buttons
+# a long scroll away; the arguments that don't fit are folded below as well.
+ARG_BUDGET = 4000
+ARG_WIDTH = 70  # short args share a line this long; the preview box holds 71 a row
+# The tool, rule, reason and taint trail, above the buttons as well. An
+# unknown tool's name is the caller's to pick, and the reason and the
+# trail can repeat it.
+FIELD_PREVIEW = 500
 
 
 class WebGate:
     def __init__(self, port: int = 8642):
         self._pending: dict[str, _Pending] = {}
-        self._mutex = threading.Lock()
+        self._mutex = threading.Condition()  # notified as each question closes
         self.token = secrets.token_urlsafe(16)
         try:
             self._server = ThreadingHTTPServer(("127.0.0.1", port), _handler_for(self))
@@ -72,20 +92,37 @@ class WebGate:
         with self._mutex:
             self._pending[rid] = entry
         try:
-            while entry.decision is None:
+            while True:
+                with self._mutex:
+                    if entry.decision is not None:
+                        entry.taken = True
+                        return entry.decision
                 await anyio.sleep(POLL_SECONDS)
-            return entry.decision
         finally:
             # reached on decision or on timeout-cancellation from the
             # interceptor; either way the question is no longer open
             with self._mutex:
                 self._pending.pop(rid, None)
+                self._mutex.notify_all()
 
-    def _decide(self, rid: str, approve: bool) -> None:
+    def _decide(self, rid: str, approve: bool) -> bool:
+        """Record an answer, and say whether it counted.
+
+        It counts once request() takes it, and a timeout can close the
+        question between the answer arriving and request() looking, so
+        this waits to see which comes first. An answer still untaken after
+        ANSWER_WAIT is withdrawn: the human is about to be told it changed
+        nothing, so it mustn't count later.
+        """
         with self._mutex:
             entry = self._pending.get(rid)
-            if entry is not None and entry.decision is None:
-                entry.decision = approve
+            if entry is None or entry.decision is not None:
+                return False
+            entry.decision = approve
+            self._mutex.wait_for(lambda: rid not in self._pending, ANSWER_WAIT)
+            if not entry.taken:
+                entry.decision = None
+            return entry.taken
 
     def _snapshot(self) -> list[tuple[str, ApprovalRequest]]:
         with self._mutex:
@@ -103,19 +140,56 @@ PAGE = """<!doctype html>
 <style>
   body {{ font: 15px/1.5 system-ui, sans-serif; max-width: 44rem; margin: 3rem auto; padding: 0 1rem; }}
   .card {{ border: 1px solid #ccc; border-radius: 8px; padding: 1rem 1.2rem; margin: 1rem 0; }}
-  .taint {{ color: #b00; font-weight: 600; }}
+  .closed {{ opacity: .45; }}
+  .taint, .late {{ color: #b00; font-weight: 600; }}
   pre {{ background: #f6f6f6; padding: .6rem; border-radius: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }}
   button {{ font: inherit; padding: .4rem 1.2rem; border-radius: 6px; border: 1px solid #888; cursor: pointer; }}
   form {{ display: inline; margin-right: .5rem; }}
 </style>
 <h2>tripwire</h2>
-{body}
+{notice}
+<div id="cards">{body}</div>
+<script>{script}</script>
 """
 
-CARD = """<div class="card">
+# The page keeps itself current without reloading. A reload would fold
+# away a value the human opened to read, and a card leaving would slide
+# the next one's buttons under their cursor. So a card whose question
+# closed stays where it is, greyed out with its buttons off, and a new
+# one joins the end. Without scripts reloading is all there is, so the
+# page does it only while idle, to pick up the first question.
+POLL = """
+async function poll() {
+  let fresh;
+  try {
+    const response = await fetch(location.href);
+    if (!response.ok) return;
+    fresh = new DOMParser().parseFromString(await response.text(), "text/html");
+  } catch {
+    return;
+  }
+  const open = new Map([...fresh.querySelectorAll(".card")].map((c) => [c.dataset.rid, c]));
+  for (const card of document.querySelectorAll(".card:not(.closed)")) {
+    if (open.delete(card.dataset.rid)) continue;
+    card.classList.add("closed");
+    for (const button of card.querySelectorAll("button")) button.disabled = true;
+    const note = "<p>Closed: answered elsewhere, or timed out and refused.</p>";
+    card.insertAdjacentHTML("beforeend", note);
+  }
+  if (open.size) document.getElementById("idle")?.remove();
+  document.getElementById("cards").append(...open.values());
+}
+setInterval(poll, 2000);
+"""
+
+RELOAD = '<noscript><meta http-equiv="refresh" content="2"></noscript>'
+
+LATE = '<p class="late">That answer did not reach its request in time, so it changed nothing.</p>'
+
+CARD = """<div class="card" data-rid="{rid}">
 <b>{tool}</b> (turn {turn}) — {taint}
 {args}
-<p>{rule}: {reason}</p>
+<p>{rule}: {reason}</p>{fields}
 <form method="post" action="/decide"><input type="hidden" name="k" value="{k}">
 <input type="hidden" name="rid" value="{rid}"><input type="hidden" name="action" value="approve">
 <button>Approve</button></form>
@@ -132,19 +206,55 @@ def _token_ok(given: str, expected: str) -> bool:
     return secrets.compare_digest(given, expected)
 
 
-def _args_html(args: Mapping[str, Any]) -> str:
-    """One line per argument, then in full every value the preview clipped."""
-    lines: list[str] = []
-    whole: list[str] = []
-    for name, value in encode_args(args):
-        lines.append(f"{html.escape(name)}: {html.escape(clip(value, ARG_PREVIEW))}")
-        if len(value) > ARG_PREVIEW:
-            whole.append(
-                f"<details><summary>{html.escape(name)} in full</summary>"
-                f"<pre>{html.escape(value)}</pre></details>"
-            )
+def _args_html(args: Mapping[str, Any], checked: Collection[str] = frozenset()) -> str:
+    """The arguments that fit, then, folded and in full, the ones that
+    didn't and every one the preview clipped."""
+    lines, shown, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_WIDTH, ARG_BUDGET)
     preview = "\n".join(lines) or "{}"
-    return f"<pre>{preview}</pre>" + "".join(whole)
+    parts = [f"<pre>{html.escape(preview)}</pre>"]
+    if hidden:
+        rest = "\n".join(f"{name}: {value}" for name, value in hidden)
+        parts.append(
+            f"<details><summary>{more_args(hidden)}</summary>"
+            f"<pre>{html.escape(rest)}</pre></details>"
+        )
+    for name, value in shown:
+        whole = f"{name}: {value}"
+        if preview_arg(name, value, ARG_PREVIEW) != whole:
+            parts.append(
+                f"<details><summary>{html.escape(clip(name, NAME_PREVIEW))} in full</summary>"
+                f"<pre>{html.escape(whole)}</pre></details>"
+            )
+    return "".join(parts)
+
+
+def _card(rid: str, req: ApprovalRequest, token: str) -> str:
+    """One open question. The text the caller could have written is
+    clipped, like the arguments, and folded below the rule in full."""
+    trail = ", ".join(req.tainted_by) if req.tainted else ""
+    taint = "<span class=taint>tainted session</span>" if req.tainted else "clean session"
+    if trail:
+        taint += f" (via {_field(trail)})"
+    fields = {"tool": req.tool, "rule": req.rule_id, "reason": req.reason, "taint trail": trail}
+    return CARD.format(
+        tool=_field(req.tool),
+        turn=req.turn,
+        taint=taint,
+        args=_args_html(req.args, req.checked),
+        rule=_field(req.rule_id),
+        reason=_field(req.reason),
+        fields="".join(
+            f"<details><summary>{label} in full</summary><pre>{html.escape(text)}</pre></details>"
+            for label, text in fields.items()
+            if len(text) > FIELD_PREVIEW
+        ),
+        rid=html.escape(rid),
+        k=html.escape(token),
+    )
+
+
+def _field(text: str) -> str:
+    return html.escape(clip(text, FIELD_PREVIEW))
 
 
 def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
@@ -163,36 +273,16 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
                 self.send_response(404)
                 self.end_headers()
                 return
-            if not _token_ok(parse_qs(url.query).get("k", [""])[0], gate.token):
+            query = parse_qs(url.query)
+            if not _token_ok(query.get("k", [""])[0], gate.token):
                 self._forbidden()
                 return
 
-            cards = []
-            for rid, req in gate._snapshot():
-                taint = (
-                    "<span class=taint>tainted session</span>" if req.tainted else "clean session"
-                )
-                if req.tainted and req.tainted_by:
-                    taint += f" (via {html.escape(', '.join(req.tainted_by))})"
-                cards.append(
-                    CARD.format(
-                        tool=html.escape(req.tool),
-                        turn=req.turn,
-                        taint=taint,
-                        args=_args_html(req.args),
-                        rule=html.escape(req.rule_id),
-                        reason=html.escape(req.reason),
-                        rid=html.escape(rid),
-                        k=html.escape(gate.token),
-                    )
-                )
-            body = "\n".join(cards) if cards else "<p>Nothing waiting for approval.</p>"
-            # Refresh only while idle, to pick up the first request. With one
-            # open, a reload would snap shut the value the human expanded to
-            # read, and a card timing out above could slide another card's
-            # buttons under their cursor.
-            refresh = "" if cards else '<meta http-equiv="refresh" content="2">'
-            page = PAGE.format(refresh=refresh, body=body).encode()
+            cards = [_card(rid, req, gate.token) for rid, req in gate._snapshot()]
+            body = "\n".join(cards) if cards else '<p id="idle">Nothing waiting for approval.</p>'
+            notice = LATE if "late" in query else ""
+            refresh = "" if cards else RELOAD
+            page = PAGE.format(refresh=refresh, notice=notice, body=body, script=POLL).encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.end_headers()
@@ -212,10 +302,12 @@ def _handler_for(gate: WebGate) -> type[BaseHTTPRequestHandler]:
             rid = form.get("rid", [""])[0]
             action = form.get("action", [""])[0]
             # only the exact string "approve" approves; junk denies
-            gate._decide(rid, approve=action == "approve")
+            counted = gate._decide(rid, approve=action == "approve")
 
+            # An answer to a question that already closed changes nothing,
+            # and the page after it would look just like one that counted.
             self.send_response(303)
-            self.send_header("Location", f"/?k={gate.token}")
+            self.send_header("Location", f"/?k={gate.token}" + ("" if counted else "&late=1"))
             self.end_headers()
 
     return Handler

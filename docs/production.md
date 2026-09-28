@@ -97,9 +97,11 @@ or those calls are simply refused:
 - `--gate cli` — prompts on the controlling terminal. Only works when
   you started tripwire from a shell.
 
-Both list every argument and clip long values one by one. Only the web
-page can show a clipped value in full, so prefer it for tools whose
-arguments run long, like an email body or a file's contents.
+Both list the arguments your policy checks first, clip long names and
+values one by one, and stop at a fixed size, saying how many arguments
+they left out. Only the web page can show what it clipped or left out,
+so prefer it for tools whose arguments run long, like an email body or
+a file's contents.
 
 ## Operations
 

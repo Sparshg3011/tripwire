@@ -22,6 +22,7 @@ from mcp import types
 
 from tripwire.gate import ApprovalGate, ApprovalRequest
 from tripwire.policy.canonical import canonicalize as real_canonicalize
+from tripwire.policy.canonical import checked_fields
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
 from tripwire.policy.types import Canonicalizer, Evaluator, SessionSnapshot, ToolCall, Verdict
@@ -232,6 +233,7 @@ class Interceptor:
             tainted=snapshot.tainted,
             tainted_by=self._taint_trail(),
             turn=snapshot.turn,
+            checked=checked_fields(name, self.policy),
             approval_scope=self.session.approval_scope,
         )
         timeout = self.policy.defaults.gate_timeout_seconds
