@@ -304,7 +304,7 @@ same warnings.
 |---|---|---|
 | `unexpected_argument` | `tools.<t>.args` | an argument outside the rule; any time |
 | `invalid_value` | `tools.<t>.args.<arg>` | a target that can't be read; any time |
-| `unanchored_argument` | `tools.<t>.args.<arg>` | an authority value no accepted source vouches for |
+| `unanchored_argument` | `tools.<t>.args.<arg>` | an authority value no accepted source vouches for, or content naming a control or tripwire file |
 | `url_not_verbatim` | `tools.<t>.args.<arg>` | a URL with a suffix nobody wrote |
 | `link_unanchored` | `tools.<t>.args.<arg>` | a link to an unvouched host |
 | `destructive_needs_anchor` | `tools.<t>.destructive` | no authority value on a destructive tool |

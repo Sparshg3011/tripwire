@@ -40,7 +40,8 @@ VALUE_CHARS = 80
 EXPLAINED = {
     "unanchored_argument": (
         "After untrusted content, who a call reaches, what it acts on and any secret it sets "
-        "must come from the user's task, the policy's known values or a trusted tool."
+        "must come from the user's task, the policy's known values or a trusted tool, and no "
+        "argument may name a control file or one of tripwire's own."
     ),
     "invalid_value": "A recipient that can't be read one way only is refused at any time.",
     "unexpected_argument": "The policy lists the arguments this tool takes.",
