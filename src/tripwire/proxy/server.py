@@ -7,6 +7,7 @@ through the interceptor instead of the tool.
 
 from __future__ import annotations
 
+import os
 import secrets
 import sys
 from pathlib import Path
@@ -91,8 +92,12 @@ async def serve(
         },
     )
 
-    session = SessionState(policy)
-    server = build_server(Interceptor(policy, audit, upstream, session, gate=gate, tx=tx))
+    # what no argument may anchor to, however it is spelled
+    protected = [os.path.realpath(path) for path in (policy_path, audit_path, tx_db) if path]
+    session = SessionState(policy, protected_paths=protected)
+    interceptor = Interceptor(policy, audit, upstream, session, gate=gate, tx=tx)
+    await interceptor.observe_listing(upstream.tools)
+    server = build_server(interceptor)
     try:
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())

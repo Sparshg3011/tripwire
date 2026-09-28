@@ -33,7 +33,12 @@ Rules:
     The error text came from upstream too, and "fetch failed: <attacker
     controlled url echoed back>" is a perfectly good injection vector.
 
-  * Only results taint. Making a call doesn't; nothing has come back yet.
+  * An upstream failure with no result taints whatever the tool's class:
+    the agent is handed the exception's text instead, and nothing
+    vouches for what an upstream put in that.
+
+  * Only results and failures taint. Making a call doesn't; nothing has
+    come back yet.
 
   * Blocked calls never reach here at all — the interceptor only reports
     results it actually received.
@@ -41,8 +46,8 @@ Rules:
   * Sticky: once tainted, tainted. observe_result() must never be able
     to turn it back off.
 
-  * tainted_by accumulates every untrusted tool whose result we saw, not
-    just the first one, deduplicated, in the order the results arrived.
+  * tainted_by accumulates every tool whose result or failure tainted,
+    not just the first one, deduplicated, in the order they arrived.
     Results, not calls: this object is fed outcomes, and it has no way
     to know what order the calls went out in. `tripwire trace` reads
     this to answer "what made this session dirty, and what kept it
@@ -86,6 +91,14 @@ class TaintTracker:
         """
         if self.policy.source_class(tool) != "untrusted":
             return
+        self._taint(tool)
+
+    def observe_failure(self, tool: str) -> None:
+        """Report that calling `tool` failed upstream and the agent was
+        handed the error's text. Taints, whatever the tool's class."""
+        self._taint(tool)
+
+    def _taint(self, tool: str) -> None:
         self._tainted = True
         if tool not in self._by:
             self._by.append(tool)

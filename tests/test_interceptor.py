@@ -45,6 +45,9 @@ class FakeTaint:
             raise RuntimeError("taint store went away")
         self.observed.append((tool, is_error))
 
+    def observe_failure(self, tool):
+        self.observe_result(tool, is_error=True)
+
 
 class FakeUpstream:
     def __init__(self, boom=None):

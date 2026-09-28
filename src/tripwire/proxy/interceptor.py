@@ -8,14 +8,21 @@ evaluator first, and no branch that returns without an audit record.
 The two jobs it does not do itself — canonicalizing args and deciding —
 are injected so they can be faked in tests, but the defaults are the
 real ones and the proxy never passes anything else.
+
+Everything the session learns comes through here too: the user's task
+text (add_task()), the upstream's tool listing (observe_listing()), and
+what each executed call showed the agent, its result or the text of its
+failure, which _remember() hands the session before it counts the call.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import sys
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, NoReturn
 
 import anyio
 from mcp import types
@@ -26,12 +33,13 @@ from tripwire.policy.canonical import checked_fields
 from tripwire.policy.evaluator import evaluate as real_evaluate
 from tripwire.policy.schema import Policy
 from tripwire.policy.types import Canonicalizer, Evaluator, SessionSnapshot, ToolCall, Verdict
+from tripwire.provenance import Observed
+from tripwire.proxy.denial import denied
+from tripwire.proxy.denial import refused as _refused
 from tripwire.proxy.upstream import Upstream
-from tripwire.session import SessionState
+from tripwire.session import SessionState, TaskRejected
 from tripwire.tx import AuditLog, AuditWriteError
 from tripwire.tx.executor import DuplicateInFlight, TxError, TxExecutor
-
-BLOCKED_CODE = "tripwire_blocked"
 
 DECISIONS = ("allow", "block", "gate")
 
@@ -46,18 +54,22 @@ def _describe(e: BaseException) -> str:
     return f"{type(e).__name__}: {text}" if text else type(e).__name__
 
 
-def _refused(reason: str, rule_id: str) -> types.CallToolResult:
-    """What the agent gets instead of the tool.
+def _halt(error: AuditWriteError) -> NoReturn:
+    # We can't write down what we're about to do, so we stop doing
+    # things. This lives here rather than in the server wrapper because
+    # every way of using tripwire — proxy or library — comes through
+    # the interceptor.
+    print(f"tripwire: FATAL: {error}", file=sys.stderr, flush=True)
+    os._exit(70)
 
-    It's a normal tool error, not a protocol error, so the model reads it
-    and can say "I wasn't allowed to do that" rather than falling over.
-    The reason is written for that reader.
-    """
-    return types.CallToolResult(
-        isError=True,
-        content=[
-            types.TextContent(type="text", text=f"{BLOCKED_CODE}: {reason} (rule: {rule_id})")
-        ],
+
+def _listing(tools: Sequence[types.Tool]) -> str:
+    """The tool listing as the agent receives it, one JSON text: names,
+    descriptions, schemas, annotations, everything an upstream wrote."""
+    return json.dumps(
+        [tool.model_dump(mode="json", by_alias=True, exclude_none=True) for tool in tools],
+        sort_keys=True,
+        ensure_ascii=False,
     )
 
 
@@ -95,43 +107,79 @@ class Interceptor:
             async with self._lock:
                 return await self._handle(name, arguments)
         except AuditWriteError as e:
-            # We can't write down what we're about to do, so we stop
-            # doing things. This lives here rather than in the server
-            # wrapper because every way of using tripwire — proxy or
-            # library — comes through this method.
-            print(f"tripwire: FATAL: {e}", file=sys.stderr, flush=True)
-            os._exit(70)
+            _halt(e)
+
+    async def add_task(self, text: str, source: str) -> int:
+        """Add a segment of the user's task text and return its number.
+        What it names anchors in every later call of the session. The
+        log gets its hash and size, never the text. Raises TaskRejected,
+        after an intent_rejected record, for text that isn't UTF-8 or is
+        over 64 KiB of it."""
+        try:
+            async with self._lock:
+                try:
+                    segment = self.session.add_task(text, source)
+                except TaskRejected as e:
+                    shown = source if isinstance(source, str) else None
+                    self.audit.append("intent_rejected", {"source": shown, "reason": str(e)})
+                    raise
+                self.audit.append(
+                    "task",
+                    {
+                        "segment": segment,
+                        "source": source,
+                        "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                        "chars": len(text),
+                    },
+                )
+                return segment
+        except AuditWriteError as e:
+            _halt(e)
+
+    async def observe_listing(self, tools: Sequence[types.Tool]) -> None:
+        """The upstream's tool listing, as the agent is shown it: every
+        word of it is the upstream's, so it poisons what it names. It
+        doesn't taint."""
+        try:
+            async with self._lock:
+                self._observed(None, self.session.observe_listing(_listing(tools)))
+        except AuditWriteError as e:
+            _halt(e)
 
     async def _handle(self, name: str, arguments: Mapping[str, Any]) -> types.CallToolResult:
         verdict, args, snapshot = self._decide(name, arguments)
 
-        self.audit.append(
-            "decision",
-            {
-                "tool": name,
-                # the args go here, not just on the forward: a refused
-                # call is exactly the one whose arguments you want to
-                # read afterwards, and it never gets a tool_call record
-                "args": args,
-                "decision": verdict.decision,
-                "rule": verdict.rule_id,
-                "reason": verdict.reason,
-                "shadow": verdict.shadow,
-                "tainted": snapshot.tainted,
-                "turn": snapshot.turn,
-            },
-        )
+        decision: dict[str, Any] = {
+            "tool": name,
+            # the args go here, not just on the forward: a refused
+            # call is exactly the one whose arguments you want to
+            # read afterwards, and it never gets a tool_call record
+            "args": args,
+            "decision": verdict.decision,
+            "rule": verdict.rule_id,
+            "reason": verdict.reason,
+            "shadow": verdict.shadow,
+            "tainted": snapshot.tainted,
+            "turn": snapshot.turn,
+        }
+        if verdict.code is not None:
+            decision["code"] = verdict.code
+        if verdict.anchors is not None:
+            decision["anchors"] = verdict.anchors.record()
+        self.audit.append("decision", decision)
 
         # shadow mode evaluates everything and stops nothing — and that
         # includes not dragging a human out of their day for a gate that
         # wouldn't have gated
         if not verdict.shadow:
             if verdict.decision == "block":
-                return _refused(verdict.reason, verdict.rule_id)
+                return denied(name, verdict, verdict.reason)
             if verdict.decision == "gate":
                 approved, why = await self._ask_human(name, args, verdict, snapshot)
                 if not approved:
-                    return _refused(f"{verdict.reason} {why}", verdict.rule_id)
+                    return denied(name, verdict, f"{verdict.reason} {why}")
+        # a self id comes only from a call the policy let run
+        mint = not verdict.shadow or verdict.decision == "allow"
 
         # Observation mode must be a genuine transport control. Evaluate
         # canonical arguments so the audit still says what enforcement
@@ -161,14 +209,13 @@ class Interceptor:
             return _refused(f"The transaction ledger is unusable ({e}).", "tx.error")
         except Exception as e:
             # Upstream died holding our request. We don't know how far it
-            # got, so the call counts and whatever came back is untrusted.
+            # got, so the call counts, and the text we hand back came from
+            # upstream: it taints, whatever the tool's class.
             self.audit.append("tool_error", {"tool": name, "error": _describe(e)})
-            self._remember(name, args, is_error=True)
+            text = f"upstream call failed: {_describe(e)}"
+            self._remember(name, args, text, mint=mint)
             return types.CallToolResult(
-                isError=True,
-                content=[
-                    types.TextContent(type="text", text=f"upstream call failed: {_describe(e)}")
-                ],
+                isError=True, content=[types.TextContent(type="text", text=text)]
             )
         except BaseException:
             # Cancellation lands here — the agent hung up, or a timeout
@@ -177,13 +224,13 @@ class Interceptor:
             # down and still counts. Then we let the cancellation finish
             # its job.
             self.audit.append("tool_cancelled", {"tool": name})
-            self._remember(name, args, is_error=True)
+            self._remember(name, args, None, mint=mint)
             raise
 
         self.audit.append("tool_result", {"tool": name, "is_error": bool(result.isError)})
         # Keep the counterfactual state in canonical form in shadow mode,
         # while the upstream still received forward_args unchanged.
-        self._remember(name, args, is_error=bool(result.isError))
+        self._remember(name, args, result, mint=mint)
         return result
 
     async def _forward(
@@ -243,6 +290,7 @@ class Interceptor:
             turn=snapshot.turn,
             checked=checked_fields(name, self.policy),
             approval_scope=self.session.approval_scope,
+            anchors=verdict.anchors,
         )
         timeout = self.policy.defaults.gate_timeout_seconds
         self.audit.append(
@@ -289,8 +337,17 @@ class Interceptor:
         except Exception:
             return ()
 
-    def _remember(self, name: str, args: Mapping[str, Any], is_error: bool) -> None:
-        """Book-keeping for a call that has already happened.
+    def _remember(
+        self,
+        name: str,
+        args: Mapping[str, Any],
+        outcome: types.CallToolResult | str | None,
+        *,
+        mint: bool,
+    ) -> None:
+        """Book-keeping for a call that has already happened: what it
+        showed the agent (its result, the text of its failure, or nothing
+        when it was cancelled), then the call itself.
 
         If this fails we do NOT turn it into an error for the agent. The
         side effect is already out there; reporting failure would invite
@@ -299,18 +356,40 @@ class Interceptor:
         """
         was_tainted = self._tainted_now()
         try:
+            observed = self.session.observe_call(
+                name, args, outcome, tainted=was_tainted, may_mint=mint
+            )
             self.session.record(name, args)
-            self.session.observe_result(name, is_error=is_error)
+            if isinstance(outcome, str):
+                self.session.observe_failure(name)
+            else:
+                self.session.observe_result(name, is_error=outcome is None or bool(outcome.isError))
         except Exception as e:
             self.session.broken = f"lost track of the session after {name}: {_describe(e)}"
             self.audit.append("state_error", {"tool": name, "error": _describe(e)})
             return
 
+        self._observed(name, observed)
         # The moment untrusted content entered is the first line of any
         # incident report, and it's only visible here — one turn later
         # every verdict just says "tainted: true" with no cause.
         if not was_tainted and self._tainted_now():
             self.audit.append("session_tainted", {"tool": name})
+
+    def _observed(self, tool: str | None, observed: Observed | None) -> None:
+        """One provenance_observed record per observation, for a policy
+        that keeps provenance: typed keys by class, and whether the
+        session is degraded. Never the keys."""
+        if observed is None:
+            return
+        data: dict[str, Any] = {
+            "tool": tool,
+            "counts": dict(observed.counts),
+            "degraded": self.session.provenance.degraded is not None,
+        }
+        if observed.degraded_by is not None:
+            data["degraded_by"] = observed.degraded_by
+        self.audit.append("provenance_observed", data)
 
     def _tainted_now(self) -> bool:
         try:

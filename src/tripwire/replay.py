@@ -17,6 +17,12 @@ A call blocked under the new policy might have led the model somewhere
 different, and no amount of replaying old logs will show you that. It
 answers "which of these calls would the new policy have judged
 differently", which is the question worth answering before a rollout.
+
+Nor can it anchor. The log holds neither the task text nor what results
+said, only their hashes and counts, so the rebuilt session has no task
+and no provenance: a flow with `unless: anchored` is discharged only by
+`known` values and self-scoped calls, and replay shows the most it
+could escalate.
 """
 
 from __future__ import annotations
