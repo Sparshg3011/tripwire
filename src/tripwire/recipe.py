@@ -60,9 +60,10 @@ additionalProperties other than false), or names one a contract can't
 hold.
 
 So an exec or indirect write is never discharged, and in the strict arm
-neither is a write naming no target, selector or credential. Every
-inferred line carries a comment naming the cue it came from; comments
-quote only the tables' words, never a name the upstream chose.
+neither is a write naming no target, selector or credential. A comment
+names the cue behind each tool's kind, each argument's role, a missing
+contract, destructive: true and per_session: 1. Comments quote only the
+tables' words, never a name the upstream chose.
 
 Contract: pure and deterministic. RecipeError for a source that isn't a
 listing; anything a listing may hold past that gets an answer.

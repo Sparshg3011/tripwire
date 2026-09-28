@@ -338,8 +338,8 @@ gates it every time; so does one whose schema admits arguments it
 doesn't name. `--strict` makes no write `self_scoped`, so a write
 naming nothing anchorable is gated too.
 
-Each inferred line carries a comment naming the word it was inferred
-from, and the header records the recipe version and the sha256 of the
+A comment names the word behind each tool's kind and each argument's
+role, and the header records the recipe version and the sha256 of the
 listing and of the word tables, so the same listing always drafts the
 same file. It is a draft: read every role before you enforce it. The
 full rules are in [`src/tripwire/recipe.py`](../src/tripwire/recipe.py).
