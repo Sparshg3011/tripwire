@@ -532,3 +532,10 @@ def test_recipe_reports_a_server_that_wont_start(capsys):
         main(["recipe", "--upstream", f"{shlex.quote(sys.executable)} -c 'raise SystemExit(3)'"])
     assert exit.value.code == 1
     assert "failed to start" in capsys.readouterr().err
+
+
+def test_recipe_reports_a_command_it_cant_split(capsys):
+    with pytest.raises(SystemExit) as exit:
+        main(["recipe", "--upstream", "python -c 'unbalanced"])
+    assert exit.value.code == 1
+    assert "No closing quotation" in capsys.readouterr().err

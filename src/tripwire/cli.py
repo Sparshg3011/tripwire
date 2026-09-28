@@ -187,7 +187,7 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "recipe":
         from tripwire.proxy import UpstreamError
-        from tripwire.recipe import RecipeError, recipe
+        from tripwire.recipe import recipe
 
         try:
             if args.tools is not None:
@@ -195,7 +195,8 @@ def main(argv: list[str] | None = None) -> None:
             else:
                 source = anyio.run(listed, args.upstream)
             print(recipe(source, arm="strict" if args.strict else "primary"), end="")
-        except (OSError, RecipeError, UpstreamError) as e:
+        # ValueError: a RecipeError, or a command shlex can't split
+        except (OSError, ValueError, UpstreamError) as e:
             print(f"tripwire recipe: {e}", file=sys.stderr)
             sys.exit(1)
 
