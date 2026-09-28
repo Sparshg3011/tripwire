@@ -54,7 +54,7 @@ contract order, then content:
 
   unanchored_argument       an authority leaf isn't anchored, or a
                             content leaf names a forbidden path
-  invalid_value            a target leaf can't be read
+  invalid_value             a target leaf can't be read
   url_not_verbatim          a URL carries a suffix no one wrote
   link_unanchored           content links to an unvouched host
   destructive_needs_anchor  a destructive call with no authority leaf
@@ -401,8 +401,8 @@ class _Check:
             yield self._verbatim(leaf, link, prose=True), "url_not_verbatim"
 
     def _link(self, arg: str, link: str) -> LeafReport:
-        # a bare link reads as http and one with no scheme as https; of
-        # the rest, only http(s) and two slashes read as a URL at all
+        # a bare host reads as http and "//host" as https; any other start
+        # but http(s) and two slashes doesn't read as a URL, and fails
         read = link.rstrip(TRAILING)
         if _LINK.match(read) is None:
             url = "http://" + read
