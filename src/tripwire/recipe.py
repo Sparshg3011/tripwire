@@ -81,7 +81,7 @@ from typing import Any, Literal
 
 import yaml
 
-from tripwire.policy.schema import Role
+from tripwire.policy.schema import _ARG_NAME, Role
 from tripwire.policy.values import VType
 
 RECIPE_VERSION = 1
@@ -326,7 +326,6 @@ LEXICON_SHA256 = hashlib.sha256(
 VERBS = READ | DESTRUCTIVE | EXEC | INDIRECT | CREATE | LOGIN
 
 _WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
-_ARG_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _PLAIN = re.compile(r"[A-Za-z_][A-Za-z0-9_.-]*")
 _FORMATS: dict[str, VType] = {"email": "email", "uri": "url"}
 
@@ -365,6 +364,7 @@ class Reading:
 
 
 def words(name: str) -> list[str]:
+    """A name's words, lowercased: "getUserURL" is get, user, url."""
     return [word.lower() for word in _WORDS.findall(name)]
 
 
