@@ -281,7 +281,9 @@ task or a tool wrote it, so it can't carry what the session gathered.
 A call with no authority value at all escalates on a `destructive` tool
 and on any tool that isn't `self_scoped`. A tool the flow names without
 an `args` contract is never discharged, and `tripwire validate` warns
-about it.
+about it. `tripwire explain policy.yaml` prints, for each tool, the
+flows that skip its anchored calls, each argument's role, and what
+anchors it, with the same warnings.
 
 **Codes.** The first failure decides:
 

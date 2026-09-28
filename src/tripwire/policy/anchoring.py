@@ -123,6 +123,14 @@ def check(
     return _Check(call, rule, snapshot, policy).run()
 
 
+def accepted(role: Role, destructive: bool = False) -> tuple[Via, ...]:
+    """The sources that anchor a value of this role on a tool, destructive
+    or not; for content, those that anchor a link in it."""
+    if role == "content" or (destructive and role == "selector"):
+        return _VOUCHED
+    return _ACCEPTED[role]
+
+
 def invalid_target(
     call: ToolCall, rule: ToolRule, snapshot: SessionSnapshot
 ) -> AnchorReport | None:
@@ -210,13 +218,11 @@ class _Check:
         for name, spec in self.contract.items():
             if spec.role == "content" or name not in self.args:
                 continue
-            accepted = _ACCEPTED[spec.role]
-            if self.rule.destructive and spec.role == "selector":
-                accepted = _VOUCHED
+            sources = accepted(spec.role, self.rule.destructive)
             for arg, value in _leaves(name, self.args[name]):
                 for outcome in normalize_all(value, spec.type, protected_paths=self.protected):
                     authority += 1
-                    leaf = self._leaf(arg, name, spec, spec.role, accepted, value, outcome)
+                    leaf = self._leaf(arg, name, spec, spec.role, sources, value, outcome)
                     if leaf.status == "invalid" and spec.role == "target":
                         return failed(leaf, name, "invalid_value")
                     if leaf.status != "anchored":

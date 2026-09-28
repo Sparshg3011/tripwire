@@ -385,6 +385,7 @@ fire, and replay a candidate policy against the recorded history before tighteni
 |:--|:--|
 | `tripwire serve` | Run the MCP proxy in front of an upstream server. |
 | `tripwire validate` | Reject an invalid policy before deployment. |
+| `tripwire explain` | Show each tool's argument roles and what can anchor them. |
 | `tripwire hook claude-code` | Hand each Claude Code prompt to `serve --task-file` ([setup](docs/claude-code.md)). |
 | `tripwire report` | Summarize policy decisions, interventions, and rules that fired. |
 | `tripwire trace` | Reconstruct one session as a causal chain with arguments and reasons. |

@@ -83,6 +83,9 @@ hash and length, never its text. Until the file exists there is no
 task, and only `known` values, trusted tools and the session's own ids
 anchor.
 
+`tripwire explain policy.yaml` shows what can anchor each argument your
+policy names.
+
 ## Limits
 
 - Claude Code's own Bash can still write the file. If the agent runs

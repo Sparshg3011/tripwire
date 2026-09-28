@@ -7,7 +7,8 @@ import sys
 import anyio
 
 from tripwire.intent import claude_code_hook
-from tripwire.policy import PolicyError, load_policy
+from tripwire.policy import Policy, PolicyError, load_policy
+from tripwire.policy.anchoring import accepted
 from tripwire.policy.loader import policy_warnings
 from tripwire.tx import (
     AuditKeyError,
@@ -82,6 +83,44 @@ def check_chain(path: str, key_file: str | None) -> None:
     print(f"{message} Run `tripwire verify` for detail.\n", file=sys.stderr)
 
 
+def explain(policy: Policy) -> list[str]:
+    """Each tool rule as anchoring reads it: which flows skip the tool's
+    anchored calls, each argument's role, and what anchors it."""
+    out = [f"known {vtype}: {', '.join(entries)}" for vtype, entries in policy.known.items()]
+    for tool, rule in policy.tools.items():
+        head: list[str] = [rule.action]
+        if rule.destructive:
+            head.append("destructive")
+        if rule.self_scoped:
+            head.append("self_scoped")
+        flows = [
+            f"flows[{i}]"
+            for i, flow in enumerate(policy.flows)
+            if flow.unless == "anchored" and tool in flow.tools
+        ]
+        if rule.args is None:
+            head.append("no args contract")  # so no flow skips it
+        elif flows:
+            verb = "skips" if len(flows) == 1 else "skip"
+            head.append(f"{', '.join(flows)} {verb} it when anchored")
+        out.append(f"{tool}: {', '.join(head)}")
+
+        outward = any(spec.role == "target" for spec in (rule.args or {}).values())
+        for name, spec in (rule.args or {}).items():
+            line = f"  {name}: {spec.role}"
+            if spec.type != "auto":
+                line += f" ({spec.type})"
+            sources = ", ".join(accepted(spec.role, rule.destructive))
+            if spec.role != "content":
+                line += f", anchored by {sources}"
+            elif outward:
+                line += f", links in it anchored by {sources}"
+            if spec.match == "under":
+                line += ", or by a task or known path above it"
+            out.append(line)
+    return out
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tripwire", description="MCP firewall for AI agents")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -129,6 +168,9 @@ def main(argv: list[str] | None = None) -> None:
     p_validate = sub.add_parser("validate", help="check a policy file")
     p_validate.add_argument("policy")
 
+    p_explain = sub.add_parser("explain", help="say what anchors each argument of a policy")
+    p_explain.add_argument("policy")
+
     p_hook = sub.add_parser("hook", help="hand an agent host's prompts to serve --task-file")
     hosts = p_hook.add_subparsers(dest="host", required=True)
     p_claude = hosts.add_parser("claude-code", help="Claude Code's UserPromptSubmit hook")
@@ -171,6 +213,17 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
         mode = "enforce" if policy.enforce else "shadow (nothing will be blocked)"
         print(f"ok: {args.policy} is valid, mode: {mode}, {len(policy.tools)} tool rules")
+        for warning in policy_warnings(policy):
+            print(f"warning: {warning}", file=sys.stderr)
+
+    elif args.command == "explain":
+        try:
+            policy = load_policy(args.policy)
+        except PolicyError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+        for line in explain(policy):
+            print(line)
         for warning in policy_warnings(policy):
             print(f"warning: {warning}", file=sys.stderr)
 
