@@ -139,6 +139,7 @@ def test_destructive_hint_only_tightens():
         (tool("run_query", {"q": {}}), 'exec: "run"'),
         (tool("sql_admin", {"q": {}}), 'exec: "sql"'),
         (tool("apply", {"Command": {}}), 'exec: argument "command"'),
+        (tool("create_table", {"query": {}}), 'exec: argument "query"'),
         (tool("push_changes", {"branch_name": {}}), 'indirect: "push" with no target'),
         (
             tool("reply_to_thread", {"thread_id": {}, "body": {}}),

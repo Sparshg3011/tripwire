@@ -113,11 +113,14 @@ anchors, never adds them.
 **A drafted policy is only as good as the names it was drafted from.**
 `tripwire recipe` reads tool and argument names, never descriptions, so
 nothing a server writes about its tools can loosen the draft. But a
-name can mislead: a tool named like a read (`check_and_fix`) is left
-ungated, one that runs code or sends somewhere under a name no word
-table knows is an ordinary write, `self_scoped` in the primary arm, and
-an argument named like content is never anchored. The draft says in a
-comment what each inference rests on; read them before enforcing it.
+name can mislead: a tool named like a read (`check_and_fix`, or
+`write_query`, whose only word in a table is `query`) is left ungated,
+one that runs code or sends somewhere under a name no word table knows
+is an ordinary write, `self_scoped` in the primary arm, and an argument
+named like content is never anchored: server-filesystem's
+`move_file(source, destination)` moves any file after untrusted content
+but a control file or tripwire's own. The draft says in a comment what
+each inference rests on; read them before enforcing it.
 
 **Canonicalization stops where stated.** NFKC, invisible-character
 stripping, trailing-dot hosts, numeric-string parsing — and nothing

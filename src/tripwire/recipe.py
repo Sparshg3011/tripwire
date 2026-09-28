@@ -154,7 +154,7 @@ EXEC = frozenset(
         "spawn",
     }
 )
-EXEC_ARGS = frozenset({"cmd", "command", "script", "shell", "sql"})
+EXEC_ARGS = frozenset({"cmd", "command", "script", "shell", "sql", "query"})
 INDIRECT = frozenset(
     {"send", "share", "forward", "publish", "post", "invite", "push", "reply", "respond", "answer"}
 )
