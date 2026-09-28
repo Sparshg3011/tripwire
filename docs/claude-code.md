@@ -101,4 +101,6 @@ policy names.
   file if that matters.
 - After untrusted content, anchoring lets through no call that names
   the file in any argument, content included, nor any path with a part
-  of the same name, so give it a name nothing else uses.
+  of the same name, so give it a name nothing else uses. A tool that
+  puts a file name together from several arguments, a stem and an
+  extension, can still reach it.
