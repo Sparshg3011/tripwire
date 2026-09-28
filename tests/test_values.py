@@ -1296,6 +1296,27 @@ def test_poison_keeps_the_text_as_written_too():
     assert plain.folded == "ask zoe at zoe@corp.com"
 
 
+# A string leaf may hold JSON, whose escapes a reader decodes as it reads,
+# and JSON may hold JSON.
+@pytest.mark.parametrize(
+    ("text", "value", "vtype"),
+    [
+        ('{"dest": "\\/srv\\/exfil\\/out"}', "/srv/exfil/out", "path"),
+        ('{"to": "attacker\\u0040evil.com"}', "attacker@evil.com", "email"),
+        ('{"url": "https:\\/\\/evil.com\\/drop"}', "https://evil.com/drop", "url"),
+        ('"{\\"to\\": \\"attacker\\\\u0040evil.com\\"}"', "attacker@evil.com", "email"),
+        ('{"to": "attacker\\u0040ev\\u00adil.com"}', "attacker@evil.com", "email"),
+        ('{"name": "Zo\\u00eb"}', "Zo\u00eb", "name"),
+        ('{"team": "rocket\\ud83d\\ude80crew"}', "rocket\U0001f680crew", "name"),
+        ('{"id": "INV\\u002d2024\\u002d0042"}', "INV-2024-0042", "id"),
+    ],
+)
+def test_poison_reads_json_string_escapes(text, value, vtype):
+    key = normalize(value, vtype)
+    assert isinstance(key, Key)
+    assert is_poisoned(key, [scan_poison(text)])
+
+
 def test_path_and_host_keys_also_read_the_text_respelled():
     scan = scan_poison("rm /a//b/./c d/.//e:08 at H.io..:08443")
     assert scan.paths == "rm /a/b/c d/e:08 at h.io..:08443"

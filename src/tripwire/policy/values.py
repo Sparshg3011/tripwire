@@ -95,12 +95,13 @@ Extraction runs in two directions and is asymmetric on purpose:
                like to a longer token.
   scan_poison  greedy. The same extractors with every limit removed, plus
                the text itself in the forms is_poisoned()'s text rule
-               reads, over the text as written and again with its hidden
-               characters deleted, since a reader may drop what it can't
-               see. Whatever the task extractors find in a text, and
-               whatever key a whole field of it registers, that text
-               scanned as poison poisons. A scan stops at MAX_SCAN_KEYS
-               typed keys and then poisons every key.
+               reads, over the text as written and as a reader may take
+               it: with its JSON string escapes decoded, its hidden
+               characters deleted, or both. Whatever the task extractors
+               find in a text, and whatever key a whole field of it
+               registers, that text scanned as poison poisons. A scan
+               stops at MAX_SCAN_KEYS typed keys and then poisons every
+               key.
 
 whole_fields() lists the leaves of a JSON value that can register as keys:
 strings of at most 256 characters and 8 words, ints, and dict keys of at
@@ -1012,6 +1013,9 @@ _P_COMPACT = re.compile(r"[\s().-]")
 _P_EMPTY_SEGMENTS = re.compile(r"/(?:\.?/)+")
 # what _host() drops: dots before a port, zeros leading one
 _P_PORT_PADDING = re.compile(r"\.+(?=:[0-9])|(?<=:)0+(?=[0-9])")
+# a JSON string escape under any number of backslashes, for JSON in JSON
+_P_ESCAPE = re.compile(r"\\+(?:u([0-9A-Fa-f]{4})|([\"\\/bfnrt]))")
+_P_CONTROL_ESCAPES = {"b": " ", "f": " ", "n": " ", "r": " ", "t": " "}
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1023,7 +1027,8 @@ class PoisonScan:
 
     keys: frozenset[Key]
     # NFKC, casefolded, whitespace-collapsed: a line for the text, and one
-    # for it with its hidden characters deleted when that differs
+    # for each other reading of it that differs: its JSON string escapes
+    # decoded, its hidden characters deleted, or both
     folded: str
     # each line of folded, with whitespace and -.() removed
     compact: str
@@ -1100,12 +1105,31 @@ def _unmarked(text: str) -> str:
     return unicodedata.normalize("NFKC", decomposed.translate(hidden))
 
 
+def _unescaped(text: str) -> str:
+    """text with its JSON string escapes decoded, as a reader of a string
+    leaf that holds JSON takes them: an escaped "/" or "@" is one."""
+    if "\\" not in text:
+        return text
+    decoded = _P_ESCAPE.sub(_unescape, text)
+    # an escaped surrogate pair is one astral character
+    joined = decoded.encode("utf-16-le", "surrogatepass").decode("utf-16-le", "replace")
+    return _text(joined)
+
+
+def _unescape(m: re.Match[str]) -> str:
+    if m.group(1):
+        return chr(int(m.group(1), 16))
+    return _P_CONTROL_ESCAPES.get(m.group(2), m.group(2))
+
+
 def _scan(text: str) -> PoisonScan:
     # prepared exactly as task text is, so every token a task extractor
-    # can find here is a token the greedy ones see too; and read again
-    # without its hidden characters, which split what they sit in
+    # can find here is a token the greedy ones see too; and read again as
+    # a reader may take it, with its JSON string escapes decoded and
+    # without the hidden characters that split what they sit in
     source = _text(text)
-    copies = dict.fromkeys((source, _unmarked(source)))
+    unescaped = _unescaped(source)
+    copies = dict.fromkeys((source, unescaped, _unmarked(source), _unmarked(unescaped)))
     keys: set[Key] = set()
 
     def add(outcome: Outcome) -> None:
