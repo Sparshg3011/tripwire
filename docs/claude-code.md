@@ -95,5 +95,6 @@ policy names.
   counts: fewer anchors, never more.
 - Sessions that share a file share their prompts. Give a project its own
   file if that matters.
-- No argument naming the file anchors, nor any path with a part of the
-  same name, so give it a name nothing else uses.
+- After untrusted content, anchoring lets through no call that names
+  the file in any argument, content included, nor any path with a part
+  of the same name, so give it a name nothing else uses.

@@ -269,7 +269,10 @@ Values are compared as normalized keys, exactly: a lookalike letter, a
 longer address around an anchored one, or a path through `..`, `~` or a
 control file (`.git`, `.claude`, `CLAUDE.md`, …) never anchors. Neither
 does the policy file, the audit log, the tx database or the task file
-under any spelling.
+under any spelling. Content is held to the same files, since a tool may
+take a file name as content: a call with a content value that, read as
+a path, names a control file or one of tripwire's own is never
+discharged.
 
 **Content** of a tool with a target argument is checked too. A value
 that is wholly an address, an IBAN or a URL is checked as a target;

@@ -80,7 +80,8 @@ file) makes a path, id, name or host key Unanchorable when the key is at
 or under it, or when any segment of the key, read as control segments
 are, is the protected path's last one. Relative spellings and symlinked
 prefixes (/tmp for /private/tmp) reach the same file, and nothing here
-may resolve them.
+may resolve them. forbidden_path() puts both tests to a string that no
+type reads, such as a file name a tool takes as content.
 
 Every key is a fixed point: normalizing key.key under key.vtype gives the
 key back. TaskIndex.anchors() leans on that to refuse hand-built keys.
@@ -708,6 +709,26 @@ def normalize_all(
                 return tuple(parts)
     outcome = normalize(value, vtype, known=known, protected_paths=protected_paths)
     return () if outcome is None else (outcome,)
+
+
+def forbidden_path(value: object, *, protected_paths: Sequence[str] = ()) -> Unanchorable | None:
+    """Unanchorable("control_path") when a string, after the pre-step and
+    split at slashes and backslashes, has a control segment, and
+    Unanchorable("protected_path") when it reaches a protected path as a
+    path key would; None otherwise, and for anything but a string. It
+    reads the whole string as a path, whatever type it would detect as:
+    ".git/hooks/pre-commit" and "notes x/../.git/config" alike."""
+    if not isinstance(value, str):
+        return None
+    try:
+        text = _clean(str.__str__(value)).strip()
+        if _is_control(text):
+            return Unanchorable("control_path")
+        if _is_protected(_path_key(text), protected_paths):
+            return Unanchorable("protected_path")
+    except Exception:
+        return Unanchorable("unreadable")
+    return None
 
 
 def is_under(path: str, prefix: str) -> bool:

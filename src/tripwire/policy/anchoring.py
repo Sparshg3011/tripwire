@@ -26,6 +26,10 @@ an address list so that every address must anchor. An Invalid or
 Unanchorable leaf is unanchored, and an Invalid target blocks at any
 taint level (invalid_target(), which stage 2 runs).
 
+No content leaf, a dict key included, may name a control file or a
+protected path either (values.forbidden_path()): a tool may take a file
+name as content, and a self_scoped one would otherwise write anywhere.
+
 A tool with a target argument is outward, and its content leaves are
 checked too:
 
@@ -42,8 +46,9 @@ checked too:
 The first failure decides the code, authority arguments first, in
 contract order, then content:
 
-  unanchored_argument       an authority leaf isn't anchored
-  invalid_value             a target leaf can't be read
+  unanchored_argument       an authority leaf isn't anchored, or a
+                            content leaf names a forbidden path
+  invalid_value            a target leaf can't be read
   url_not_verbatim          a URL carries a suffix no one wrote
   link_unanchored           content links to an unvouched host
   destructive_needs_anchor  a destructive call with no authority leaf
@@ -86,6 +91,7 @@ from tripwire.policy.values import (
     Outcome,
     Unanchorable,
     detect_type,
+    forbidden_path,
     is_under,
     normalize,
     normalize_all,
@@ -233,17 +239,29 @@ class _Check:
                             return failed(leaf, name, "url_not_verbatim")
                     leaves.append(leaf)
 
-        if any(spec.role == "target" for spec in self.contract.values()):
-            for name, spec in self.contract.items():
-                if spec.role != "content" or name not in self.args:
+        outward = any(spec.role == "target" for spec in self.contract.values())
+        for name, spec in self.contract.items():
+            if spec.role != "content" or name not in self.args:
+                continue
+            for arg, value in _leaves(name, self.args[name], keys=True):
+                path = forbidden_path(value, protected_paths=self.protected)
+                if path is not None:
+                    leaf = LeafReport(
+                        arg,
+                        "content",
+                        "path",
+                        "unanchorable",
+                        (),
+                        reason=path.reason,
+                        value=_spelled(value),
+                    )
+                    return failed(leaf, name, "unanchored_argument")
+                if not outward or not isinstance(value, str):
                     continue
-                for arg, value in _leaves(name, self.args[name]):
-                    if not isinstance(value, str):
-                        continue
-                    for leaf, code in self._content(arg, name, value):
-                        if leaf.status != "anchored":
-                            return failed(leaf, name, code)
-                        leaves.append(leaf)
+                for leaf, code in self._content(arg, name, value):
+                    if leaf.status != "anchored":
+                        return failed(leaf, name, code)
+                    leaves.append(leaf)
 
         if authority == 0 and self.rule.destructive:
             return _report("destructive_needs_anchor", self.tool, None, tuple(leaves), self.rule)
@@ -418,6 +436,8 @@ def _explain_leaf(code: str, tool: str, leaf: LeafReport) -> str:
         return f"{where} can't be read as {leaf.vtype or 'a value'} ({leaf.reason})."
     if code == "url_not_verbatim":
         return f"{where} holds a URL whose path or query no tool and no task wrote."
+    if code == "unanchored_argument" and leaf.role == "content":
+        return f"{where} names a path nothing can vouch for ({leaf.reason})."
     if code == "link_unanchored" and leaf.status != "unanchored":
         return f"{where} holds a link that can't be read as a plain URL ({leaf.reason})."
     if code == "link_unanchored":
@@ -440,9 +460,10 @@ def _unrestricted(rule: ToolRule) -> tuple[str, ...]:
     return tuple(name for name, spec in (rule.args or {}).items() if spec.role == "content")
 
 
-def _leaves(name: str, value: object) -> Iterator[tuple[str, object]]:
+def _leaves(name: str, value: object, *, keys: bool = False) -> Iterator[tuple[str, object]]:
     """Every scalar under an argument, with its path: list items by
-    index, dict values by key in sorted order. A container past the depth
+    index, dict values by key in sorted order, and with keys, each dict
+    key before its value, at the same path. A container past the depth
     cap, or met twice, is a leaf itself, which no normalizer reads."""
     seen: set[int] = set()
     stack: list[tuple[str, object, int]] = [(name, value, 0)]
@@ -458,7 +479,10 @@ def _leaves(name: str, value: object) -> Iterator[tuple[str, object]]:
             stack.extend(reversed(items))
         elif isinstance(node, dict):
             entries = sorted(node.items(), key=lambda entry: str(entry[0]))
-            stack.extend(reversed([(f"{path}.{key}", item, depth + 1) for key, item in entries]))
+            for key, item in reversed(entries):
+                stack.append((f"{path}.{key}", item, depth + 1))
+                if keys:
+                    stack.append((f"{path}.{key}", str(key), depth + 1))
         else:
             yield path, node
 

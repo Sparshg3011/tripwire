@@ -98,9 +98,10 @@ hadn't seen, but each refused call still answers one yes-or-no question.
 serve --task-file` reads the user's task from a file before each call,
 and Claude Code's prompt hook writes it there. What the file names
 anchors, so it has to be out of the agent's reach. The proxy does its
-part: no argument naming the file anchors, and no `TRIPWIRE_` variable
-reaches the upstream, so the server it wraps isn't told where the file
-is. Tools that don't go through tripwire are another matter: Claude
+part: no call naming the file in any argument, content included, is
+discharged by anchoring, and no `TRIPWIRE_` variable reaches the
+upstream, so the server it wraps isn't told where the file is. Tools
+that don't go through tripwire are another matter: Claude
 Code's own Write, Edit and Bash can reach it, and the deny rule in
 [docs/claude-code.md](docs/claude-code.md) covers the first two but not
 a shell. The file holds the latest prompt only, read when a call

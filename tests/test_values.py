@@ -27,6 +27,7 @@ from tripwire.policy.values import (
     Unanchorable,
     WholeField,
     detect_type,
+    forbidden_path,
     is_poisoned,
     is_under,
     normalize,
@@ -778,6 +779,29 @@ def test_protected_paths_match_host_keys():
     assert normalize("policy.sh:8443", "host", protected_paths=PROTECTED) == Unanchorable(
         "protected_path"
     )
+
+
+@pytest.mark.parametrize(
+    ("value", "outcome"),
+    [
+        (".git/hooks/pre-commit", Unanchorable("control_path")),
+        ("/repo/.GIT./hooks/pre-commit", Unanchorable("control_path")),
+        ("C:\\repo\\.git\\config", Unanchorable("control_path")),
+        ("a b c d e f g h i/../.git/config", Unanchorable("control_path")),
+        ("../GIT~1/config", Unanchorable("control_path")),
+        (" CLAUDE.md\u200b ", Unanchorable("control_path")),
+        ("tx.db", Unanchorable("protected_path")),
+        ("../../proj/audit.jsonl", Unanchorable("protected_path")),
+        ("/Users/me/proj", None),
+        ("notes about the .git folder", None),
+        ("see tx.db.bak", None),
+        ("", None),
+        (42, None),
+        (None, None),
+    ],
+)
+def test_forbidden_path_reads_any_string_as_a_path(value, outcome):
+    assert forbidden_path(value, protected_paths=PROTECTED) == outcome
 
 
 def test_protected_paths_leave_other_values_alone():
@@ -2002,6 +2026,7 @@ def test_no_value_with_a_control_segment_anchors(prefix, drive, segment, suffix,
     value = f"{prefix}{drive}{value}{rest}"
     for vtype in [*VALUE_TYPES, "auto"]:
         assert not any(isinstance(o, Key) for o in normalize_all(value, vtype)), vtype
+    assert forbidden_path(value) == Unanchorable("control_path")
     assert whole_fields([value]) == ()
     task = TaskIndex.build(f"Update {value} now")
     assert not any(segment in k.key.casefold() for k in task.keys | task.mentioned)
