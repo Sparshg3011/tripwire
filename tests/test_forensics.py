@@ -422,6 +422,32 @@ def test_degradation_and_task_text_show_up_as_notes(log_path):
     assert refused == "task text refused (too_long)"
 
 
+def test_what_a_session_learned_before_a_call_lands_on_that_call(log_path):
+    listing = {"tool": None, "counts": {}, "degraded": True, "degraded_by": "too big"}
+    emit(
+        log_path,
+        "s1",
+        [
+            ("proxy_start", {"upstream": "toy"}),
+            ("provenance_observed", listing),
+            ("intent_rejected", {"source": "task_file", "reason": "too_long"}),
+            verdict("read_email"),
+            *ran("read_email"),
+            ("task", {"segment": 1, "source": "task_file", "sha256": "0" * 64, "chars": 9}),
+            verdict("send_email", turn=1),
+        ],
+    )
+    first, second = trace(read_records(log_path), "s1")
+    degraded, refused = first.before
+    assert degraded.startswith("provenance degraded by the tool listing (too big): from here on")
+    assert refused == "task text refused (too_long)"
+    assert (first.notes, second.before) == ([], ["task text added: segment 1"])
+    out = format_trace([first, second], "s1").splitlines()
+    assert out[out.index("  turn 1   ok     send_email") + 1] == (
+        "      before task text added: segment 1"
+    )
+
+
 # --- report ---
 
 
