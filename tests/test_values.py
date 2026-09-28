@@ -591,10 +591,23 @@ def test_phone_invalid(value):
         ("/repo/x.git/y", "/repo/x.git/y"),
         ("/repo/notes~/y", "/repo/notes~/y"),
         ("/repo/a:b", "/repo/a:b"),
+        # a leading // is a network share on Windows and Cygwin; /// is /
+        ("//fileserver/share/q3.xlsx", "//fileserver/share/q3.xlsx"),
+        ("//fileserver//share/./q3.xlsx", "//fileserver/share/q3.xlsx"),
+        ("///srv/x", "/srv/x"),
     ],
 )
 def test_path_keys(value, key):
     assert normalize(value, "path") == PA(key)
+
+
+def test_a_network_share_is_not_a_local_path():
+    share = normalize("//fileserver/share/q3.xlsx")
+    assert share != normalize("/fileserver/share/q3.xlsx")
+    task = TaskIndex.build("Copy //fileserver/share/q3.xlsx to the team")
+    assert task.anchors(PA("//fileserver/share/q3.xlsx"))
+    assert not task.anchors(PA("/fileserver/share/q3.xlsx"))
+    assert not is_under("//fileserver/share/q3.xlsx", "/fileserver")
 
 
 @pytest.mark.parametrize(
@@ -1210,6 +1223,12 @@ def test_greedy_sightings(text, key):
         ("Please delete /home/u//My Files/secret.txt today", "/home/u/My Files/secret.txt", "path"),
         ("Please delete /data//report (1).pdf", "/data/report (1).pdf", "path"),
         ("remove /srv//evil+x", "/srv/evil+x", "path"),
+        (
+            "Please delete //fs/share//Quarterly Report.xlsx",
+            "//fs/share//Quarterly Report.xlsx",
+            "path",
+        ),
+        ("Please delete x//fs/My Files//q.txt", "//fs/My Files/q.txt", "path"),
         ("/a//b c", "/a//b c", "path"),
         ("Please delete /srv/Q3  plan.txt", "/srv/Q3  plan.txt", "path"),
         ("/tmp/a\u2028b/x.txt", "/tmp/a\u2028b/x.txt", "path"),
@@ -1871,7 +1890,9 @@ def respelled(draw):
                 draw(st.sampled_from(["/", "//", "/./", "/.//", "/", draw(blanks) + "/"])) + segment
             )
         return (
-            draw(st.sampled_from(["", "/", "./"])) + text + draw(st.sampled_from(["", "/", "/."]))
+            draw(st.sampled_from(["", "/", "./", "//"]))
+            + text
+            + draw(st.sampled_from(["", "/", "/."]))
         )
     words = draw(
         st.lists(st.from_regex(r"[A-Za-z][a-z]{2,6}", fullmatch=True), min_size=1, max_size=3)

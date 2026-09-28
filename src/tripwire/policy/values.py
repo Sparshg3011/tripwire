@@ -55,9 +55,10 @@ Normalizers:
          [A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}
   phone  drop " ().-", a leading 00 becomes +; Invalid unless 7-15 digits
   path   POSIX, case-sensitive: drop empty and . segments, keep a leading
-         /. Invalid with a backslash. Unanchorable: `..` anywhere, a key
-         that starts with ~ or that the pre-step would trim, a control
-         segment, or a protected path (below).
+         / or // (a network share on Windows; /// is /). Invalid with a
+         backslash. Unanchorable: `..` anywhere, a key that starts with ~
+         or that the pre-step would trim, a control segment, or a
+         protected path (below).
   id     as given, [A-Za-z0-9_.:/#-]{1,128}, case-sensitive
   name   lowercase, collapse whitespace; a leading @ or # stays, since
          "@random" and "#random" can name two things on one API. Invalid
@@ -468,7 +469,15 @@ def _phone(text: str) -> Outcome:
 
 def _path_key(text: str) -> str:
     segments = [segment for segment in text.split("/") if segment not in ("", ".")]
-    return ("/" if text.startswith("/") else "") + "/".join(segments)
+    # POSIX leaves a leading "//" to the system, and Windows and Cygwin
+    # read "//host/share" as a network share; three or more are one "/"
+    if text.startswith("//") and not text.startswith("///"):
+        root = "//"
+    elif text.startswith("/"):
+        root = "/"
+    else:
+        root = ""
+    return root + "/".join(segments)
 
 
 def _protected_root(entry: object) -> str | None:
@@ -1015,8 +1024,9 @@ class PoisonScan:
     # each line of folded, with whitespace and -.() removed
     compact: str
     # folded, respelled as path keys and host keys spell it: every "//"
-    # and "/./" run made "/"; the dots before a port and the zeros leading
-    # one dropped. Each is the same object as folded when nothing changes.
+    # and "/./" run made "/", a path key's leading "//" too when compared;
+    # the dots before a port and the zeros leading one dropped. Each is the
+    # same object as folded when nothing changes.
     paths: str = ""
     hosts: str = ""
     truncated: bool = False
@@ -1176,14 +1186,13 @@ def _is_poisoned(key: Key, scans: Iterable[PoisonScan], self_key: bool) -> bool:
         return True
     text = str.__str__(key.key)
     folded = " ".join(text.casefold().split())
-    text_rule = not (self_key and len(text) < 6)
-    bounded: re.Pattern[str] | None = None
-    if len(text) < 6:
-        # no alphanumeric may extend the key where it has one at that end:
-        # "13" is not in "113", but "#13" is in "id#13"
-        head = r"(?<![^\W_])" if folded[:1].isalnum() else ""
-        tail = r"(?![^\W_])" if folded[-1:].isalnum() else ""
-        bounded = re.compile(head + re.escape(folded) + tail)
+    short = len(text) < 6
+    text_rule = not (self_key and short)
+    held = _held(folded, short)
+    held_as_path = held
+    if key.vtype == "path":
+        # the text respelled as paths holds a key's leading "//" as one "/"
+        held_as_path = _held(_P_EMPTY_SEGMENTS.sub("/", folded), short)
     compact: str | None = None
     if key.vtype == "iban":
         compact = folded
@@ -1195,20 +1204,26 @@ def _is_poisoned(key: Key, scans: Iterable[PoisonScan], self_key: bool) -> bool:
             return True
         if not text_rule:
             continue
-        forms = [scan.folded]
-        if key.vtype == "path":
-            forms.append(scan.paths)
-        elif key.vtype == "host":
-            forms.append(scan.hosts)
-        for form in forms:
-            if bounded is None:
-                if folded in form:
-                    return True
-            elif bounded.search(form):
-                return True
+        if held(scan.folded):
+            return True
+        if key.vtype == "path" and held_as_path(scan.paths):
+            return True
+        if key.vtype == "host" and held(scan.hosts):
+            return True
         if compact is not None and compact in scan.compact:
             return True
     return False
+
+
+def _held(needle: str, short: bool) -> Callable[[str], bool]:
+    if not short:
+        return lambda form: needle in form
+    # no alphanumeric may extend the key where it has one at that end: "13"
+    # is not in "113", but "#13" is in "id#13"
+    head = r"(?<![^\W_])" if needle[:1].isalnum() else ""
+    tail = r"(?![^\W_])" if needle[-1:].isalnum() else ""
+    pattern = re.compile(head + re.escape(needle) + tail)
+    return lambda form: pattern.search(form) is not None
 
 
 # --- whole fields ----------------------------------------------------------------
