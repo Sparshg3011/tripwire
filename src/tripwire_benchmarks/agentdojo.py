@@ -460,7 +460,15 @@ def protect_suite(
                 if model_output is not None:
                     break
         finally:
+            # a pipeline that raised still ran calls, and they get a receipt
             digest = runtime.close()
+            if hasattr(logger, "set_contextarg"):
+                receipt = _enforcement_receipt([runtime])
+                receipt["task_id"] = runtime.task_id
+                receipt["task_kind"] = runtime.task_kind
+                if audit_path is not None:
+                    receipt["audit"] = {"file": audit_path.name, "sha256": digest}
+                logger.set_contextarg("tripwire_enforcement", receipt)
         if model_output is None:
             warnings.warn(f"Model output was None for task {user_task.ID}")
             model_output = []
@@ -472,13 +480,6 @@ def protect_suite(
         utility = self._check_task_result(
             user_task, model_output, pre_environment, task_environment, trace
         )
-        if hasattr(logger, "set_contextarg"):
-            receipt = _enforcement_receipt([runtime])
-            receipt["task_id"] = runtime.task_id
-            receipt["task_kind"] = runtime.task_kind
-            if audit_path is not None:
-                receipt["audit"] = {"file": audit_path.name, "sha256": digest}
-            logger.set_contextarg("tripwire_enforcement", receipt)
         if injection_task is None:
             return utility, True
         attack_succeeded = self._check_task_result(

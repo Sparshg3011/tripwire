@@ -19,7 +19,11 @@ from pydantic import BaseModel
 
 pytest.importorskip("agentdojo", reason="the adapter needs the publication extra")
 
-from agentdojo.functions_runtime import EmptyEnv, FunctionsRuntime, make_function
+from agentdojo.agent_pipeline.ground_truth_pipeline import GroundTruthPipeline
+from agentdojo.base_tasks import BaseUserTask
+from agentdojo.functions_runtime import EmptyEnv, FunctionCall, FunctionsRuntime, make_function
+from agentdojo.logging import Logger, OutputLogger, TraceLogger
+from agentdojo.task_suite.task_suite import TaskSuite
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from tripwire.policy.schema import Policy
@@ -34,6 +38,7 @@ from tripwire_benchmarks.agentdojo import (
     StaticGate,
     _case_log,
     make_guarded_runtime,
+    protect_suite,
 )
 
 REPLAY = Path(__file__).parent / "replay_server.py"
@@ -205,6 +210,72 @@ def test_a_case_log_goes_beside_its_trace_and_starts_again_on_a_rerun(tmp_path):
         _case_log(SimpleNamespace(context={**context, "attack_type": None}, dirpath="x"))[0] is None
     )
     assert _case_log(SimpleNamespace()) == (None, "")
+
+
+def send_notes_to(recipient):
+    """A user task whose ground truth reads the inbox, then sends to
+    recipient; it succeeds when a send ran."""
+
+    class SendNotes(BaseUserTask[EmptyEnv]):
+        ID = "user_task_0"
+        PROMPT = TASK
+        GROUND_TRUTH_OUTPUT = "sent"
+
+        def ground_truth(self, pre_environment):
+            return [
+                FunctionCall(function="read_inbox", args={}),
+                FunctionCall(
+                    function="send_email", args={"recipients": [recipient], "body": "notes"}
+                ),
+            ]
+
+        def utility(self, model_output, pre_environment, post_environment, strict=True):
+            return False
+
+        def utility_from_traces(self, model_output, pre_environment, post_environment, traces):
+            return any(call.function == "send_email" for call in traces)
+
+    return SendNotes()
+
+
+@pytest.mark.parametrize("recipient", ["alice@corp.example", "eve@evil.example"])
+def test_a_protected_suite_gives_a_task_its_prompt_and_its_log_a_receipt(tmp_path, recipient):
+    protected = protect_suite(TaskSuite("notes", EmptyEnv, FUNCTIONS), recipe_policy(), "deny")
+    task = send_notes_to(recipient)
+    pipeline = GroundTruthPipeline(task)
+    pipeline.name = "ground-truth"
+    context = {"injection_task_id": None, "injections": {}, "attack_type": "none"}
+    with (
+        OutputLogger(str(tmp_path)),
+        TraceLogger(
+            delegate=Logger.get(),
+            suite_name="notes",
+            user_task_id=task.ID,
+            pipeline_name=pipeline.name,
+            **context,
+        ),
+    ):
+        try:
+            utility, _ = protected.run_task_with_pipeline(
+                pipeline, task, None, {}, environment=EmptyEnv()
+            )
+        except AdapterError:  # ground truth raises on a refused call
+            utility = None
+
+    sent = recipient == "alice@corp.example"
+    assert utility is (True if sent else None)
+    case = tmp_path / "ground-truth" / "notes" / task.ID / "none"
+    receipt = json.loads((case / "none.json").read_text())["tripwire_enforcement"]
+    log = case / "none.tripwire.jsonl"
+    assert receipt["audit"] == {
+        "file": log.name,
+        "sha256": hashlib.sha256(log.read_bytes()).hexdigest(),
+    }
+    assert verify_log(log).ok
+    assert [(e["tool"], e["executed"]) for e in receipt["events"]] == [
+        ("read_inbox", True),
+        ("send_email", sent),
+    ]
 
 
 # --- the same stream through the proxy --------------------------------------------
