@@ -20,8 +20,10 @@ an unkeyed one when given a key.
 
 What neither chain protects against: truncating the tail of the file.
 An attacker with write access can drop the last k lines and the
-remaining prefix still verifies. (Fixing that needs an external anchor;
-out of scope for v0.1, noted in the threat model.)
+remaining prefix still verifies, and the next writer carries on from
+the new last line, so after a restart the gap is in the middle of a log
+that verifies. (Fixing that needs an external anchor; out of scope for
+v0.1, noted in the threat model.)
 
 If a write fails, we raise AuditWriteError and the proxy is expected to
 halt: no audit record, no side effect.
@@ -117,12 +119,12 @@ def _mac(key: bytes, body: str) -> str:
 def _authenticated(record: dict[str, Any], key: bytes) -> str | None:
     """The record's mac if `key` made it over exactly these fields, else None."""
     claimed = record.get("mac")
-    if not isinstance(claimed, str):
+    # compare_digest raises on a str that isn't pure ascii, and this one
+    # came out of the file, lone surrogates and all
+    if not isinstance(claimed, str) or not claimed.isascii():
         return None
     body = _serialize({k: v for k, v in record.items() if k != "mac"})
-    # as bytes: compare_digest raises on a str that isn't pure ascii, and
-    # this one came out of the file
-    if hmac.compare_digest(claimed.encode(), _mac(key, body).encode()):
+    if hmac.compare_digest(claimed, _mac(key, body)):
         return claimed
     return None
 
@@ -172,23 +174,26 @@ class AuditLog:
             ) from e
 
     def _resume(self) -> tuple[int, str]:
-        if not self.path.exists() or self.path.stat().st_size == 0:
-            return 0, GENESIS
         last = None
         try:
             with open(self.path, encoding="utf-8") as fh:
                 for line in fh:
                     if line.strip():
                         last = line.rstrip("\n")
-        except OSError as e:
+        except FileNotFoundError:
+            return 0, GENESIS
+        except (OSError, UnicodeDecodeError) as e:
             raise AuditWriteError(f"cannot read audit log {self.path}: {e}") from e
-        assert last is not None
+        if last is None:
+            return 0, GENESIS
         try:
             record = json.loads(last)
-            seq = record["seq"]
-        except (json.JSONDecodeError, KeyError, TypeError) as e:
-            # Torn or tampered tail. Refusing to continue the chain is
-            # the point — an operator has to look at it.
+            next_seq = record["seq"] + 1
+        except (ValueError, RecursionError, KeyError, TypeError) as e:
+            # Torn or tampered tail: not json, json too deep or with a
+            # number too long to read, or no record with a numeric seq.
+            # Refusing to continue the chain is the point — an operator
+            # has to look at it.
             raise AuditWriteError(
                 f"audit log {self.path} has a corrupt last line; refusing to continue"
             ) from e
@@ -202,7 +207,7 @@ class AuditLog:
                 f"{self.chain!r}; continue it as it was started, or rotate it"
             )
         if self._key is None:
-            return seq + 1, _hash_line(last)
+            return next_seq, _hash_line(last)
 
         mac = _authenticated(record, self._key)
         if mac is None:
@@ -213,7 +218,7 @@ class AuditLog:
                 f"the last record of {self.path} doesn't authenticate under this key "
                 f"(wrong key, or the record was altered); refusing to continue"
             )
-        return seq + 1, mac
+        return next_seq, mac
 
     def append(self, kind: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
         data = data or {}
@@ -256,47 +261,59 @@ class VerifyResult:
     why: str | None = None
 
 
-def _refusal(chain: object) -> str:
+def _refusal(chain: str) -> str:
     if chain == HMAC_SHA256:
         return "the log is keyed (hmac-sha256) and no key was given"
-    if chain == SHA256:
-        return (
-            "the log is not keyed, so a key vouches for nothing: anyone who can "
-            "write the file could have produced this chain"
-        )
-    return f"unknown chain {chain!r}"
+    return (
+        "the log is not keyed, so a key vouches for nothing: anyone who can "
+        "write the file could have produced this chain"
+    )
 
 
 def verify_log(path: str | Path, key: bytes | None = None) -> VerifyResult:
     """Walk the chain and recompute every link.
 
-    With `key`, every record must be hmac-sha256 and authenticate under
-    it. Without one, a keyed log is refused outright rather than
-    reported as a broken hash chain. Either way a log that switches
-    chain partway through is broken where it switches.
+    A log is the chain its first record names, and one that switches
+    chain partway through is broken where it switches. With `key`, the
+    log must be hmac-sha256 and every record authenticate under it;
+    without one, sha256. A log wholly of the other kind can't be checked
+    at all, so it is refused (bad_line None) rather than reported as
+    broken: a keyed log without its key, or, given a key, a log that
+    isn't keyed.
     """
     wanted = SHA256 if key is None else HMAC_SHA256
+    claimed: str | None = None
     prev = GENESIS
     n = 0
     try:
-        lines = Path(path).read_text(encoding="utf-8").splitlines()
+        # a byte that isn't utf-8 fails the line it's on rather than the
+        # whole read: as a lone surrogate it can't survive the canonical
+        # check below, which only ever passes ascii
+        text = Path(path).read_text(encoding="utf-8", errors="surrogateescape")
     except OSError as e:
         return VerifyResult(ok=False, records=0, bad_line=None, why=str(e))
 
-    for i, line in enumerate(lines, start=1):
+    for i, line in enumerate(text.splitlines(), start=1):
         if not line.strip():
             continue
         try:
             record = json.loads(line)
-        except json.JSONDecodeError:
+        except (ValueError, RecursionError):
+            # malformed, or too deep or with a number too long to read
             return VerifyResult(ok=False, records=n, bad_line=i, why="not valid json")
         if not isinstance(record, dict):
             return VerifyResult(ok=False, records=n, bad_line=i, why="not a record object")
         chain = record.get("chain", SHA256)
-        if chain != wanted:
-            if n == 0:
-                return VerifyResult(ok=False, records=0, why=_refusal(chain))
+        if claimed is None:
+            if chain not in (SHA256, HMAC_SHA256):
+                return VerifyResult(ok=False, records=0, bad_line=i, why=f"unknown chain {chain!r}")
+            claimed = chain
+        elif chain != claimed:
             return VerifyResult(ok=False, records=n, bad_line=i, why=f"chain changes to {chain!r}")
+        if claimed != wanted:
+            # no link here can be checked, but a line that breaks the
+            # file itself is broken whoever holds the key
+            continue
         if record.get("seq") != n:
             return VerifyResult(
                 ok=False, records=n, bad_line=i, why=f"expected seq {n}, got {record.get('seq')}"
@@ -319,4 +336,6 @@ def verify_log(path: str | Path, key: bytes | None = None) -> VerifyResult:
                 )
             prev = mac
         n += 1
+    if claimed is not None and claimed != wanted:
+        return VerifyResult(ok=False, records=0, why=_refusal(claimed))
     return VerifyResult(ok=True, records=n)

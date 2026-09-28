@@ -31,11 +31,11 @@ bet on the model.
   unkeyed, it only catches an edit that leaves the rest of the chain
   alone (see below). If tripwire cannot write the log, it stops the
   world rather than act unrecorded.
-- **The retry hole.** Within one proxy session, a duplicated
+- **The retry hole.** Within one enforcing proxy session, a duplicated
   side-effectful call replays the first result instead of running
   twice. A call whose outcome was never recorded is refused in every
-  session, including the one a crashed proxy restarts as, until an
-  operator clears it.
+  enforcing session, including the one a crashed proxy restarts as,
+  until an operator clears it.
 
 ## What tripwire does not defend
 
@@ -102,20 +102,25 @@ checked and what that kind can't see.
   line onward — or entirely — and recompute every hash, and the final
   record is covered by no other record's hash at all. It catches
   accidents, not an attacker with write access.
-- **Keyed** (`--audit-key-file` on `serve` and `verify`): each record
-  carries an HMAC-SHA256 over its own bytes, and links to the previous
-  record's MAC. Without the key, no line can be edited, inserted or
-  rewritten, the last one included, and none can be deleted except by
-  cutting off the end (below). `verify` won't check a keyed log
-  without its key, and given a key it refuses a log that isn't keyed,
-  so stripping the MACs and rebuilding a plain chain doesn't pass
-  either.
+- **Keyed** (`--audit-key-file` on `serve` and on every command that
+  reads a log): each record carries an HMAC-SHA256 over its own bytes,
+  and links to the previous record's MAC. Without the key, no line can
+  be edited, inserted or rewritten, the last one included, and none can
+  be deleted except by cutting off the end, which it doesn't catch
+  (below). No command vouches for a keyed log without its key, or,
+  given a key, for a log that isn't keyed, so stripping the MACs and
+  rebuilding a plain chain doesn't pass either.
 
-Neither chain can see lines cut from the end — a truncated log is a
-valid shorter log — or a log swapped wholesale for another written
-under the same key. Closing that needs an anchor outside the file: a
-periodically published head, or a second append-only sink. v0.1
-documents it rather than pretending. And a key only helps against
+Neither chain can see lines cut from the end on a line boundary — a
+truncated log is a valid shorter log — or a log swapped wholesale for
+another written under the same key. Only a cut through the middle of a
+line shows, as a torn last record the writer refuses to continue. A
+clean cut doesn't stay at the end, either: the next proxy to open the
+log carries on from its new last line, so after a restart the missing
+records sit in the middle of a log that still verifies, keyed or not.
+Closing these needs an anchor outside the file: a periodically
+published head, or a second append-only sink. v0.1 documents it rather
+than pretending. And a key only helps against
 someone who can write the log but not read the key. The proxy has to
 read it to sign, so the compromised host above can forge a keyed log as
 easily as an unkeyed one.
@@ -133,7 +138,8 @@ reasons are all partly attacker-authored and all get printed by
 newlines can't draw extra steps into an incident report — forged
 evidence in a log whose hash chain verifies perfectly, because nothing
 was tampered with. `trace`, `report` and `replay` also check the chain
-before printing and say loudly when it's broken.
+by `verify`'s rules before printing, and say loudly when it's broken or
+can't be checked.
 
 **The tx ledger trusts a tool's own error report.** A result flagged
 `isError` clears its intent row so transient failures stay retryable. A
@@ -149,7 +155,9 @@ serve every later conversation the first one's results, with no clock
 to expire them. The cost: a call that completed just before the proxy
 died, with its answer lost on the way to the agent, runs again when the
 retry reaches the restarted proxy. A call whose outcome was never
-recorded does not have that gap; it is refused across sessions.
+recorded does not have that gap; it is refused across sessions. Shadow
+mode bypasses the ledger entirely, so under `enforce: false` a retry
+runs again exactly as it would without tripwire.
 
 **Interactive approval assumes the human reads.** Gate prompts show the
 tool, the arguments, the rule that fired, and the taint trail — context

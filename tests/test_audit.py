@@ -18,15 +18,13 @@ KEY = b"audit-test-key-0123456789abcdef"
 
 
 def cli(*argv, env=None):
-    # hermetic: a key file set in the developer's shell must not leak in
-    base = {k: v for k, v in os.environ.items() if k != KEY_ENV}
     return subprocess.run(
         [sys.executable, "-m", "tripwire", *argv],
         check=False,
         capture_output=True,
         encoding="utf-8",
         timeout=60,
-        env={**base, **(env or {})},
+        env={**os.environ, **(env or {})},
     )
 
 
@@ -181,9 +179,134 @@ def test_corrupt_tail_refuses_to_continue(tmp_path):
         AuditLog(path)
 
 
+# lines no reader can take in, each of which used to escape as a traceback
+UNREADABLE = {
+    "not-utf-8": b"\xff\xfe",
+    "nested-too-deep": b"[" * 100_000 + b"]" * 100_000,
+    "number-too-long": b'{"seq":' + b"9" * 5000 + b"}",
+}
+unreadable = pytest.mark.parametrize("tail", UNREADABLE.values(), ids=UNREADABLE.keys())
+
+
+@unreadable
+def test_an_unreadable_line_is_a_bad_line(tmp_path, tail):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2)
+    with open(path, "ab") as fh:
+        fh.write(tail + b"\n")
+
+    result = verify_log(path)
+    assert not result.ok
+    assert result.bad_line == 3
+
+
+@unreadable
+def test_an_unreadable_tail_refuses_to_continue(tmp_path, tail):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2)
+    with open(path, "ab") as fh:
+        fh.write(tail + b"\n")
+
+    with pytest.raises(AuditWriteError):
+        AuditLog(path)
+
+
+def test_a_tail_whose_seq_is_not_a_number_refuses_to_continue(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    path.write_text('{"seq":"0"}\n')
+
+    with pytest.raises(AuditWriteError, match="corrupt last line"):
+        AuditLog(path)
+
+
+def test_a_log_of_blank_lines_starts_a_fresh_chain(tmp_path):
+    # verify calls it an intact log of no records, so the writer agrees
+    path = tmp_path / "audit.jsonl"
+    path.write_text("\n  \n")
+    write_log(path, 2)
+
+    assert verify_log(path).ok
+
+
+def test_a_mac_that_is_not_ascii_fails_to_authenticate(tmp_path):
+    # "\ud800" is valid json and canonical, and compare_digest won't take it
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+    last = json.loads(path.read_text().splitlines()[-1])
+    with open(path, "a") as fh:
+        fh.write(dump({**last, "seq": 2, "prev": last["mac"], "mac": "\ud800"}) + "\n")
+
+    result = verify_log(path, key=KEY)
+    assert not result.ok
+    assert result.bad_line == 3
+    with pytest.raises(AuditWriteError, match="doesn't authenticate"):
+        AuditLog(path, key=KEY)
+
+
+json_values = st.recursive(
+    st.none() | st.booleans() | st.integers() | st.floats() | st.text(),
+    lambda inner: st.lists(inner, max_size=3) | st.dictionaries(st.text(max_size=5), inner),
+    max_leaves=8,
+)
+junk_records = st.fixed_dictionaries(
+    {},
+    optional={
+        "seq": json_values,
+        "prev": json_values,
+        "chain": st.sampled_from(["sha256", "hmac-sha256"]) | json_values,
+        "mac": json_values | st.just("\ud800"),
+        "data": json_values,
+    },
+)
+tails = (
+    st.binary()
+    | junk_records.map(lambda record: dump(record).encode())
+    | st.sampled_from(list(UNREADABLE.values()))
+)
+
+
+@given(tail=tails, key=st.none() | st.just(KEY))
+@settings(max_examples=200, deadline=None)
+def test_verify_and_the_writer_are_total_over_whatever_follows_a_log(tail, key):
+    with tempfile.TemporaryDirectory() as d:
+        path = Path(d) / "audit.jsonl"
+        write_log(path, 2, key=key)
+        with open(path, "ab") as fh:
+            fh.write(tail + b"\n")
+
+        for check in (None, KEY):
+            result = verify_log(path, key=check)
+            # the two genuine records are never the ones blamed
+            assert result.ok or result.bad_line is None or result.bad_line >= 3
+        try:
+            AuditLog(path, key=key).close()
+        except AuditWriteError:
+            pass
+
+
 def test_unwritable_path_fails_closed(tmp_path):
     with pytest.raises(AuditWriteError):
         AuditLog(tmp_path / "no" / "such" / "dir" / "audit.jsonl")
+
+
+def test_a_path_that_cannot_be_looked_up_fails_closed(tmp_path):
+    # longer than the 255 bytes a filesystem allows in one name
+    with pytest.raises(AuditWriteError):
+        AuditLog(tmp_path / ("a" * 300 + ".jsonl"))
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="needs a directory it may not search"
+)
+def test_a_log_in_a_directory_it_may_not_search_fails_closed(tmp_path):
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        with pytest.raises(AuditWriteError, match="cannot read audit log"):
+            AuditLog(locked / "audit.jsonl")
+    finally:
+        locked.chmod(0o700)
 
 
 def test_redactor_runs_before_hashing(tmp_path):
@@ -271,6 +394,18 @@ def test_a_keyed_chain_covers_its_last_line(tmp_path):
     assert result.bad_line == 3
 
 
+def test_a_keyed_chain_cannot_see_a_cut_it_was_continued_past(tmp_path):
+    # the limit the docs state: cut on a line boundary, restart, and the
+    # missing records sit in the middle of a log that verifies
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 5, key=KEY)
+    path.write_text("\n".join(path.read_text().splitlines()[:2]) + "\n")
+    write_log(path, 1, key=KEY)
+
+    result = verify_log(path, key=KEY)
+    assert result.ok and result.records == 3
+
+
 payloads = st.lists(
     st.dictionaries(st.text(max_size=5), st.integers(), max_size=3), min_size=1, max_size=6
 )
@@ -342,6 +477,51 @@ def test_a_chain_that_switches_partway_is_broken_where_it_switches(tmp_path):
         records[2]["chain"] = "hmac-sha256"
 
     rechain(path, 2, switch)
+
+    result = verify_log(path)
+    assert not result.ok
+    assert result.bad_line == 3
+
+
+@pytest.mark.parametrize("key", [None, KEY], ids=["unkeyed", "keyed"])
+def test_a_keyed_log_with_its_first_record_relabelled_is_broken_not_unverifiable(tmp_path, key):
+    # "cannot verify" would tell an operator nothing was wrong that a key
+    # couldn't fix, and here no key fixes it
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 3, key=KEY)
+    lines = path.read_text().splitlines()
+    first = json.loads(lines[0])
+    first["chain"] = "sha256"
+    lines[0] = dump(first)
+    path.write_text("\n".join(lines) + "\n")
+
+    result = verify_log(path, key=key)
+    assert not result.ok
+    assert result.bad_line == 2
+    assert result.why == "chain changes to 'hmac-sha256'"
+
+
+@pytest.mark.parametrize("key", [None, KEY], ids=["unkeyed", "keyed"])
+def test_an_unknown_chain_is_broken_where_it_first_appears(tmp_path, key):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2)
+
+    def relabel(records):
+        records[0]["chain"] = "rot13"
+
+    rechain(path, 0, relabel)
+
+    result = verify_log(path, key=key)
+    assert not result.ok
+    assert result.bad_line == 1
+    assert "unknown chain 'rot13'" in result.why
+
+
+def test_a_keyed_log_is_still_broken_at_a_bad_line_without_its_key(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+    with open(path, "a") as fh:
+        fh.write("{torn\n")
 
     result = verify_log(path)
     assert not result.ok
@@ -440,6 +620,22 @@ def test_verify_authenticates_a_keyed_log_with_the_key_file(tmp_path, key_file):
     assert KEY.decode() not in done.stdout + done.stderr
 
 
+@pytest.mark.parametrize("key", [None, KEY], ids=["unkeyed", "keyed"])
+def test_verify_says_it_misses_a_cut_a_restart_carried_on_past(tmp_path, key_file, key):
+    # the gap is mid-log by then, so "cut from the end" alone reads as a
+    # promise about the middle that the chain can't keep
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 5, key=key)
+    path.write_text("\n".join(path.read_text().splitlines()[:2]) + "\n")
+    write_log(path, 1, key=key)
+
+    key_args = ["--audit-key-file", str(key_file)] if key else []
+    done = cli("verify", *key_args, str(path))
+    assert done.returncode == 0
+    assert "even once a restart carries on past the cut" in done.stdout
+    assert "deletion" not in done.stdout
+
+
 def test_verify_takes_the_key_file_from_the_environment(tmp_path, key_file):
     path = tmp_path / "audit.jsonl"
     write_log(path, 2, key=KEY)
@@ -473,6 +669,19 @@ def test_verify_names_an_unusable_key_file_but_not_its_contents(tmp_path):
     assert "Traceback" not in done.stderr
 
 
+def test_verify_refuses_an_empty_key_file_name(tmp_path):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 1)
+
+    for done in (
+        cli("verify", "--audit-key-file", "", str(path)),
+        cli("verify", str(path), env={KEY_ENV: ""}),
+    ):
+        assert done.returncode == 1
+        assert "audit key file name is empty" in done.stderr
+        assert "ok:" not in done.stdout
+
+
 def test_trace_checks_a_keyed_log_with_the_key_from_the_environment(tmp_path, key_file):
     path = tmp_path / "audit.jsonl"
     write_log(path, 1, key=KEY)
@@ -481,3 +690,71 @@ def test_trace_checks_a_keyed_log_with_the_key_from_the_environment(tmp_path, ke
     done = cli("trace", str(path), env={KEY_ENV: str(key_file)})
     assert done.returncode == 0
     assert "WARNING" not in done.stderr
+
+
+# --- trace, report and replay check the chain by verify's rules ---
+
+readers = pytest.mark.parametrize("command", ["trace", "report", "replay"])
+
+
+def read(command, path, *extra, env=None):
+    policy = path.parent / "policy.yaml"
+    policy.write_text("version: 1\n")
+    candidate = ["--policy", str(policy)] if command == "replay" else []
+    return cli(command, str(path), *candidate, *extra, env=env)
+
+
+def downgrade(records):
+    for record in records:
+        record["chain"] = "sha256"
+
+
+@readers
+def test_a_reader_takes_the_key_file_the_way_verify_does(tmp_path, key_file, command):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+
+    done = read(command, path, "--audit-key-file", str(key_file))
+    assert done.returncode == 0
+    assert done.stderr == ""
+
+
+@readers
+def test_a_reader_calls_a_keyed_log_without_its_key_unverified_not_altered(tmp_path, command):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+
+    done = read(command, path)
+    assert done.returncode == 0
+    assert "WARNING: cannot verify" in done.stderr
+    assert "keyed (hmac-sha256) and no key was given" in done.stderr
+    assert "BROKEN" not in done.stderr
+    assert "may have been altered" not in done.stderr
+
+
+@readers
+def test_a_reader_given_the_key_refuses_a_log_rewritten_as_unkeyed(tmp_path, key_file, command):
+    # the forgery used to read clean while the genuine keyed log drew the
+    # warning; now the key is what decides
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 2, key=KEY)
+    rechain(path, 0, downgrade)
+
+    done = read(command, path, "--audit-key-file", str(key_file))
+    assert "WARNING: cannot verify" in done.stderr
+    assert "the log is not keyed" in done.stderr
+
+    done = read(command, path)
+    assert "intact but unkeyed, so anyone who can write it could have rewritten it" in done.stderr
+
+
+@readers
+def test_a_reader_calls_a_broken_log_broken(tmp_path, key_file, command):
+    path = tmp_path / "audit.jsonl"
+    write_log(path, 3, key=KEY)
+    rechain(path, 1, forge(1), key=b"attacker-guess-0123456789abcdef")
+
+    done = read(command, path, "--audit-key-file", str(key_file))
+    assert "WARNING" in done.stderr
+    assert "BROKEN at line 2" in done.stderr
+    assert "may have been altered" in done.stderr

@@ -115,6 +115,28 @@ def test_unwritable_audit_log_refuses_to_start(tmp_path):
     assert "Traceback" not in done.stderr
 
 
+@pytest.mark.parametrize(
+    "tail",
+    [b"\xff\xfe", b"[" * 100_000 + b"]" * 100_000, b'{"seq":' + b"9" * 5000 + b"}"],
+    ids=["not-utf-8", "nested-too-deep", "number-too-long"],
+)
+def test_an_audit_log_that_cannot_be_read_refuses_to_start(tmp_path, tail):
+    audit = tmp_path / "audit.jsonl"
+    audit.write_bytes(tail + b"\n")
+
+    done = serve(tmp_path, audit=audit)
+    assert done.returncode == REFUSED
+    assert "refusing to start" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+def test_an_audit_log_whose_name_cannot_be_looked_up_refuses_to_start(tmp_path):
+    done = serve(tmp_path, audit=tmp_path / ("a" * 300 + ".jsonl"))
+    assert done.returncode == REFUSED
+    assert "refusing to start" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
 def test_unreadable_audit_key_refuses_to_start(tmp_path):
     done = serve(tmp_path, extra=["--audit-key-file", str(tmp_path / "missing.key")])
     assert done.returncode == REFUSED
@@ -130,6 +152,19 @@ def test_audit_key_file_is_taken_from_the_environment(tmp_path):
     assert "audit key file" in done.stderr
 
 
+@pytest.mark.parametrize("given", ["flag", "environment"])
+def test_an_empty_audit_key_file_name_refuses_to_start(tmp_path, given):
+    # what `--audit-key-file "$KEY"` with KEY unset looks like; serving
+    # unkeyed would drop the key without anyone having chosen to
+    if given == "flag":
+        done = serve(tmp_path, extra=["--audit-key-file", ""])
+    else:
+        done = serve(tmp_path, env={**os.environ, "TRIPWIRE_AUDIT_KEY_FILE": ""})
+    assert done.returncode == REFUSED
+    assert "audit key file name is empty" in done.stderr
+    assert not (tmp_path / "audit.jsonl").exists()
+
+
 def test_a_keyed_log_served_without_its_key_refuses_to_start(tmp_path):
     # carrying on unkeyed would quietly downgrade the rest of the log
     audit = tmp_path / "audit.jsonl"
@@ -140,6 +175,16 @@ def test_a_keyed_log_served_without_its_key_refuses_to_start(tmp_path):
     done = serve(tmp_path, audit=audit)
     assert done.returncode == REFUSED
     assert "refusing to start" in done.stderr
+    assert "is a 'hmac-sha256' chain and this writer's is 'sha256'" in done.stderr
+
+
+def test_a_ledger_that_cannot_be_opened_refuses_to_start(tmp_path):
+    # before the upstream is running or the log says the proxy started
+    done = serve(tmp_path, extra=["--tx-db", str(tmp_path / "no" / "such" / "dir" / "ledger.db")])
+    assert done.returncode == REFUSED
+    assert "cannot open the ledger" in done.stderr
+    assert "Traceback" not in done.stderr
+    assert "proxy_start" not in (tmp_path / "audit.jsonl").read_text()
 
 
 def test_audit_failure_mid_session_halts_the_proxy(tmp_path):

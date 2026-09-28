@@ -141,7 +141,7 @@ class Interceptor:
         forward_args: Mapping[str, Any] = dict(arguments or {}) if verdict.shadow else args
         self.audit.append("tool_call", {"tool": name, "args": forward_args})
         try:
-            result = await self._forward(name, forward_args)
+            result = await self._forward(name, forward_args, shadow=verdict.shadow)
         except DuplicateInFlight as e:
             # An identical call is on the ledger with no recorded outcome:
             # a previous attempt died between intent and completion, so
@@ -186,14 +186,22 @@ class Interceptor:
         self._remember(name, args, is_error=bool(result.isError))
         return result
 
-    async def _forward(self, name: str, args: Mapping[str, Any]) -> types.CallToolResult:
+    async def _forward(
+        self, name: str, args: Mapping[str, Any], shadow: bool
+    ) -> types.CallToolResult:
         """Through the ledger when there is one, straight through when not.
 
         Without a ledger an agent that retries a timed-out send_email
         sends it twice; with one, the second attempt gets the first
         attempt's answer and the tool is never touched again.
+
+        Shadow mode goes straight through even with a ledger. A replayed
+        answer, or a refusal over a call some earlier session left
+        unresolved, isn't what the agent would get without tripwire, and
+        that is all shadow mode may hand it. It writes nothing there
+        either, so it never strands a call for an enforcing session.
         """
-        if self.tx is None:
+        if self.tx is None or shadow:
             return await self.upstream.call(name, dict(args))
 
         async def forward() -> types.CallToolResult:

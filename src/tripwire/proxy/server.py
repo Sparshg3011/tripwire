@@ -56,14 +56,17 @@ async def serve(
     audit_key: bytes | None = None,
 ) -> None:
     # Everything here raises on problems, and that's the point: bad
-    # policy / dead upstream / unwritable log / unreachable gate =
-    # refuse to start.
+    # policy / dead upstream / unwritable log / unusable ledger /
+    # unreachable gate = refuse to start.
     policy = load_policy(policy_path)
     # 64 bits, not 32: sessions from one log get traced by id, and two
     # runs colliding would splice two unrelated incidents into one
     # convincing-looking causal chain
     session_id = secrets.token_hex(8)
     audit = AuditLog(audit_path, session_id=session_id, key=audit_key)
+    # before the upstream, so a ledger that won't open leaves nothing
+    # running to stop and no proxy_start in the log
+    tx = TxExecutor(tx_db, session_id) if tx_db else None
 
     gate: ApprovalGate | None = None
     if gate_mode == "cli":
@@ -89,7 +92,6 @@ async def serve(
     )
 
     session = SessionState(policy)
-    tx = TxExecutor(tx_db, session_id) if tx_db else None
     server = build_server(Interceptor(policy, audit, upstream, session, gate=gate, tx=tx))
     try:
         async with stdio_server() as (read, write):

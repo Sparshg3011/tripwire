@@ -111,10 +111,14 @@ head and shred it for both.
 
 **Rotate by moving, not truncating.** The chain lives in the file, so
 `mv audit.jsonl audit-2026-08.jsonl` and let tripwire open a fresh one
-on restart. Truncating a live log breaks the chain and tripwire will
-refuse to continue it. Adding or dropping a key is a rotation too:
-tripwire won't continue a log in a different chain from the one it
-started with. Keep the archives — they're your evidence.
+on restart. Truncating throws evidence away without a trace: cut on a
+line boundary, the shorter log still verifies, keyed or not, and
+tripwire carries on from the new last line, so the gap ends up in the
+middle of a log that checks out. Only a cut through a line is caught,
+as a torn record tripwire refuses to continue. Adding or dropping a key
+is a rotation too: tripwire won't continue a log in a different chain
+from the one it started with. Keep the archives — they're your
+evidence.
 
 **Key the audit log.** Unkeyed, the chain catches a line edited or
 deleted in the middle, but anyone who can write the file can rewrite it
@@ -126,11 +130,13 @@ chmod 600 ~/.tripwire/audit.key
 tripwire serve --audit-key-file ~/.tripwire/audit.key --policy ... --upstream ...
 ```
 
-`TRIPWIRE_AUDIT_KEY_FILE` works in place of the flag. The key is never
-written to the log or printed. It only protects the log from people who
-can write it but can't read the key, so keep the key away from anyone
-else with write access to the log. Lose the key and the log can't be
-verified any more.
+`TRIPWIRE_AUDIT_KEY_FILE` works in place of the flag. An empty name in
+either is refused rather than taken to mean no key, so an unset shell
+variable can't quietly turn keying off. The key is never written to the
+log or printed. It only protects the log from people who can write it
+but can't read the key, so keep the key away from anyone else with
+write access to the log. Lose the key and the log can't be verified any
+more.
 
 **Check integrity before you trust a log.**
 
@@ -141,11 +147,16 @@ tripwire verify --audit-key-file ~/.tripwire/audit.key ~/.tripwire/audit.jsonl
 It says which chain it checked and what that chain can't catch. A keyed
 log won't verify without its key, and a key won't vouch for a log that
 isn't keyed. Neither kind notices lines cut from the end; the
-[threat model](../THREAT_MODEL.md) has the detail.
+[threat model](../THREAT_MODEL.md) has the detail. An archive from
+before you added the key is unkeyed, so check it without one; with the
+variable exported, that's
+`env -u TRIPWIRE_AUDIT_KEY_FILE tripwire verify audit-2026-07.jsonl`.
 
-`trace`, `report` and `replay` also check it, using the key named by
-`TRIPWIRE_AUDIT_KEY_FILE`, and warn loudly if the chain is broken or
-can't be checked, but they still print — so read the warning.
+`trace`, `report` and `replay` check it the same way before they print,
+and take `--audit-key-file` or `TRIPWIRE_AUDIT_KEY_FILE` just as
+`verify` does. They warn loudly when a log is broken or can't be
+verified, and note when it's unkeyed, but they still print — so read
+the warning.
 
 **Know what the ledger remembers.** With `--tx-db`, an identical call
 replays the first result instead of running again — within one session.
@@ -169,9 +180,25 @@ sqlite3 ledger.db "DELETE FROM intents WHERE key = '<key>'"
 ```
 
 Delete the row only once you're sure: the next identical call will run.
+A row left by a version of tripwire from before sessions were recorded
+has no session and can't say which call it was, so until it's cleared it
+refuses every call to its tool.
+
+A version from before one unresolved row per call was enforced could let
+two sessions start the same call at once, and leave a row for each. A
+ledger holding such a pair won't open: tripwire refuses to start and
+names the sessions and the tool. Delete all but one of the pair's rows;
+the one left keeps the call refused until you clear it as above.
+
+Shadow mode leaves the ledger alone: every call goes straight to the
+tool, nothing is replayed or refused, and nothing is written. A call an
+enforcing session left unresolved doesn't stop a shadow session, and
+shadow traffic never leaves one behind for the enforcing sessions that
+follow.
 
 **Watch the exit codes.** `2` means refused to start (bad policy, dead
-upstream, unwritable log, missing or wrong audit key, unusable gate).
+upstream, unwritable log, missing or wrong audit key, a ledger that
+won't open, unusable gate).
 `70` means it started and then lost the audit log, and killed itself
 rather than act unrecorded. Both should page someone; neither should be
 auto-restarted in a loop.

@@ -51,8 +51,13 @@ run(tool, args, forward) -> (result, replayed):
     DuplicateInFlight too. This is the proxy that died mid-call and came
     back as a new session, and its retry is the duplicate the ledger
     exists to stop. It also refuses a second live session that shares
-    the db and happens to be mid-call on the identical thing; once that
-    one finishes, the call runs.
+    the db and happens to be mid-call on the identical thing, even one
+    that arrives at the same instant: the ledger holds one unresolved
+    row per call. Once that one finishes, the call runs.
+
+  * 'in_flight' row written before sessions were recorded -> raise
+    DuplicateInFlight for every call to its tool. Such a row can't say
+    which call it was, so none of them can be told apart from it.
 
   * forward returns isError=True -> the intent row is DELETED and the
     error result returned, (result, False). The tool itself told us it
@@ -128,7 +133,7 @@ CREATE TABLE IF NOT EXISTS intents (
 """
 
 # added after the first ledgers were written; a ledger without them keeps
-# working, its old rows just can't be matched from another session
+# working, but its old rows can't be matched to a call from another session
 LATER_COLUMNS = ("call_key", "session")
 
 
@@ -152,12 +157,40 @@ class TxExecutor:
             # instead of failing the call
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("PRAGMA busy_timeout=5000")
-            self._db.execute(SCHEMA)
-            have = {row[1] for row in self._db.execute("PRAGMA table_info(intents)")}
-            for column in LATER_COLUMNS:
-                if column not in have:
-                    self._db.execute(f"ALTER TABLE intents ADD COLUMN {column} TEXT")
-            self._db.execute("CREATE INDEX IF NOT EXISTS intents_by_call ON intents (call_key)")
+            # one write transaction, or proxies opening an old ledger
+            # together all see a column missing and all but one fail to
+            # add it
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._db.execute(SCHEMA)
+                have = {row[1] for row in self._db.execute("PRAGMA table_info(intents)")}
+                for column in LATER_COLUMNS:
+                    if column not in have:
+                        self._db.execute(f"ALTER TABLE intents ADD COLUMN {column} TEXT")
+                # an earlier version let two sessions both start one call,
+                # and the rows they left can't take the index below; which
+                # of them to keep is for an operator to decide
+                twice = self._db.execute(
+                    "SELECT tool, group_concat(session, ', ') FROM intents "
+                    "WHERE state = 'in_flight' AND call_key IS NOT NULL "
+                    "GROUP BY call_key HAVING count(*) > 1"
+                ).fetchone()
+                if twice is not None:
+                    raise TxError(
+                        f"cannot open the ledger at {self.path}: sessions {twice[1]} each started "
+                        f"the same {twice[0]} call and never recorded an outcome; delete all but "
+                        f"one of their rows, which keeps the call refused until it's cleared"
+                    )
+                # one unresolved row per call across every session; the
+                # look in run() and the insert after it are two statements,
+                # and this is what keeps two sessions from both passing
+                self._db.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS intents_in_flight "
+                    "ON intents (call_key) WHERE state = 'in_flight'"
+                )
+                # what the index above replaced; it serves every lookup
+                # this one did
+                self._db.execute("DROP INDEX IF EXISTS intents_by_call")
         except sqlite3.Error as e:
             raise TxError(f"cannot open the ledger at {self.path}: {e}") from e
 
@@ -190,14 +223,31 @@ class TxExecutor:
                 f"{tool} with these arguments was started by session {stranded[0]} and never "
                 f"recorded an outcome; inspect {self.path} before retrying"
             )
+        legacy = self._one(
+            "SELECT 1 FROM intents WHERE call_key IS NULL AND tool = ? AND state = 'in_flight'",
+            (tool,),
+        )
+        if legacy is not None:
+            raise DuplicateInFlight(
+                f"a {tool} call from before sessions were recorded never recorded an outcome, "
+                f"and nothing says which call it was; inspect {self.path} before retrying"
+            )
 
         # intent first, always: a side effect with no prior record is the
         # one thing this class exists to prevent
-        self._write(
-            "INSERT INTO intents (key, tool, state, call_key, session) "
-            "VALUES (?, ?, 'in_flight', ?, ?)",
-            (key, tool, call, self.session_id),
-        )
+        try:
+            self._db.execute(
+                "INSERT INTO intents (key, tool, state, call_key, session) "
+                "VALUES (?, ?, 'in_flight', ?, ?)",
+                (key, tool, call, self.session_id),
+            )
+        except sqlite3.IntegrityError as e:
+            raise DuplicateInFlight(
+                f"{tool} with these arguments was started by another session at the same "
+                f"moment; inspect {self.path} before retrying"
+            ) from e
+        except sqlite3.Error as e:
+            raise TxError(f"ledger write failed: {e}") from e
 
         result = await forward()
 

@@ -575,3 +575,22 @@ def test_json_that_is_not_a_record_is_reported_without_a_traceback(log_path, com
     assert done.returncode == 1
     assert "not a record object" in done.stderr
     assert "Traceback" not in done.stderr
+
+
+@pytest.mark.parametrize("command", ["verify", "trace", "report", "replay"])
+@pytest.mark.parametrize(
+    "tail",
+    [b"\xff\xfe", b"[" * 100_000 + b"]" * 100_000, b'{"seq":' + b"9" * 5000 + b"}"],
+    ids=["not-utf-8", "nested-too-deep", "number-too-long"],
+)
+def test_an_unreadable_line_is_reported_without_a_traceback(tmp_path, log_path, command, tail):
+    emit(log_path, "s1", [verdict("add"), *ran("add")])
+    with open(log_path, "ab") as fh:
+        fh.write(tail + b"\n")
+    policy = tmp_path / "policy.yaml"
+    policy.write_text("version: 1\n")
+
+    extra = ["--policy", str(policy)] if command == "replay" else []
+    done = cli(command, str(log_path), *extra)
+    assert done.returncode == 1
+    assert "Traceback" not in done.stderr

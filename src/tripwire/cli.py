@@ -25,31 +25,58 @@ from tripwire.tx import (
 KEY_ENV = "TRIPWIRE_AUDIT_KEY_FILE"
 
 
-def check_chain(path: str) -> None:
+def audit_key(key_file: str | None) -> bytes | None:
+    """The key the command was given, if it was given one.
+
+    An empty name is refused rather than read as no key: that's what an
+    unset variable in `--audit-key-file "$KEY"` or an empty secret in a
+    unit file looks like, and it must not turn keying off without a word.
+    """
+    if key_file is None:
+        return None
+    if not key_file:
+        raise AuditKeyError(
+            f"the audit key file name is empty; to go without a key, unset {KEY_ENV} "
+            f"and leave out --audit-key-file"
+        )
+    return load_key(key_file)
+
+
+def check_chain(path: str, key_file: str | None) -> None:
     """Say so, loudly, before showing anyone a log as evidence.
 
-    trace and report read a log and tell a story about it. If the chain
-    is broken, that story may be the attacker's, so it can't be printed
-    without the warning attached — a forensic tool that quietly renders
-    tampered input is worse than one that doesn't exist.
+    trace, report and replay read a log and tell a story about it. If
+    the chain is broken, that story may be the attacker's, so it can't be
+    printed without the warning attached — a forensic tool that quietly
+    renders tampered input is worse than one that doesn't exist.
 
-    A keyed log is checked with the key $TRIPWIRE_AUDIT_KEY_FILE names;
-    without it, a keyed log gets the warning too, because unverified is
-    what it is.
+    The rules are verify's: a keyed log can't be checked without its key,
+    and a key won't vouch for a log that isn't keyed. A log that can't be
+    checked is called unverified, not altered, and an intact unkeyed one
+    still gets a note, because a rewrite wouldn't show in it.
     """
-    key_file = os.environ.get(KEY_ENV)
+    key = None
     try:
-        result = verify_log(path, key=load_key(key_file) if key_file else None)
+        key = audit_key(key_file)
+        result = verify_log(path, key=key)
     except AuditKeyError as e:
         result = VerifyResult(ok=False, records=0, why=str(e))
-    if not result.ok:
-        where = "" if result.bad_line is None else f" at line {result.bad_line}"
-        print(
-            f"WARNING: {path} fails its integrity check{where} "
-            f"({result.why}). Everything below is UNVERIFIED and may have been "
-            f"altered. Run `tripwire verify` for detail.\n",
-            file=sys.stderr,
+
+    if result.ok and key is not None:
+        return
+    if result.ok:
+        message = (
+            f"note: {path} is intact but unkeyed, so anyone who can write it "
+            f"could have rewritten it."
         )
+    elif result.bad_line is None:
+        message = f"WARNING: cannot verify {path} ({result.why}). Everything below is UNVERIFIED."
+    else:
+        message = (
+            f"WARNING: {path} is BROKEN at line {result.bad_line} ({result.why}). "
+            f"Everything below is UNVERIFIED and may have been altered."
+        )
+    print(f"{message} Run `tripwire verify` for detail.\n", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -75,7 +102,8 @@ def main(argv: list[str] | None = None) -> None:
         "--tx-db",
         help=(
             "sqlite ledger for idempotency; with it a retried identical call in the "
-            "same session returns the first call's result instead of running the tool twice"
+            "same session returns the first call's result instead of running the tool twice "
+            "(shadow mode doesn't use it)"
         ),
     )
     p_serve.add_argument(
@@ -92,11 +120,6 @@ def main(argv: list[str] | None = None) -> None:
 
     p_verify = sub.add_parser("verify", help="check an audit log's hash chain")
     p_verify.add_argument("log")
-    p_verify.add_argument(
-        "--audit-key-file",
-        default=os.environ.get(KEY_ENV),
-        help=f"the key the log was served with; a keyed log needs it (default: ${KEY_ENV})",
-    )
 
     p_trace = sub.add_parser("trace", help="replay one session as a causal chain")
     p_trace.add_argument("log")
@@ -109,6 +132,13 @@ def main(argv: list[str] | None = None) -> None:
     p_replay.add_argument("log")
     p_replay.add_argument("--policy", required=True, help="the candidate policy to try")
     p_replay.add_argument("session", nargs="?", help="session id (default: every session)")
+
+    for reader in (p_verify, p_trace, p_report, p_replay):
+        reader.add_argument(
+            "--audit-key-file",
+            default=os.environ.get(KEY_ENV),
+            help=f"the key the log was served with; a keyed log needs it (default: ${KEY_ENV})",
+        )
 
     args = parser.parse_args(argv)
 
@@ -123,7 +153,7 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "verify":
         try:
-            key = load_key(args.audit_key_file) if args.audit_key_file else None
+            key = audit_key(args.audit_key_file)
         except AuditKeyError as e:
             print(e, file=sys.stderr)
             sys.exit(1)
@@ -131,12 +161,14 @@ def main(argv: list[str] | None = None) -> None:
         if result.ok and key is None:
             print(f"ok: chain intact, {result.records} records (unkeyed)")
             print("  catches: a line edited or deleted in the middle of the log")
-            print("  misses:  a rewrite by anyone who can write the file; lines cut from the end")
+            print("  misses:  a rewrite by anyone who can write the file; lines cut from the end,")
+            print("           even once a restart carries on past the cut")
             print("  serve and verify with --audit-key-file to catch rewrites")
         elif result.ok:
             print(f"ok: chain intact, {result.records} records (keyed, all authenticated)")
-            print("  catches: any edit, deletion or rewrite made without the key")
-            print("  misses:  lines cut from the end")
+            print("  catches: any edit, insertion or rewrite made without the key, and a line")
+            print("           deleted in the middle of the log")
+            print("  misses:  lines cut from the end, even once a restart carries on past the cut")
         elif result.bad_line is None:
             print(f"cannot verify {args.log}: {result.why}", file=sys.stderr)
             sys.exit(1)
@@ -149,7 +181,7 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
 
     elif args.command == "trace":
-        check_chain(args.log)
+        check_chain(args.log, args.audit_key_file)
         try:
             records = read_records(args.log)
         except LogError as e:
@@ -173,7 +205,7 @@ def main(argv: list[str] | None = None) -> None:
         print(format_trace(trace(records, session_id), session_id))
 
     elif args.command == "report":
-        check_chain(args.log)
+        check_chain(args.log, args.audit_key_file)
         try:
             records = read_records(args.log)
         except LogError as e:
@@ -184,7 +216,7 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "replay":
         from tripwire.replay import format_replay, replay
 
-        check_chain(args.log)
+        check_chain(args.log, args.audit_key_file)
         try:
             records = read_records(args.log)
             candidate = load_policy(args.policy)
@@ -203,7 +235,7 @@ def main(argv: list[str] | None = None) -> None:
         from tripwire.tx.executor import TxError
 
         try:
-            key = load_key(args.audit_key_file) if args.audit_key_file else None
+            key = audit_key(args.audit_key_file)
             anyio.run(
                 serve,
                 args.policy,
