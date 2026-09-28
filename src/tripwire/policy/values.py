@@ -728,12 +728,12 @@ _STEM_EXT = re.compile(r"[\w-][\w.-]*\.[A-Za-z0-9]{1,8}")
 # not inside a path token either: "GIT~1/config"
 _T_ID = re.compile(r"(?<![\w@%+.:/\\#~-])[A-Za-z0-9_.:/#-]++(?![\w@%+\\])")
 
-# Label words an id may follow: "id 13", "ID: 13", "no. 13", "number 13".
-# "#13" needs no word. Callers add words of their own (an argument's noun).
-_ID_LABELS = (r"id", r"no\.", r"number")
-_ID_SEPARATOR = r"(?i:\#|no\.?|number|:)"
-# not a fragment, an entity or a path: "x.io/#13", "&#13;", "a/#13"
-_ID_HASH = r"(?<![\w&#/.:?=@%+-])\#\s*"
+# The label word an id may follow: "id 13", "ID: 13". Callers add words of
+# their own (an argument's noun). "#", "no.", "number" and ":" only part a
+# label from its id ("invoice no. 13"): "#1 priority" and "the number 2
+# option" have no label, and neither has "id no13".
+_ID_LABELS = (r"id",)
+_ID_SEPARATOR = r"(?i:\#|no(?:\.|\b)|number\b|:)"
 # the id ends where its token ends; sentence dots and colons may follow
 _ID_END = r"(?=[.:]*+(?![\w.:/\\#@%+-]))"
 
@@ -916,9 +916,9 @@ class TaskIndex:
 
     def anchors(self, key: Key, *, labels: Iterable[str] = ()) -> bool:
         """Whether the task text anchors this key. An id under 6 characters
-        anchors only next to a label: "id 13", "#13", or one of `labels`
-        ("invoice 13" with labels=["invoice"]). Only keys normalize() could
-        have produced are considered."""
+        anchors only after a label: "id 13", "id #13", or one of `labels`
+        ("invoice no. 13" with labels=["invoice"]); "#13" and "No. 13" have
+        none. Only keys normalize() could have produced are considered."""
         try:
             if not isinstance(key, Key) or normalize(key.key, key.vtype) != key:
                 return False
@@ -945,7 +945,7 @@ class TaskIndex:
                 if parts:
                     words.append(r"\s+".join(re.escape(part) for part in parts))
         alternatives = "|".join(words)
-        head = rf"(?:(?<!\w)(?i:{alternatives})(?!\w)\s*{_ID_SEPARATOR}?\s*|{_ID_HASH})"
+        head = rf"(?<!\w)(?i:{alternatives})(?!\w)\s*{_ID_SEPARATOR}?\s*"
         return re.search(head + re.escape(key) + _ID_END, self.text) is not None
 
 

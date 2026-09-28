@@ -978,22 +978,31 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Edit GIT~1/config now", D("1/config"), False),
         ("Edit notes~abcdef12", D("abcdef12"), False),
         ("Open abcde", D("abcde"), False),
-        # short ids only next to a label
+        # short ids only after a label, then maybe # no. number or :
         ("Ticket 13", D("13"), False),
         ("Pay 13 dollars", D("13"), False),
         ("id 13", D("13"), True),
         ("ID: 13", D("13"), True),
         ("id #13", D("13"), True),
-        ("Fix #13.", D("13"), True),
-        ("No. 13", D("13"), True),
-        ("number 13", D("13"), True),
+        ("ID No. 13", D("13"), True),
+        ("id number 13", D("13"), True),
         ("id13", D("13"), False),
         ("paid 13", D("13"), False),
         ("id 13.5", D("13"), False),
         ("id 13-a", D("13"), False),
+        ("id no13", D("13"), False),
+        ("id number13", D("13"), False),
         ("C#13", D("13"), False),
         ("no 13", D("13"), False),
-        ("Fix (#13) today", D("13"), True),
+        # a separator alone is no label
+        ("Fix #13.", D("13"), False),
+        ("Fix (#13) today", D("13"), False),
+        ("No. 13", D("13"), False),
+        ("number 13", D("13"), False),
+        ("My #1 priority is the Q3 report", D("1"), False),
+        ("We're # 2 in the region, email Bob", D("2"), False),
+        ("# 13 things to fix before launch", D("13"), False),
+        ("Pick the number 2 option and email Bob", D("2"), False),
         ("see https://x.io/#13", D("13"), False),
         ("see https://x.io/?id=13", D("13"), False),
         ("Use &#13; for CR", D("13"), False),
@@ -1041,9 +1050,13 @@ def test_labels_supplied_by_the_caller():
     assert anchored("Pay invoice 13", D("13"), labels=["invoice"])
     assert anchored("Pay invoice no. 13", D("13"), labels=["invoice"])
     assert anchored("Pay Invoice #13", D("13"), labels=["invoice"])
+    assert anchored("Pay invoice number 13", D("13"), labels=["invoice"])
+    assert anchored("Fix issue #13", D("13"), labels=["issue"])
     assert anchored("Cancel the calendar event 7", D("7"), labels=["calendar event"])
     assert not anchored("Pay invoice 13", D("13"), labels=["bill"])
     assert not anchored("Pay invoice13", D("13"), labels=["invoice"])
+    assert not anchored("Pay invoice no13", D("13"), labels=["invoice"])
+    assert not anchored("Fix #13", D("13"), labels=["issue"])
     assert not anchored("Pay 13", D("13"), labels=["", " ", 5])  # type: ignore[list-item]
 
 
@@ -1916,15 +1929,23 @@ def test_marks_join_tokens(item, head, mark):
     assert not anchored(f"Please use {head}{mark}{value} today", key)
 
 
-# Unlabelled short ids never anchor from task text.
-@given(text=st.text(alphabet=string.ascii_letters + string.digits + " ,.-_:/", max_size=80))
+# Unlabelled short ids never anchor from task text: "#", "no." and "number"
+# are no labels.
+@given(
+    text=st.lists(
+        st.one_of(
+            st.sampled_from(["#", " # ", "No. ", "no.", " number ", "Number", "(", ")", ": "]),
+            st.text(alphabet=string.ascii_letters + string.digits + " ,.-_:/#", max_size=8),
+        ),
+        max_size=12,
+    ).map("".join)
+)
 @SETTINGS
 def test_short_ids_need_a_label(text):
-    lowered = text.lower()
-    assume(not any(label in lowered for label in ("id", "no.", "number")))
+    assume("id" not in text.lower())
     task = TaskIndex.build(text)
     for token in set(text.replace(",", " ").split()):
-        for piece in {token, token.strip(".:-_/")}:
+        for piece in {token, token.strip(".:-_/()"), token.strip(".:-_/#()")}:
             key = normalize(piece, "id")
             if isinstance(key, Key) and len(key.key) < 6:
                 assert not task.anchors(key)
