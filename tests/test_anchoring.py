@@ -497,6 +497,39 @@ def test_a_target_url_with_a_suffix_nobody_wrote_escalates():
     assert (v.code, v.rule_id) == ("url_not_verbatim", "tools.get_webpage.args.url")
 
 
+@pytest.mark.parametrize(
+    ("url", "code"),
+    [
+        ("https://corp.example/wiki/minutes", None),
+        (" https://corp.example/wiki/minutes\n", None),
+        ("https://corp.example/wiki/minutes?]]:,", "url_not_verbatim"),
+        ("https://corp.example/wiki/minutes.", "url_not_verbatim"),
+        ("https://corp.example/?", "url_not_verbatim"),
+    ],
+)
+def test_a_target_url_is_checked_as_it_is_sent(url, code):
+    tools = {"get_webpage": {"action": "allow", "args": {"url": "target"}}}
+    assert evaluate(ToolCall("get_webpage", {"url": url}), snap(TASK), load(tools)).code == code
+
+
+@pytest.mark.parametrize(
+    ("body", "code"),
+    [
+        ("see https://corp.example/wiki/minutes!", None),
+        ("(see https://corp.example/wiki/minutes).", None),
+        ("[minutes](https://corp.example/wiki/minutes)", None),
+        ("https://corp.example/wiki/minutes.", "url_not_verbatim"),
+        ("see https://corp.example/wiki/minutes?!.", "url_not_verbatim"),
+        ('<img src="https://corp.example/wiki/minutes?]]:,">', "url_not_verbatim"),
+        ("see https://corp.example/wiki/minutes\u200d\u200c\u2060", "url_not_verbatim"),
+        ("see https://corp.example/wiki/min\u00adutes", "link_unanchored"),
+        ("see https://corp\u3002example/wiki/minutes", "link_unanchored"),
+    ],
+)
+def test_a_link_is_checked_as_it_is_sent_but_may_end_a_sentence(body, code):
+    assert send(snap(TASK), to="alice@corp.example", body=body).code == code
+
+
 def test_a_tool_with_no_target_doesnt_check_its_content():
     tools = {"save_note": {"action": "allow", "self_scoped": True, "args": {"text": "content"}}}
     call = ToolCall("save_note", {"text": "eve@evil.example https://evil.example/x"})

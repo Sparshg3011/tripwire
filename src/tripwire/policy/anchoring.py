@@ -41,7 +41,11 @@ checked too:
   verbatim  a URL with a path, query or fragment past "/", a target's or
             a link's, must occur as written in the task or in what a
             tool, the listing or an upstream error wrote before the agent
-            wrote it, so it can't carry what the session gathered
+            wrote it, so it can't carry what the session gathered. It is
+            read as it is sent; a link in prose may lose one closing
+            bracket and one mark of punctuation that end a sentence.
+            Links are read from the content as written and again after
+            C2 and C1, and both readings must pass.
 
 The first failure decides the code, authority arguments first, in
 contract order, then content:
@@ -114,6 +118,8 @@ _ID_WORDS = frozenset({"id", "ids", "uuid", "guid"})
 _RUN = re.compile(r"[^\s<>\"'`]+")
 _SCHEME = re.compile(r"(?i:https?)://")
 _AUTHORITY_END = re.compile(r"[/?#]")
+# what a sentence may end a link with, which no one need have written
+_PROSE_END = re.compile(r"[)\]}]?[.,;:!?]?\Z")
 
 
 def check(
@@ -335,13 +341,13 @@ class _Check:
             return "self"
         return None
 
-    def _verbatim(self, leaf: LeafReport, value: object) -> LeafReport:
-        """leaf, or leaf as not_verbatim when its URL carries a suffix no
-        one wrote."""
-        if not isinstance(value, str):
+    def _verbatim(self, leaf: LeafReport, url: object, *, prose: bool = False) -> LeafReport:
+        """leaf, or leaf as not_verbatim when its URL, as it is sent,
+        carries a suffix no one wrote. prose: a link found in text."""
+        if not isinstance(url, str):
             return leaf
-        needle = _suffixed(_clean(value).strip())
-        if needle is None or self.task.verbatim(needle) or self.provenance.verbatim(needle):
+        needles = _needles(url.strip(), prose)
+        if not needles or any(map(self._written, needles)):
             return leaf
         return LeafReport(
             leaf.arg,
@@ -353,6 +359,9 @@ class _Check:
             via=leaf.via,
             value=leaf.value,
         )
+
+    def _written(self, text: str) -> bool:
+        return self.task.verbatim(text) or self.provenance.verbatim(text)
 
     def _content(self, arg: str, name: str, text: str) -> Iterator[tuple[LeafReport, str]]:
         """Each check a content leaf takes, with the code it fails under."""
@@ -374,15 +383,17 @@ class _Check:
                 yield self._verbatim(leaf, text), "url_not_verbatim"
             return
 
-        for link in _links(_clean(text)):
+        # as written, which is what is sent, and as a reader may take it
+        for link in dict.fromkeys([*_links(text), *_links(_clean(text))]):
             leaf = self._link(arg, link)
             if leaf.status != "anchored":
                 yield leaf, "link_unanchored"
                 continue
-            yield self._verbatim(leaf, link), "url_not_verbatim"
+            yield self._verbatim(leaf, link, prose=True), "url_not_verbatim"
 
     def _link(self, arg: str, link: str) -> LeafReport:
-        url = link if _is_url(link) else "http://" + link
+        read = link.rstrip(TRAILING)
+        url = read if _is_url(read) else "http://" + read
         outcome = normalize(url, "url", protected_paths=self.protected)
         if not isinstance(outcome, Key):
             status: LeafStatus = "unanchorable" if isinstance(outcome, Unanchorable) else "invalid"
@@ -515,31 +526,37 @@ def _is_url(text: str) -> bool:
     return _SCHEME.match(text) is not None or text[:4].lower() == "www."
 
 
-def _suffixed(url: str) -> str | None:
-    """A URL past its scheme when it carries a path, query or fragment
-    past "/"; None when it carries nothing beyond its host."""
+def _needles(url: str, prose: bool) -> tuple[str, ...]:
+    """What must occur verbatim for a URL to pass: nothing when it carries
+    no path, query or fragment past "/"; else the URL past its scheme,
+    or, in prose, that or the same without the one closing bracket and
+    one mark of punctuation a sentence may end it with."""
     scheme = _SCHEME.match(url)
-    rest = (url[scheme.end() :] if scheme else url).rstrip(TRAILING)
-    end = _AUTHORITY_END.search(rest)
-    if end is None or rest[end.start() :] == "/":
-        return None
-    return rest
+    rest = url[scheme.end() :] if scheme else url
+    short = _PROSE_END.sub("", rest, count=1) if prose else rest
+    end = _AUTHORITY_END.search(short)
+    if end is None or short[end.start() :] == "/":
+        return ()
+    return tuple(dict.fromkeys((rest, short)))
 
 
 def _links(text: str) -> Iterator[str]:
-    """Every link a reader may follow in text: each scheme URL wherever it
-    starts, and each run, or start of a run before a scheme, whose host
-    part is a www. host or ends in a pinned TLD."""
-    # a browser reads the ideographic full stop as a dot
-    for m in _RUN.finditer(text.replace("\u3002", ".")):
-        run = m.group()
+    """Every link a reader may follow in text, as written, sentence
+    punctuation after it included: each scheme URL wherever it starts,
+    and each run, or start of a run before a scheme, whose host part is a
+    www. host or ends in a pinned TLD."""
+    # a browser reads the ideographic full stop in a host as a dot
+    dotted = text.replace("\u3002", ".")
+    for m in _RUN.finditer(dotted):
+        run, written = m.group(), text[m.start() : m.end()]
         starts = [s.start() for s in _SCHEME.finditer(run)]
         for start, end in pairwise([*starts, len(run)]):
-            yield run[start:end].rstrip(TRAILING)
-        bare = (run[: starts[0]] if starts else run).lstrip("([{").rstrip(TRAILING)
-        host = _AUTHORITY_END.split(bare, maxsplit=1)[0]
+            yield written[start:end]
+        bare = run[: starts[0]] if starts else run
+        lead = len(bare) - len(bare.lstrip("([{"))
+        host = _AUTHORITY_END.split(bare[lead:].rstrip(TRAILING), maxsplit=1)[0]
         if "@" in host or "." not in host:
             continue
         label = host.rpartition(".")[2].partition(":")[0].casefold()
         if label in TLDS or host[:4].lower() == "www.":
-            yield bare
+            yield written[lead : len(bare)]

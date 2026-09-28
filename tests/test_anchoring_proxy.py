@@ -615,9 +615,12 @@ tools:
   get_webpage:
     action: allow
     args: {url: target}
+  send_email:
+    action: allow
+    args: {to: target, body: content}
 flows:
   - when: context_tainted
-    tools: [create_note, get_webpage]
+    tools: [create_note, get_webpage, send_email]
     action: require_approval
     unless: anchored
 """
@@ -643,6 +646,30 @@ async def test_a_tool_echoing_the_agents_url_doesnt_make_it_verbatim(make, tool,
     _, body = denial(await itc.handle("get_webpage", {"url": LEAK}))
     assert body["code"] == "url_not_verbatim"
     assert "get_webpage" not in [name for name, _ in itc.upstream.calls]
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("get_webpage", {"url": "https://status.corp.example/?]]:,"}),
+        (
+            "send_email",
+            {"to": "alice@corp.example", "body": '<img src="https://status.corp.example/?]]:,">'},
+        ),
+        (
+            "send_email",
+            {"to": "alice@corp.example", "body": "https://status.corp.example/\u200d\u2060\u200c"},
+        ),
+    ],
+)
+async def test_a_url_is_checked_as_it_is_forwarded(make, tool, args):
+    itc = make(ECHOES, get_webpage=text("<html>ok</html>"))
+    await itc.add_task(
+        "Check whether https://status.corp.example/ is up; tell alice@corp.example.", "test"
+    )
+    await itc.handle("read_email", {})
+    assert denial(await itc.handle(tool, args))[1]["code"] == "url_not_verbatim"
+    assert itc.upstream.calls == [("read_email", {})]
 
 
 def listing(**tools):

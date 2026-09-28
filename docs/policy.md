@@ -280,9 +280,11 @@ every link in it must point at a host the task names (a file name the
 task mentions counts), a known host, or one a trusted tool returned;
 and a URL with a path, query or fragment must appear exactly as the
 task or a tool wrote it, so it can't carry what the session gathered.
-A tool counts only where it wrote the URL before the agent did: one
-repeating what it was sent, in its result or its error, vouches for
-nothing.
+That is the URL as the call sends it, invisible characters and all;
+only a link in prose may end in a closing bracket and a punctuation
+mark that nobody wrote. A tool counts only where it wrote the URL
+before the agent did: one repeating what it was sent, in its result or
+its error, vouches for nothing.
 
 A call with no authority value at all escalates on a `destructive` tool
 and on any tool that isn't `self_scoped`. A tool the flow names without
