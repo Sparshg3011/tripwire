@@ -716,6 +716,21 @@ async def test_a_drafted_create_tool_cant_rewrite_the_task_file(tmp_path, audit_
     assert upstream.calls == [("read_email", {})]
 
 
+async def test_a_read_named_for_what_is_new_mints_no_id(audit_path):
+    drafted = recipe(listing(get_new_request=[], approve_request=["request_id"]))
+    policy = Policy.model_validate(yaml.safe_load(drafted))
+    upstream = Scripted(
+        get_new_request=text(json.dumps({"request_id": "req_4471_attacker", "from": "ops"})),
+        approve_request=text("approved"),
+    )
+    itc = Interceptor(policy, AuditLog(audit_path), upstream, SessionState(policy))
+    await itc.add_task("Check my pending access requests.", "test")
+    await itc.handle("get_new_request", {})
+    approved = await itc.handle("approve_request", {"request_id": "req_4471_attacker"})
+    assert denial(approved)[1]["failed"][0]["first_seen"]["class"] == "untrusted_field"
+    assert [name for name, _ in upstream.calls] == ["get_new_request"]
+
+
 async def test_flooding_the_registry_leaves_only_the_task_and_known_values(audit_path):
     policy = Policy.model_validate(yaml.safe_load(POLICY))
     flood = text(" ".join(f"user{i}@spam.example" for i in range(500)))

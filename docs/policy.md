@@ -263,7 +263,9 @@ can't be both `destructive` and `self_scoped`.
   anchors, and a trusted tool repeating a value it was asked about
   vouches for nothing.
 - **self**: the one fresh id this session's own create-like call
-  (`create`, `new`, `add`, `copy`, `make`, `upload`) returned.
+  (`create`, `new`, `add`, `copy`, `make`, `upload`) returned. The word
+  must come before any read verb in the tool's name, so `add_contact`
+  mints and `get_new_request` doesn't.
 
 Values are compared as normalized keys, exactly: a lookalike letter, a
 longer address around an anchored one, or a path through `..`, `~` or a

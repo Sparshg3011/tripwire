@@ -359,6 +359,14 @@ def test_create_verbs_are_whole_words():
     assert not is_write("get_address_book") and not is_write("renew_lease")
 
 
+def test_a_create_word_after_a_read_verb_names_what_a_read_returns():
+    assert is_write("cart_add_product") and is_write("create_or_get")
+    assert not is_write("get_new_request") and not is_write("listNewMessages")
+    reg = ProvenanceRegistry()
+    create(reg, {"request_id": "req_4471_attacker"}, tool="get_new_request")
+    assert reg.view().minted(Key("id", "req_4471_attacker")) is None
+
+
 # --- caps and degraded mode ------------------------------------------------------
 
 

@@ -49,7 +49,8 @@ What a result supplies:
              sent, in a result or an error, vouches for nothing.
 
 A result from a tool whose name holds a create-like verb (create, new,
-add, copy, make, upload) is a write. It may mint one `self` id: when it
+add, copy, make, upload) before any read verb the recipe knows is a
+write; get_new_request is a read. It may mint one `self` id: when it
 is no error, exactly one leaf at depth 1 is keyed id, id_, uuid or
 <noun>_id, is not an echo and reads as an id, and that id was never
 sighted before in any class, nor held by a poison text when 6 or more
@@ -81,6 +82,7 @@ from mcp import types
 
 from tripwire.policy.canonical import _clean
 from tripwire.policy.values import Key, PoisonScan, is_poisoned, scan_poison, whole_fields
+from tripwire.recipe import READ, words
 
 SightingClass = Literal[
     "trusted_field",
@@ -97,7 +99,6 @@ POISON: frozenset[str] = frozenset(
 
 CREATE_VERBS = frozenset({"create", "new", "add", "copy", "make", "upload"})
 _SELF_KEY = re.compile(r"id_?|uuid|\w+_id")
-_WORDS = re.compile(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|[0-9]+")
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,10 +144,11 @@ def describe(cls: str, tool: str, turn: int) -> str:
 
 
 def is_write(tool: str) -> bool:
-    """Whether a tool's name holds a create-like verb, as a word of it:
-    add_contact and createEvent do, get_address_book doesn't."""
-    words = {word.lower() for word in _WORDS.findall(tool)}
-    return not words.isdisjoint(CREATE_VERBS)
+    """Whether a tool's name holds a create-like verb, as a word of it,
+    before any read verb (recipe.READ): add_contact and createEvent do,
+    get_address_book and get_new_request don't."""
+    verb = next((w for w in words(tool) if w in CREATE_VERBS or w in READ), None)
+    return verb in CREATE_VERBS
 
 
 _NOT_JSON = object()
