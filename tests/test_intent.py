@@ -139,6 +139,12 @@ def test_a_fifo_is_refused_without_waiting_for_a_writer(tmp_path):
     assert outcome == ["not_a_file"]
 
 
+def test_a_platform_without_o_nonblock_still_reads_it(tmp_path, monkeypatch):
+    monkeypatch.delattr(os, "O_NONBLOCK")
+    write_task(tmp_path / "task", TASK)
+    assert TaskFile(tmp_path / "task").poll() == TASK
+
+
 @pytest.mark.skipif(os.geteuid() == 0, reason="root reads what it likes")
 def test_an_unreadable_file_is_refused_once(tmp_path):
     path = tmp_path / "task"

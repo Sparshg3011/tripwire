@@ -58,8 +58,9 @@ class TaskFile:
             raise TaskRejected("unreadable")
 
         try:
-            # O_NONBLOCK: a fifo swapped in after the stat can't hang the proxy
-            fd = os.open(self.path, os.O_RDONLY | os.O_NONBLOCK)
+            # O_NONBLOCK: a fifo swapped in after the stat can't hang the
+            # proxy. Windows has neither.
+            fd = os.open(self.path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
         except FileNotFoundError:
             self._seen = "missing"
             return None
