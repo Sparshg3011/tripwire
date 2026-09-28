@@ -1,0 +1,228 @@
+# tripwire recipe 1, strict arm
+# tools sha256:   84fff1437a1e5ac51820acae7d3eab37e446eb114c07c8a35ca05f3302113a15
+# lexicon sha256: 4e0100a5c9636b19a4cdd2e4c2578a757c667f3103102d140fe66fd90821a516
+# Drafted from tool names, input schemas and annotations, never descriptions.
+# Review every inferred role before enforcing it.
+version: 1
+defaults:
+  unknown_tools: block
+sources:
+  "*": untrusted
+tools:
+  add_calendar_event_participants:
+    action: allow  # write: no read verb
+    args:
+      event_id: {role: selector, type: id}  # ends in "id"
+      participants: target  # target cue "participants"
+    limits: {per_session: 5}
+  browse_webpage:
+    action: allow  # fetch: "browse" with a URL argument
+    args:
+      url: {role: target, type: url}  # URL cue "url"
+  cancel_calendar_event:
+    action: allow  # write: "cancel"
+    destructive: true  # "cancel"
+    args:
+      event_id: {role: selector, type: id}  # ends in "id"
+    limits: {per_session: 5}
+  cart_add_product:
+    action: allow  # write: no read verb
+    args:
+      product_id: {role: selector, type: id}  # ends in "id"
+      quantity: content  # amount cue "quantity"
+    limits: {per_session: 5}
+  cart_remove_product:
+    action: allow  # write: "remove"
+    destructive: true  # "remove"
+    args:
+      product_id: {role: selector, type: id}  # ends in "id"
+    limits: {per_session: 5}
+  cart_total:
+    action: allow  # write: no read verb
+    args: {}
+    limits: {per_session: 5}
+  checkout_selected_cart:
+    action: allow  # write: no read verb
+    args:
+      discount_code: content  # no cue
+      product_ids: {role: selector, type: id}  # ends in "ids"
+    limits: {per_session: 5}
+  clear_cart:
+    action: allow  # write: "clear"
+    destructive: true  # "clear"
+    args: {}
+    limits: {per_session: 5}
+  copy_node:
+    action: allow  # write: no read verb
+    args:
+      destination_path: {role: selector, type: path, match: under}  # path cue "path"
+      source_path: {role: selector, type: path, match: under}  # path cue "path"
+    limits: {per_session: 5}
+  create_calendar_event:
+    action: allow  # write: "create"
+    args:
+      description: content  # no cue
+      end_time: content  # no cue
+      location: content  # no cue
+      participants: target  # target cue "participants"
+      start_time: content  # no cue
+      title: content  # no cue
+    limits: {per_session: 5}
+  create_dir:
+    action: allow  # write: "create"
+    args:
+      path: {role: selector, type: path, match: under}  # path cue "path"
+    limits: {per_session: 5}
+  create_file:
+    action: allow  # write: "create"
+    args:
+      content: content  # no cue
+      path: {role: selector, type: path, match: under}  # path cue "path"
+    limits: {per_session: 5}
+  delete_node:
+    action: allow  # write: "delete"
+    destructive: true  # "delete"
+    args:
+      path: {role: selector, type: path}  # path cue "path"
+    limits: {per_session: 5}
+  download_file_through_id:
+    action: allow  # write: no read verb
+    args:
+      file_id: {role: selector, type: id}  # ends in "id"
+      save_dir: {role: selector, type: path, match: under}  # path cue "dir"
+    limits: {per_session: 5}
+  download_file_through_url:
+    action: allow  # write: no read verb
+    args:
+      save_dir: {role: selector, type: path, match: under}  # path cue "dir"
+      url: {role: target, type: url}  # URL cue "url"
+    limits: {per_session: 5}
+  get_balance:
+    action: allow  # read: "get"
+  get_current_day:
+    action: allow  # read: "get"
+  get_day_calendar_events:
+    action: allow  # read: "get"
+  get_invoice:
+    action: allow  # read: "get"
+  get_shopping_account_user_information:
+    action: allow  # read: "get"
+  get_shopping_linked_received_emails:
+    action: allow  # read: "get"
+  get_shopping_linked_unread_emails:
+    action: allow  # read: "get"
+  input_to_webpage:
+    action: allow  # write: no read verb
+    args:
+      input_ids: {role: selector, type: id}  # ends in "ids"
+      input_values: content  # no cue
+      url: {role: target, type: url}  # URL cue "url"
+    limits: {per_session: 5}
+  list_directory:
+    action: allow  # read: "list"
+  login_shopping_account:
+    action: allow  # write: "login"
+    args:
+      password: content  # credential cue "password", on a "login" tool
+      username: target  # target cue "username"
+    limits: {per_session: 1}  # a credential argument
+  move_node:
+    action: allow  # write: no read verb
+    args:
+      destination_path: {role: selector, type: path, match: under}  # path cue "path"
+      source_path: {role: selector, type: path, match: under}  # path cue "path"
+    limits: {per_session: 5}
+  read_file:
+    action: allow  # read: "read"
+  refund_order:
+    action: allow  # write: no read verb
+    args:
+      order_id: {role: selector, type: id}  # ends in "id"
+    limits: {per_session: 5}
+  reschedule_calendar_event:
+    action: allow  # write: no read verb
+    args:
+      event_id: {role: selector, type: id}  # ends in "id"
+      new_end_time: content  # no cue
+      new_start_time: content  # no cue
+    limits: {per_session: 5}
+  search_calendar_events:
+    action: allow  # read: "search"
+  search_product:
+    action: allow  # read: "search"
+  send_email:
+    action: allow  # write: "send"
+    args:
+      attachments: content  # no cue
+      bcc: target  # target cue "bcc"
+      body: content  # no cue
+      cc: target  # target cue "cc"
+      recipients: target  # target cue "recipients"
+      subject: content  # no cue
+    limits: {per_session: 5}
+  send_money:
+    action: allow  # write: "send"
+    args:
+      amount: content  # amount cue "amount"
+      date: content  # no cue
+      recipient: target  # target cue "recipient"
+      subject: content  # no cue
+    limits: {per_session: 5}
+  update_shopping_account_password:
+    action: allow  # write: no read verb
+    args:
+      password: credential  # credential cue "password"
+    limits: {per_session: 1}  # a credential argument
+  update_shopping_account_user_info:
+    action: allow  # write: no read verb
+    args:
+      address: target  # target cue "address"
+      bank_account_number: target  # target cue "account"
+      email: target  # target cue "email"
+      first_name: content  # no cue
+      id_number: content  # no cue
+      last_name: content  # no cue
+      passport_number: content  # no cue
+      phone_number: target  # target cue "phone"
+    limits: {per_session: 5}
+  verify_shopping_account:
+    action: allow  # write: "verify"
+    args:
+      otp: content  # credential cue "otp", on a "verify" tool
+    limits: {per_session: 1}  # a credential argument
+  view_available_discounts:
+    action: allow  # read: "view"
+  view_cart:
+    action: allow  # read: "view"
+  view_order_history:
+    action: allow  # read: "view"
+flows:
+  - when: context_tainted
+    tools:
+      - add_calendar_event_participants
+      - browse_webpage
+      - cancel_calendar_event
+      - cart_add_product
+      - cart_remove_product
+      - cart_total
+      - checkout_selected_cart
+      - clear_cart
+      - copy_node
+      - create_calendar_event
+      - create_dir
+      - create_file
+      - delete_node
+      - download_file_through_id
+      - download_file_through_url
+      - input_to_webpage
+      - login_shopping_account
+      - move_node
+      - refund_order
+      - reschedule_calendar_event
+      - send_email
+      - send_money
+      - update_shopping_account_password
+      - update_shopping_account_user_info
+      - verify_shopping_account
+    action: require_approval
+    unless: anchored

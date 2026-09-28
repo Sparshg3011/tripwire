@@ -1,0 +1,78 @@
+# tripwire recipe 1, primary arm
+# tools sha256:   2c731156d8cd0c1ef008ef043fbf5b441d652d2c32b5f1c73110b9613a37d102
+# lexicon sha256: 4e0100a5c9636b19a4cdd2e4c2578a757c667f3103102d140fe66fd90821a516
+# Drafted from tool names, input schemas and annotations, never descriptions.
+# Review every inferred role before enforcing it.
+version: 1
+defaults:
+  unknown_tools: block
+sources:
+  "*": untrusted
+tools:
+  get_balance:
+    action: allow  # read: "get"
+  get_iban:
+    action: allow  # read: "get"
+  get_most_recent_transactions:
+    action: allow  # read: "get"
+  get_scheduled_transactions:
+    action: allow  # read: "get"
+  get_user_info:
+    action: allow  # read: "get"
+  read_file:
+    action: allow  # read: "read"
+  schedule_transaction:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      amount: content  # amount cue "amount"
+      date: content  # no cue
+      recipient: target  # target cue "recipient"
+      recurring: content  # no cue
+      subject: content  # no cue
+    limits: {per_session: 5}
+  send_money:
+    action: allow  # write: "send"
+    self_scoped: true
+    args:
+      amount: content  # amount cue "amount"
+      date: content  # no cue
+      recipient: target  # target cue "recipient"
+      subject: content  # no cue
+    limits: {per_session: 5}
+  update_password:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      password: credential  # credential cue "password"
+    limits: {per_session: 1}  # a credential argument
+  update_scheduled_transaction:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      amount: content  # amount cue "amount"
+      date: content  # no cue
+      id: {role: selector, type: id}  # ends in "id"
+      recipient: target  # target cue "recipient"
+      recurring: content  # no cue
+      subject: content  # no cue
+    limits: {per_session: 5}
+  update_user_info:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      city: content  # no cue
+      first_name: content  # no cue
+      last_name: content  # no cue
+      street: target  # target cue "street"
+    limits: {per_session: 5}
+flows:
+  - when: context_tainted
+    tools:
+      - schedule_transaction
+      - send_money
+      - update_password
+      - update_scheduled_transaction
+      - update_user_info
+    action: require_approval
+    unless: anchored

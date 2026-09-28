@@ -346,6 +346,22 @@ This is intentionally a secondary defense baseline. Its held-out outcome must
 not be described until the completeness receipt proves all 844 paired attacks
 and both sets of 85 benign tasks are present with zero trace errors.
 
+### Argument anchoring: recipe policies
+
+The v0.1 policies above were written per suite. Anchoring is measured with
+policies nobody wrote per suite: [`gym/recipe_policies/`](../gym/recipe_policies/)
+holds one per AgentDojo and AgentDyn suite, drafted by `tripwire recipe` from
+the suite's tool names and input schemas alone, in three arms: primary
+(`unless: anchored`), strict (no write `self_scoped`) and taint (no
+`unless`, the comparator). They were drafted before any AgentDyn run, from
+listings that hold no description, task or ground truth, and
+`tests/test_recipe_policies.py` fails if regenerating them from the committed
+listings changes a byte:
+
+```bash
+./gym/make_recipe_policies.sh
+```
+
 ## Stage 4: AgentDyn external validity
 
 Use the isolated AgentDyn environment so its fork cannot silently change the
