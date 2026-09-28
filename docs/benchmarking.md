@@ -371,6 +371,15 @@ listings changes a byte:
 ./gym/make_recipe_policies.sh
 ```
 
+A run picks an arm with `--recipe`; without it, a Tripwire condition uses the
+suite's v0.1 policy, and `--policy` names any other file:
+
+```bash
+.venv/bin/python -m tripwire_benchmarks.agentdojo --suite banking \
+  --condition tripwire-deny --recipe primary \
+  --model nvidia/nemotron-3-super-120b-a12b --out gym/results/recipe/banking
+```
+
 ## Stage 4: AgentDyn external validity
 
 Use the isolated AgentDyn environment so its fork cannot silently change the

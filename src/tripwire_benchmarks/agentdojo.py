@@ -41,6 +41,7 @@ from tripwire.proxy.denial import refused
 from tripwire.proxy.interceptor import Interceptor
 from tripwire.session import SessionState, TaskRejected
 from tripwire.tx import AuditLog
+from tripwire_benchmarks import recipe_policies
 from tripwire_benchmarks.reviewer import PROMPT_SHA256, ActionReviewer
 from tripwire_gym.resources import GYM
 
@@ -998,9 +999,7 @@ def _guard_review_contract(args, destination: Path) -> None:
     source = _source_state()
     if source.get("git_dirty"):
         raise AdapterError("commit the development implementation before starting a review run")
-    policy_path = (
-        Path(args.policy) if args.policy else GYM / "external_policies" / f"{args.suite}.yaml"
-    )
+    policy_path = _policy_path(args)
     settings = {
         key: value for key, value in vars(args).items() if key not in {"out", "force_rerun"}
     }
@@ -1084,9 +1083,7 @@ def run_once(args, repetition: int) -> dict[str, Any]:
     prompt_defense = None
     protected = suite
     if args.condition.startswith("tripwire-"):
-        policy_path = (
-            Path(args.policy) if args.policy else GYM / "external_policies" / f"{args.suite}.yaml"
-        )
+        policy_path = _policy_path(args)
         if not policy_path.exists():
             raise AdapterError(f"no Tripwire policy for suite {args.suite}: {policy_path}")
         policy = load_policy(policy_path)
@@ -1220,7 +1217,13 @@ def parse_args(argv: list[str] | None = None):
         ],
         required=True,
     )
-    parser.add_argument("--policy")
+    policies = parser.add_mutually_exclusive_group()
+    policies.add_argument("--policy", help="a policy file (default: the suite's v0.1 policy)")
+    policies.add_argument(
+        "--recipe",
+        choices=list(recipe_policies.ARMS),
+        help="the suite's policy from gym/recipe_policies, in this arm",
+    )
     parser.add_argument(
         "--reviewer-model", help="experimental tripwire-review model; defaults to actor"
     )
@@ -1247,7 +1250,17 @@ def parse_args(argv: list[str] | None = None):
     args = parser.parse_args(argv)
     if args.reviewer_model and args.condition != "tripwire-review":
         parser.error("--reviewer-model requires --condition tripwire-review")
+    if args.recipe and not args.condition.startswith("tripwire-"):
+        parser.error("--recipe requires a tripwire condition")
     return args
+
+
+def _policy_path(args) -> Path:
+    if args.policy:
+        return Path(args.policy)
+    if args.recipe:
+        return recipe_policies.policy_path(recipe_policies.ROOT, args.suite, args.recipe)
+    return GYM / "external_policies" / f"{args.suite}.yaml"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1269,6 +1282,7 @@ def main(argv: list[str] | None = None) -> None:
         print(f"tripwire_benchmarks.agentdojo: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
+    policy = _policy_path(args) if args.condition.startswith("tripwire-") else None
     output = {
         "schema_version": 1,
         "created_at": datetime.now(UTC).isoformat(),
@@ -1281,27 +1295,14 @@ def main(argv: list[str] | None = None) -> None:
         "provenance": {
             "agentdojo_version": importlib.metadata.version("agentdojo"),
             "source": _source_state(),
-            "policy": (
-                str(Path(args.policy).resolve())
-                if args.policy
-                else str(GYM / "external_policies" / f"{args.suite}.yaml")
-                if args.condition.startswith("tripwire-")
-                else None
-            ),
+            "policy": None if policy is None else str(policy.resolve()),
             "policy_sha256": (
-                hashlib.sha256(
-                    (
-                        Path(args.policy)
-                        if args.policy
-                        else GYM / "external_policies" / f"{args.suite}.yaml"
-                    ).read_bytes()
-                ).hexdigest()
-                if args.condition.startswith("tripwire-")
-                else None
+                None if policy is None else hashlib.sha256(policy.read_bytes()).hexdigest()
             ),
             "modules_loaded": args.module_to_load,
         },
         "settings": {
+            "recipe": args.recipe,
             "temperature": args.temperature,
             "api_seed": args.api_seed,
             "disable_thinking": args.disable_thinking,

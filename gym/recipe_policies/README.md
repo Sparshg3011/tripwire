@@ -28,3 +28,11 @@ drafts all three arms. Nothing in it reads a task, an injection or a
 ground truth. `tests/test_recipe_policies.py` checks that drafting from
 the committed listings gives back the committed policies byte for byte,
 and, where a suite is installed, that dumping it gives back its listing.
+
+A run uses them with `--recipe primary|strict|taint` in place of
+`--policy`:
+
+```bash
+.venv/bin/python -m tripwire_benchmarks.agentdojo --suite banking \
+  --condition tripwire-deny --recipe primary --model ... --out ...
+```
