@@ -84,6 +84,11 @@ refused to start.
   names and each inference commented. It reads names, schemas and
   `destructiveHint`, never descriptions. `--strict` makes no write
   `self_scoped`.
+- Recipe policies for AgentDojo's banking, slack, travel and workspace suites
+  and AgentDyn's github, shopping and dailylife, drafted from their tool
+  schemas alone in three arms (primary, strict, and a taint-only comparator),
+  with the listings they were drafted from; CI fails if redrafting them
+  changes a byte. The AgentDojo adapter runs with one arm under `--recipe`.
 - `allowed_args` on a tool rule: an argument neither listed there nor read by
   the rule (a constraint key or the `sum_per_session` field) blocks the call.
 - `turns: session` on a sequence rule keeps it in force for the rest of the
