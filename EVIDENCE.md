@@ -1,8 +1,10 @@
 # Evidence
 
-Every result Tripwire reports lives on this page. The other documents link
-here instead of repeating the numbers, and
-[docs/benchmarking.md](docs/benchmarking.md) has the command behind each one.
+Every result Tripwire reports is on this page, with its baseline and its
+limits, and [docs/benchmarking.md](docs/benchmarking.md) has the command behind
+each one. The README quotes the AgentDojo headline, and the notes in
+[docs/research/](docs/research/README.md) keep the numbers they were written
+with; where one of them disagrees with this page, this page is current.
 
 ## How to read this
 
