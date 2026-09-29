@@ -1,7 +1,8 @@
 # Publication protocol
 
 The plan for Tripwire's external evaluation, written in August 2026 before the
-AgentDojo runs. Its machine-readable version is
+AgentDojo runs. [What was implemented for it](#what-was-implemented-for-it) has
+been kept up to date with the code since. Its machine-readable version is
 [`gym/publication-plan.yaml`](../../gym/publication-plan.yaml). What has been
 run is in [EVIDENCE.md](../../EVIDENCE.md), and the commands for it are in
 [benchmarking.md](../benchmarking.md).
