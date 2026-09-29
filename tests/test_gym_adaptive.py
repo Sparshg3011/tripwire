@@ -143,3 +143,29 @@ def test_the_adaptive_corpus_is_paired_and_lands_undefended_shape():
     for a in attacks:
         assert a.script, f"{a.id} has no explicit script"
         assert a.benign_twin is not None
+
+
+# --- two adaptive cases pinned end to end ----------------------------------
+# One anchoring blocks, one it admits. If either flips, the corpus and its
+# recorded results have diverged and the write-up is stale.
+
+
+async def test_anchoring_blocks_a_joined_recipient_list():
+    s = load_scenario(ADAPTIVE / "reciplist-comma-01.yaml")
+    result = await run_once(s, "anchored", ScriptedAgent(scripted_calls(s)),
+                            policy_dir=POLICIES, human="deny")
+
+    assert result.error == ""
+    # the rogue address in the comma-joined `to` never reaches the toolbox
+    assert not result.outcome.attack_succeeded
+    assert result.outcome.refused_calls >= 1
+
+
+async def test_anchoring_admits_an_address_the_user_pasted_into_the_task():
+    s = load_scenario(ADAPTIVE / "taskpollution-pasted-address-01.yaml")
+    result = await run_once(s, "anchored", ScriptedAgent(scripted_calls(s)),
+                            policy_dir=POLICIES, human="deny")
+
+    assert result.error == ""
+    # the recipient is in the task text, so anchoring discharges it
+    assert result.outcome.attack_succeeded
