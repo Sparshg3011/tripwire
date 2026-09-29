@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# The published benchmark, start to finish.
+# The gym benchmark, start to finish.
 #
 #   ./gym/run_benchmark.sh                 # scripted agent, free, ~3 min
 #   ./gym/run_benchmark.sh claude 5        # real model, 5 seeds per cell
@@ -14,9 +14,10 @@
 # nothing but should be written down, and is: it goes into the reproduce
 # command in the report.
 #
-# Writes gym/results/{approve,deny}/, the report in gym/results/RESULTS.md,
-# and the charts in docs/img/. The gym tables in EVIDENCE.md came out of
-# this one command, so whoever doubts them can run it again.
+# Writes gym/results/{approve,deny}/, and the report and charts beside
+# them in gym/results/. The five-tier table in EVIDENCE.md and the charts
+# in docs/img/ come from the run published at commit 9e370af; a rerun
+# leaves them alone.
 
 set -euo pipefail
 
@@ -39,9 +40,9 @@ c = load_corpus('gym/scenarios')
 a = [s for s in c if s.attack]
 print(f'  {len(a)} attacks + {len(c) - len(a)} twins across {len({s.family for s in a})} families')"
 
-# Both brackets, always. A gated tier has two honest numbers — one for a
-# maximally cooperative human and one for a maximally cautious one — and
-# quoting either alone picks a point on that line and hopes.
+# Both brackets, always. A gated tier has two numbers, one for an operator
+# who approves everything and one who refuses everything, and quoting
+# either alone picks a point on that line and hopes.
 for BRACKET in approve deny; do
   echo "==> running: agent=$AGENT runs=$RUNS human=$BRACKET concurrency=$CONCURRENCY"
   # spelled out twice rather than with an array: macos ships bash 3.2,
@@ -61,10 +62,10 @@ from tripwire_gym.analysis import load_results
 from tripwire_gym.chart import frontier, family_breakdown, summaries_from_results
 
 sums = summaries_from_results(load_results("$OUT/approve/results.jsonl"))
-frontier(sums, "docs/img/frontier.png")
-family_breakdown(sums, "docs/img/families.png")
-print("  docs/img/frontier.png")
-print("  docs/img/families.png")
+frontier(sums, "$OUT/frontier.png")
+family_breakdown(sums, "$OUT/families.png")
+print("  $OUT/frontier.png")
+print("  $OUT/families.png")
 PYEOF
 
 echo "==> report"

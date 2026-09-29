@@ -1,9 +1,9 @@
 # Benchmarking
 
 How to reproduce every number in [EVIDENCE.md](../EVIDENCE.md), and how to run
-the benchmarks on your own policies and models. Runs write under
-`gym/results/`, which Git ignores; `run_benchmark.sh` also redraws the charts
-in `docs/img/`.
+the benchmarks on your own policies and models. Runs, their reports and the
+gym's charts are written under `gym/results/`, which Git ignores, so rerunning
+a benchmark never replaces a published file.
 
 ## Setup
 
@@ -105,8 +105,8 @@ its own.
 ```
 
 The arguments are agent, runs per cell, model and how many runs are in flight
-at once. The script runs every condition in both approval brackets, draws the
-charts into `docs/img/`, and writes the report to `gym/results/RESULTS.md`:
+at once. The script runs every condition in both approval brackets and writes
+the charts and the report to `gym/results/`. The report, `RESULTS.md`, has
 rates with Wilson intervals, paired McNemar tests against `undefended`, and
 every attack that landed and every twin that failed, by name.
 

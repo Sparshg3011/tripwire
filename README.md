@@ -308,8 +308,9 @@ policy tiers and four models ([results and limits](EVIDENCE.md#the-adversarial-g
 
 ![Security/utility frontier](docs/img/frontier.png)
 
-Reproduce the local gym without an API key, or run the live-agent matrix through an OpenAI-compatible
-endpoint:
+Run the local gym without an API key, or the live-agent matrix through an OpenAI-compatible
+endpoint. Both write their report and charts under `gym/results/`; the scripted agent checks the
+harness rather than measuring a model, so its numbers won't match the chart above.
 
 ```bash
 ./gym/run_benchmark.sh
