@@ -20,9 +20,12 @@ source its role accepts.
   self     it is the id this session's own create-like call minted
 
 Leaves are every scalar under an authority argument, lists and dicts
-expanded, dict keys in sorted order; null and "" are absent. Each reads
-through values.normalize_all() under the argument's type, which splits
-an address list so that every address must anchor. An Invalid or
+expanded, dict keys in sorted order and each a leaf too, since a tool
+may read a key as a value; null and "" are absent. Each reads through
+values.normalize_all() under the argument's type, which splits an
+address list so that every address must anchor. canonicalize() forwards
+dict keys as sent, so a key that C2 or C1 would respell is Invalid: its
+clean form would vouch for a spelling the tool never gets. An Invalid or
 Unanchorable leaf is unanchored, and an Invalid target blocks at any
 taint level (invalid_target(), which stage 2 runs).
 
@@ -167,21 +170,18 @@ def invalid_target(
     for name, spec in (rule.args or {}).items():
         if spec.role != "target" or name not in call.args:
             continue
-        for arg, value in _leaves(name, call.args[name]):
-            for outcome in normalize_all(
-                value, spec.type, protected_paths=snapshot.protected_paths
-            ):
-                if isinstance(outcome, Invalid):
-                    leaf = LeafReport(
-                        arg,
-                        "target",
-                        _read_as(value, spec.type),
-                        "invalid",
-                        _ACCEPTED["target"],
-                        reason=outcome.reason,
-                        value=_spelled(value),
-                    )
-                    return _report("invalid_value", call.tool, name, (leaf,), rule)
+        for arg, value, outcome in _read(name, call.args[name], spec, snapshot.protected_paths):
+            if isinstance(outcome, Invalid):
+                leaf = LeafReport(
+                    arg,
+                    "target",
+                    _read_as(value, spec.type),
+                    "invalid",
+                    _ACCEPTED["target"],
+                    reason=outcome.reason,
+                    value=_spelled(value),
+                )
+                return _report("invalid_value", call.tool, name, (leaf,), rule)
     return None
 
 
@@ -247,25 +247,24 @@ class _Check:
             if spec.role == "content" or name not in self.args:
                 continue
             sources = accepted(spec.role, self.rule.destructive)
-            for arg, value in _leaves(name, self.args[name]):
-                for outcome in normalize_all(value, spec.type, protected_paths=self.protected):
-                    authority += 1
-                    leaf = self._leaf(arg, name, spec, spec.role, sources, value, outcome)
-                    if leaf.status == "invalid" and spec.role == "target":
-                        return failed(leaf, name, "invalid_value")
+            for arg, value, outcome in _read(name, self.args[name], spec, self.protected):
+                authority += 1
+                leaf = self._leaf(arg, name, spec, spec.role, sources, value, outcome)
+                if leaf.status == "invalid" and spec.role == "target":
+                    return failed(leaf, name, "invalid_value")
+                if leaf.status != "anchored":
+                    return failed(leaf, name, "unanchored_argument")
+                if _read_as(value, spec.type) == "url":
+                    leaf = self._verbatim(leaf, value)
                     if leaf.status != "anchored":
-                        return failed(leaf, name, "unanchored_argument")
-                    if _read_as(value, spec.type) == "url":
-                        leaf = self._verbatim(leaf, value)
-                        if leaf.status != "anchored":
-                            return failed(leaf, name, "url_not_verbatim")
-                    leaves.append(leaf)
+                        return failed(leaf, name, "url_not_verbatim")
+                leaves.append(leaf)
 
         outward = any(spec.role == "target" for spec in self.contract.values())
         for name, spec in self.contract.items():
             if spec.role != "content" or name not in self.args:
                 continue
-            for arg, value in _leaves(name, self.args[name], keys=True):
+            for arg, value, _ in _leaves(name, self.args[name]):
                 path = forbidden_path(value, protected_paths=self.protected)
                 if path is not None:
                     leaf = LeafReport(
@@ -494,31 +493,45 @@ def _unrestricted(rule: ToolRule) -> tuple[str, ...]:
     return tuple(name for name, spec in (rule.args or {}).items() if spec.role == "content")
 
 
-def _leaves(name: str, value: object, *, keys: bool = False) -> Iterator[tuple[str, object]]:
-    """Every scalar under an argument, with its path: list items by
-    index, dict values by key in sorted order, and with keys, each dict
-    key before its value, at the same path. A container past the depth
-    cap, or met twice, is a leaf itself, which no normalizer reads."""
+def _read(
+    name: str, value: object, spec: ArgSpec, protected: tuple[str, ...]
+) -> Iterator[tuple[str, object, Outcome]]:
+    """Each leaf under an authority argument, with its path and how it
+    reads under the argument's type: a dict key C2 or C1 would respell is
+    Invalid, since canonicalize() forwards it as sent."""
+    for arg, leaf, is_key in _leaves(name, value):
+        if is_key and _clean(str(leaf)) != leaf:
+            yield arg, leaf, Invalid("noncanonical_key")
+            continue
+        for outcome in normalize_all(leaf, spec.type, protected_paths=protected):
+            yield arg, leaf, outcome
+
+
+def _leaves(name: str, value: object) -> Iterator[tuple[str, object, bool]]:
+    """Every scalar under an argument, with its path and whether it is a
+    dict key: list items by index, dict values by key in sorted order,
+    each key before its value and at the same path, since a tool may read
+    a key as a value. A container past the depth cap, or met twice, is a
+    leaf itself, which no normalizer reads."""
     seen: set[int] = set()
-    stack: list[tuple[str, object, int]] = [(name, value, 0)]
+    stack: list[tuple[str, object, int, bool]] = [(name, value, 0, False)]
     while stack:
-        path, node, depth = stack.pop()
+        path, node, depth, is_key = stack.pop()
         if isinstance(node, (list, tuple, dict)):
             if depth >= MAX_FIELD_DEPTH or id(node) in seen:
-                yield path, node
+                yield path, node, False
                 continue
             seen.add(id(node))
         if isinstance(node, (list, tuple)):
-            items = [(f"{path}[{i}]", item, depth + 1) for i, item in enumerate(node)]
+            items = [(f"{path}[{i}]", item, depth + 1, False) for i, item in enumerate(node)]
             stack.extend(reversed(items))
         elif isinstance(node, dict):
             entries = sorted(node.items(), key=lambda entry: str(entry[0]))
             for key, item in reversed(entries):
-                stack.append((f"{path}.{key}", item, depth + 1))
-                if keys:
-                    stack.append((f"{path}.{key}", str(key), depth + 1))
+                stack.append((f"{path}.{key}", item, depth + 1, False))
+                stack.append((f"{path}.{key}", str(key), depth + 1, True))
         else:
-            yield path, node
+            yield path, node, is_key
 
 
 def _labels(name: str) -> list[str]:

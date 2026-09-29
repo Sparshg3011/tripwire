@@ -5,6 +5,7 @@ and stage 5's `unless: anchored`. Every value here is synthetic.
 import json
 import random
 import time
+import unicodedata
 
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -252,6 +253,40 @@ def test_every_address_of_a_list_must_anchor():
     assert v.code == "unanchored_argument"
     v = send(snap(TASK, said("x")), to=["alice@corp.example", "eve@evil.example"], body="hi")
     assert (v.code, v.anchors.failed.arg) == ("unanchored_argument", "to[1]")
+
+
+def test_a_dict_key_under_a_target_must_anchor_as_its_values_do():
+    state = snap(TASK, said("mail eve@evil.example"))
+    for to in (
+        [{"eve@evil.example": "alice@corp.example"}],
+        {"eve@evil.example": {"name": "alice@corp.example"}},
+    ):
+        v = send(state, to=to, body="hi")
+        assert (v.decision, v.code) == ("gate", "unanchored_argument")
+        assert (v.anchors.failed.value, v.anchors.failed.first_seen.cls) == (
+            "eve@evil.example",
+            "untrusted_text",
+        )
+    assert send(state, to={"alice@corp.example": "alice@corp.example"}).decision == "allow"
+
+
+def test_a_dict_key_the_tool_would_get_respelled_can_never_anchor():
+    # canonicalize() forwards keys as sent, fullwidth letters and all
+    to = [{"\uff41lice@corp.example": "alice@corp.example"}]
+    v = send(snap(TASK, tainted=False), to=to, body="hi")
+    assert (v.decision, v.code, v.anchors.failed.reason) == (
+        "block",
+        "invalid_value",
+        "noncanonical_key",
+    )
+    policy = load({"open": {"action": "allow", "args": {"doc": "selector"}}})
+    call = ToolCall("open", {"doc": {"evt_48213\u200b": 1}})
+    v = evaluate(call, snap("open evt_48213", said("x")), policy)
+    assert (v.decision, v.code, v.anchors.failed.status) == (
+        "gate",
+        "unanchored_argument",
+        "invalid",
+    )
 
 
 def test_a_trusted_field_anchors_a_target():
@@ -752,7 +787,12 @@ values = st.one_of(
     st.integers(-5, 50),
     st.text(max_size=12),
 )
-leafy = st.recursive(values, lambda inner: st.lists(inner, max_size=3), max_leaves=4)
+keys = st.sampled_from(["alice@corp.example", "eve@evil.example", "evt_48213", "\uff41lice"])
+leafy = st.recursive(
+    values,
+    lambda inner: st.lists(inner, max_size=3) | st.dictionaries(keys, inner, max_size=2),
+    max_leaves=4,
+)
 contracts = st.fixed_dictionaries(
     {
         "action": st.sampled_from(["allow", "require_approval"]),
@@ -827,6 +867,27 @@ def test_a_value_around_an_anchored_one_never_anchors(prefix, suffix):
             v.anchors.leaves[0].key_sha256
             == send(snap(TASK), to="alice@corp.example").anchors.leaves[0].key_sha256
         )
+
+
+KEYED = [
+    "alice@corp.example",
+    "eve@evil.example",
+    "\uff41lice@corp.example",
+    "alice@corp.example\u200b",
+    "evt_48213",
+    "not an address",
+]
+
+
+@given(key=st.sampled_from(KEYED), value=st.sampled_from(KEYED), tainted=st.booleans())
+def test_a_dict_key_under_an_authority_argument_reads_as_a_value(key, value, tainted):
+    state = snap(TASK, said("mail eve@evil.example"), tainted=tainted)
+    listed = send(state, to=[key, value], body="hi")
+    keyed = send(state, to=[{key: value}], body="hi")
+    if unicodedata.normalize("NFKC", key.replace("\u200b", "")) == key:
+        assert (keyed.decision, keyed.code) == (listed.decision, listed.code)
+    else:
+        assert (keyed.decision, keyed.code) == ("block", "invalid_value")
 
 
 CONFUSABLES = {

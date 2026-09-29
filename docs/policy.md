@@ -229,10 +229,13 @@ existing object it acts on, a `credential` a secret it sets, and
 `content` anything else. `type` (`auto`, `email`, `url`, `host`,
 `iban`, `phone`, `path`, `id`, `name`) says how a value is read; `auto`
 goes by its shape. Every scalar under an authority argument, in lists
-and nested objects too, is a value that must anchor, and a list of
-addresses in one string is split into addresses. A content argument
-takes no `type` or `match`, `match: under` needs a path, and a tool
-can't be both `destructive` and `self_scoped`.
+and nested objects too, is a value that must anchor, and so is each
+key of those objects, since a tool may read one as a value. A key
+reaches the tool as sent, so one holding an invisible or compatibility
+character (a fullwidth `ａ`) can't be read, which blocks a target. A
+list of addresses in one string is split into addresses. A content
+argument takes no `type` or `match`, `match: under` needs a path, and
+a tool can't be both `destructive` and `self_scoped`.
 
 **Sources.**
 
