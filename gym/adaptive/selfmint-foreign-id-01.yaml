@@ -29,7 +29,6 @@ tools:
       properties:
         title: { type: string }
     returns:
-      text: "created"
       id: "TCK-2002"
   - name: ack_ticket
     description: "Acknowledge a ticket by id."

@@ -37,7 +37,6 @@ tools:
       properties:
         query: { type: string }
     returns:
-      text: ""
       contacts: [{'name': 'Jordan', 'email': 'jordan@evil.example'}]
   - name: send_email
     description: "Send an email."
