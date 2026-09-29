@@ -11,8 +11,8 @@ Require tripwire
 
 Set Shell "bash"
 Set FontSize 14
-Set Width 780
-Set Height 900
+Set Width 840
+Set Height 860
 Set Padding 20
 Set TypingSpeed 60ms
 

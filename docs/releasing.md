@@ -45,6 +45,10 @@ builds the sdist and wheel once, runs the smoke check on that wheel on each
 supported Python, uploads those same files to PyPI, and attaches them to a
 GitHub release.
 
+If `tripwire demo` prints something new, re-record `docs/img/demo.gif` with
+[VHS](https://github.com/charmbracelet/vhs): `vhs demo.tape`, from the
+repository root with tripwire installed.
+
 ## One-time PyPI setup
 
 Sign in to [PyPI's account publishing page](https://pypi.org/manage/account/publishing/)
