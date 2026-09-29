@@ -5,6 +5,7 @@ argument previews are also driven directly by hypothesis, since a real
 terminal per example would leave it too slow to search.
 """
 
+import dataclasses
 import html
 import http.client
 import json
@@ -24,6 +25,7 @@ from tripwire.gate.base import (
     NAME_PREVIEW,
     ApprovalRequest,
     GateUnavailable,
+    anchor_notes,
     encode_args,
     preview_arg,
     preview_args,
@@ -36,6 +38,7 @@ from tripwire.gate.cli import CliGate, _arg_lines, _question
 from tripwire.gate.web import ARG_BUDGET as WEB_BUDGET
 from tripwire.gate.web import ARG_PREVIEW as WEB_PREVIEW
 from tripwire.gate.web import WebGate, _args_html, _card
+from tripwire.policy.types import AnchorReport, FirstSeen, LeafReport
 
 
 def req(tool="send_email", **kw):
@@ -847,3 +850,141 @@ def test_the_terminal_shows_a_bounded_plain_preview_and_counts_the_rest(args):
 def test_no_terminal_refuses_at_startup():
     with pytest.raises(GateUnavailable):
         CliGate("/nonexistent/tty")
+
+
+# --- where the checked values came from ---
+
+SOURCES = ("task", "known", "trusted")
+TO = LeafReport("to", "target", "email", "anchored", SOURCES, via="task")
+CC_BOB = LeafReport("cc[0]", "target", "email", "anchored", SOURCES, via="trusted")
+CC_EVE = LeafReport(
+    "cc[1]",
+    "target",
+    "email",
+    "unanchored",
+    SOURCES,
+    first_seen=FirstSeen("untrusted_text", "read_email", 2),
+    value="eve@evil.example",
+)
+EVE_SEEN = "first seen in free text from read_email, turn 2; accepted: task, known, trusted"
+MAIL = {
+    "body": "hi",
+    "cc": ["bob@corp.example", "eve@evil.example"],
+    "reply_to": "carol@corp.example",
+    "to": "alice@corp.example",
+}
+# what the interceptor sets for a contract of three authority args
+CONTRACT = {"authority": ("to", "cc", "reply_to"), "checked": frozenset({"to", "cc", "reply_to"})}
+
+
+def test_the_terminal_lists_the_authority_args_first_with_where_they_came_from():
+    report = AnchorReport("unanchored_argument", leaves=(TO, CC_BOB, CC_EVE))
+    question = _question(req(args=MAIL, anchors=report, **CONTRACT))
+    assert (
+        '  args:   "to": "alice@corp.example"  anchored: task\n'
+        f'          "cc": ["bob@corp.example", "eve@evil.example"]  unanchored at cc[1]: {EVE_SEEN}\n'
+        '          "reply_to": "carol@corp.example"  not checked\n'
+        '          "body": "hi"\n'
+        "  rule:"
+    ) in question
+
+
+def test_the_page_lists_the_authority_args_first_with_where_they_came_from():
+    cc_eve = dataclasses.replace(CC_EVE, status="anchored", via="task", first_seen=None)
+    reply_to = LeafReport("reply_to", "target", "email", "anchored", SOURCES, via="known")
+    report = AnchorReport(None, leaves=(TO, CC_BOB, cc_eve, reply_to))
+    card = _card("rid", req(args=MAIL, anchors=report, **CONTRACT), "token")
+    assert Rendered(card).text["pre"][0].split("\n") == [
+        '"to": "alice@corp.example"  anchored: task',
+        '"cc": ["bob@corp.example", "eve@evil.example"]  anchored: trusted, task',
+        '"reply_to": "carol@corp.example"  anchored: known',
+        '"body": "hi"',
+    ]
+
+
+def test_a_content_arg_that_failed_follows_the_authority_args():
+    link = LeafReport(
+        "body",
+        "content",
+        "url",
+        "unanchored",
+        SOURCES,
+        first_seen=FirstSeen("untrusted_text", "read_email", 2),
+        value="evil.example/x",
+    )
+    report = AnchorReport("link_unanchored", leaves=(TO, link))
+    args = {"to": "alice@corp.example", "subject": "hi", "body": "see evil.example/x"}
+    lines, _ = _arg_lines(args, {"to"}, anchor_notes(("to",), report))
+    assert lines == [
+        '"to": "alice@corp.example"  anchored: task',
+        f'"body": "see evil.example/x"  unanchored: {EVE_SEEN}',
+        '"subject": "hi"',
+    ]
+
+
+def test_a_gate_where_anchoring_never_ran_shows_what_it_always_did():
+    assert _question(req(args=MAIL, **CONTRACT)) == _question(
+        req(args=MAIL, checked=CONTRACT["checked"])
+    )
+
+
+@given(
+    args=arg_dicts,
+    data=st.data(),
+    limit=st.integers(0, 1200),
+    width=st.integers(0, 200),
+    budget=st.integers(0, 5000),
+)
+def test_noted_args_come_first_in_their_order_each_with_its_note(args, data, limit, width, budget):
+    names = st.sampled_from(sorted(args))
+    notes = data.draw(st.dictionaries(names | nasty, nasty, max_size=5))
+    checked = data.draw(st.sets(names))
+    lines, shown, hidden = preview_args(args, checked, limit, width, budget, notes)
+
+    noted = [name for name in notes if name in args]
+    assert [json.loads(name) for name, _ in shown[: len(noted)]] == noted
+    for line, (name, value), arg in zip(lines, shown, noted):
+        assert line == f"{preview_arg(name, value, limit)}  {notes[arg]}"
+    others = checked - set(notes)
+    after = shown[len(noted) : len(noted) + len(others)]
+    assert {json.loads(name) for name, _ in after} == others
+    rest = {k: v for k, v in args.items() if k not in checked and k not in notes}
+    assert shown[len(noted) + len(others) :] + hidden == encode_args(rest)
+
+
+@given(request=approvals, data=st.data())
+def test_the_values_a_call_checked_cannot_flood_either_gate(request, data):
+    # the policy names the authority args; the caller writes the paths
+    # under them and the tools a value was first seen in
+    authority = data.draw(st.lists(st.sampled_from(sorted(request.args)), max_size=4, unique=True))
+    top = st.sampled_from(authority) | nasty if authority else nasty
+    path = st.tuples(top, st.sampled_from(["", "[1]", ".to"]) | nasty | long_text).map("".join)
+    leaves = st.builds(
+        LeafReport,
+        arg=path,
+        role=st.sampled_from(["target", "selector", "credential"]),
+        vtype=st.none() | nasty,
+        status=st.sampled_from(
+            ["anchored", "unanchored", "invalid", "unanchorable", "not_verbatim"]
+        ),
+        accepted=st.lists(nasty, max_size=3).map(tuple),
+        via=st.none() | nasty,
+        reason=st.none() | nasty | long_text,
+        first_seen=st.none() | st.builds(FirstSeen, nasty, nasty | long_text, st.integers()),
+    )
+    report = data.draw(
+        st.builds(AnchorReport, st.none() | nasty, leaves=st.lists(leaves, max_size=40).map(tuple))
+    )
+    request = dataclasses.replace(request, anchors=report, authority=tuple(authority))
+    # one note an authority arg, and one for a content arg that failed
+    noted = len(authority) + 1
+
+    question = _question(request)
+    assert len(question) < 2_500 + 800 * noted
+    assert all(0x20 <= ord(c) < 0x7F or c == "\n" for c in CLIP.sub("", question))
+    card = _card("rid", request, "token")
+    tags = {"div", "b", "span", "pre", "details", "summary", "p", "form", "input", "button"}
+    assert set(Rendered(card).tags) <= tags
+    assert len(folded_away(card.split("<form")[0])) < 6_500 + 1_600 * noted
+    preview = CLIP.sub("", Rendered(card).text["pre"][0])
+    assert all(0x20 <= ord(c) < 0x7F or c == "\n" for c in preview)

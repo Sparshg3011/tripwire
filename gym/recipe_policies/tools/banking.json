@@ -1,0 +1,247 @@
+[
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_iban"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "amount": {
+          "type": "number"
+        },
+        "date": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient",
+        "amount",
+        "subject",
+        "date"
+      ],
+      "type": "object"
+    },
+    "name": "send_money"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "amount": {
+          "type": "number"
+        },
+        "date": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        },
+        "recurring": {
+          "type": "boolean"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient",
+        "amount",
+        "subject",
+        "date",
+        "recurring"
+      ],
+      "type": "object"
+    },
+    "name": "schedule_transaction"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "id": {
+          "type": "integer"
+        },
+        "recipient": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recurring": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "name": "update_scheduled_transaction"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_balance"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "n": {
+          "default": 100,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "name": "get_most_recent_transactions"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_scheduled_transactions"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "file_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path"
+      ],
+      "type": "object"
+    },
+    "name": "read_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_user_info"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "password": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "password"
+      ],
+      "type": "object"
+    },
+    "name": "update_password"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "city": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "first_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "last_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "street": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "name": "update_user_info"
+  }
+]

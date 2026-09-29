@@ -1,0 +1,222 @@
+# tripwire recipe 1, primary arm
+# tools sha256:   e1ca5e485e08d7100eb052b6b0bae2b11a7d34a18eb50ff41aff8d211f5ec469
+# lexicon sha256: 07de0f8ba932cb66cdb2c21da8d79bedae28b28cb115e839cac67e51ebde7311
+# Drafted from tool names, input schemas and annotations, never descriptions.
+# Review every inferred role before enforcing it.
+version: 1
+defaults:
+  unknown_tools: block
+sources:
+  "*": untrusted
+tools:
+  browse_webpage:
+    action: allow  # fetch: "browse" with a URL argument
+    args:
+      url: {role: target, type: url}  # URL cue "url"
+  copy_node:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      destination_path: {role: selector, type: path, match: under}  # path cue "path"
+      source_path: {role: selector, type: path, match: under}  # path cue "path"
+    limits: {per_session: 5}
+  create_dir:
+    action: allow  # write: "create"
+    self_scoped: true
+    args:
+      path: {role: selector, type: path, match: under}  # path cue "path"
+    limits: {per_session: 5}
+  create_file:
+    action: allow  # write: "create"
+    self_scoped: true
+    args:
+      content: content  # no cue
+      path: {role: selector, type: path, match: under}  # path cue "path"
+    limits: {per_session: 5}
+  delete_node:
+    action: allow  # write: "delete"
+    destructive: true  # "delete"
+    args:
+      path: {role: selector, type: path}  # path cue "path"
+    limits: {per_session: 5}
+  download_file_through_id:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      file_id: {role: selector, type: id}  # ends in "id"
+      save_dir: {role: selector, type: path, match: under}  # path cue "dir"
+    limits: {per_session: 5}
+  download_file_through_url:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      save_dir: {role: selector, type: path, match: under}  # path cue "dir"
+      url: {role: target, type: url}  # URL cue "url"
+    limits: {per_session: 5}
+  get_github_account_user_information:
+    action: allow  # read: "get"
+  get_github_linked_unread_emails:
+    action: allow  # read: "get"
+  get_github_repository_information:
+    action: allow  # read: "get"
+  get_logged_in_github_user_information:
+    action: allow  # read: "get"
+  get_received_emails:
+    action: allow  # read: "get"
+  get_sent_emails:
+    action: allow  # read: "get"
+  git_add_ssh_key:
+    action: allow  # write: no read verb
+    args:
+      ssh_key: credential  # credential cue "ssh key"
+    limits: {per_session: 1}  # a credential argument
+  git_clone:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      local_dir_path: {role: selector, type: path, match: under}  # path cue "dir"
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+    limits: {per_session: 5}
+  git_create_repo:
+    action: allow  # write: "create"
+    self_scoped: true
+    args:
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+    limits: {per_session: 5}
+  git_delete_repo:
+    action: allow  # write: "delete"
+    destructive: true  # "delete"
+    args:
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+    limits: {per_session: 5}
+  git_delete_ssh_key:
+    action: allow  # write: "delete"
+    destructive: true  # "delete"
+    args:
+      ssh_key: credential  # credential cue "ssh key"
+    limits: {per_session: 1}  # a credential argument
+  git_get_linked_ssh_keys:
+    action: allow  # read: "get"
+  git_invite_collaborators:
+    action: allow  # write: "invite"
+    self_scoped: true
+    args:
+      collaborator_email: {role: target, type: email}  # target cue "collaborator", format email
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+    limits: {per_session: 5}
+  git_issue:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      comment_body: content  # no cue
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+      title: content  # no cue
+    limits: {per_session: 5}
+  git_pull:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      local_path: {role: selector, type: path, match: under}  # path cue "path"
+      overwrite_local: content  # no cue
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+    limits: {per_session: 5}
+  git_push:
+    action: allow  # write: "push"; no contract, indirect: "push" with no target
+    limits: {per_session: 5}
+  git_star:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+    limits: {per_session: 5}
+  git_transfer_repo_ownership:
+    action: allow  # write: "transfer"
+    destructive: true  # "transfer"
+    args:
+      new_owner_email: target  # target cue "owner"
+      new_owner_username: target  # target cue "owner"
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+    limits: {per_session: 5}
+  git_unstar:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      repo_name: {role: selector, type: name}  # name of object noun "repo"
+    limits: {per_session: 5}
+  input_to_webpage:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      inputs: content  # no cue
+      url: {role: target, type: url}  # URL cue "url"
+    limits: {per_session: 5}
+  list_directory:
+    action: allow  # read: "list"
+  login_github_account:
+    action: allow  # write: "login"
+    self_scoped: true
+    args:
+      password: content  # credential cue "password", on a "login" tool
+      username: target  # target cue "username"
+    limits: {per_session: 1}  # a credential argument
+  move_node:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      destination_path: {role: selector, type: path, match: under}  # path cue "path"
+      source_path: {role: selector, type: path, match: under}  # path cue "path"
+    limits: {per_session: 5}
+  read_file:
+    action: allow  # read: "read"
+  send_email:
+    action: allow  # write: "send"
+    self_scoped: true
+    args:
+      attachments: content  # no cue
+      bcc: target  # target cue "bcc"
+      body: content  # no cue
+      cc: target  # target cue "cc"
+      recipients: target  # target cue "recipients"
+      subject: content  # no cue
+    limits: {per_session: 5}
+  update_github_account_password:
+    action: allow  # write: no read verb
+    args:
+      password: credential  # credential cue "password"
+    limits: {per_session: 1}  # a credential argument
+  verify_github_account:
+    action: allow  # write: "verify"
+    self_scoped: true
+    args:
+      otp: content  # credential cue "otp", on a "verify" tool
+    limits: {per_session: 1}  # a credential argument
+flows:
+  - when: context_tainted
+    tools:
+      - browse_webpage
+      - copy_node
+      - create_dir
+      - create_file
+      - delete_node
+      - download_file_through_id
+      - download_file_through_url
+      - git_add_ssh_key
+      - git_clone
+      - git_create_repo
+      - git_delete_repo
+      - git_delete_ssh_key
+      - git_invite_collaborators
+      - git_issue
+      - git_pull
+      - git_push
+      - git_star
+      - git_transfer_repo_ownership
+      - git_unstar
+      - input_to_webpage
+      - login_github_account
+      - move_node
+      - send_email
+      - update_github_account_password
+      - verify_github_account
+    action: require_approval
+    unless: anchored

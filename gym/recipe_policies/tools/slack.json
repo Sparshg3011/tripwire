@@ -1,0 +1,169 @@
+[
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_channels"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "channel": {
+          "type": "string"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "channel"
+      ],
+      "type": "object"
+    },
+    "name": "add_user_to_channel"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "channel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel"
+      ],
+      "type": "object"
+    },
+    "name": "read_channel_messages"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user"
+      ],
+      "type": "object"
+    },
+    "name": "read_inbox"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "recipient": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipient",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "send_direct_message"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "body": {
+          "type": "string"
+        },
+        "channel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "send_channel_message"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "channel": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "channel"
+      ],
+      "type": "object"
+    },
+    "name": "get_users_in_channel"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "user": {
+          "type": "string"
+        },
+        "user_email": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user",
+        "user_email"
+      ],
+      "type": "object"
+    },
+    "name": "invite_user_to_slack"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "user": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "user"
+      ],
+      "type": "object"
+    },
+    "name": "remove_user_from_slack"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "name": "get_webpage"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "url",
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "post_webpage"
+  }
+]

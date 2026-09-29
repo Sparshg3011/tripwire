@@ -133,10 +133,13 @@ tripwire serve --audit-key-file ~/.tripwire/audit.key --policy ... --upstream ..
 `TRIPWIRE_AUDIT_KEY_FILE` works in place of the flag. An empty name in
 either is refused rather than taken to mean no key, so an unset shell
 variable can't quietly turn keying off. The key is never written to the
-log or printed. It only protects the log from people who can write it
-but can't read the key, so keep the key away from anyone else with
-write access to the log. Lose the key and the log can't be verified any
-more.
+log or printed, and the server tripwire wraps is started without any
+`TRIPWIRE_` variable, so it isn't handed the key's path; running as
+you, it could still read the path off tripwire's command line or
+environment, and then the key. It only protects the log from people who
+can write it but can't read the key, so keep the key away from anyone
+else with write access to the log.
+Lose the key and the log can't be verified any more.
 
 **Check integrity before you trust a log.**
 

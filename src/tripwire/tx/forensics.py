@@ -20,6 +20,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from tripwire.policy.types import explain_leaf
+
 
 class LogError(Exception):
     pass
@@ -80,6 +82,11 @@ class Step:
     args: dict[str, Any] = field(default_factory=dict)
     outcome: str = ""  # ok | error | cancelled | not forwarded
     notes: list[str] = field(default_factory=list)
+    code: str | None = None  # an argument contract's or anchoring's, when one decided
+    # the values anchoring checked, as the decision record has them
+    anchors: list[dict[str, Any]] = field(default_factory=list)
+    # what the session learned just before this call was judged
+    before: list[str] = field(default_factory=list)
 
 
 def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
@@ -88,16 +95,24 @@ def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
     Everything hangs off decision records, because a decision is the one
     event that happens for *every* call. Whatever follows a decision —
     the forward, the gate conversation, the result, the taint — belongs
-    to it until the next decision starts.
+    to it until the next decision starts. The task text and the tool
+    listing are read before a call is judged, and belong to the call
+    that follows them; to the last call, when none does.
     """
     steps: list[Step] = []
     current: Step | None = None
+    ahead: list[str] = []
 
     for r in records:
         if r.get("session", "") != session_id:
             continue
         kind = r.get("kind", "")
         data = r.get("data", {}) or {}
+
+        note = _ahead(kind, data)
+        if note is not None:
+            ahead.append(note)
+            continue
 
         if kind == "decision":
             current = Step(
@@ -110,7 +125,11 @@ def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
                 shadow=bool(data.get("shadow")),
                 tainted=bool(data.get("tainted")),
                 outcome="not forwarded",
+                code=data.get("code"),
+                anchors=_leaves(data.get("anchors")),
+                before=ahead,
             )
+            ahead = []
             steps.append(current)
             continue
 
@@ -137,8 +156,40 @@ def trace(records: list[dict[str, Any]], session_id: str) -> list[Step]:
             current.notes.append(f"session bookkeeping failed: {data.get('error', '')}")
         elif kind.startswith("gate_"):
             current.notes.append(_gate_note(kind, data))
+        elif kind == "provenance_observed" and data.get("degraded_by"):
+            current.notes.append(_degraded(data))
 
+    if steps:
+        steps[-1].notes.extend(ahead)
     return steps
+
+
+def _ahead(kind: str, data: dict[str, Any]) -> str | None:
+    """A note on what a record says the session learned before the next
+    call was judged; None for any other record."""
+    if kind == "task":
+        return f"task text added: segment {data.get('segment')}"
+    if kind == "intent_rejected":
+        return f"task text refused ({data.get('reason')})"
+    if kind == "provenance_observed" and data.get("tool") is None and data.get("degraded_by"):
+        return _degraded(data, " by the tool listing")
+    return None
+
+
+def _degraded(data: dict[str, Any], by: str = "") -> str:
+    return (
+        f"provenance degraded{by} ({data['degraded_by']}): from here on only the task "
+        f"and known values anchor"
+    )
+
+
+def _leaves(anchors: object) -> list[dict[str, Any]]:
+    """The leaf records of a decision's anchor report, whatever the log
+    holds there."""
+    leaves = anchors.get("leaves") if isinstance(anchors, dict) else None
+    if not isinstance(leaves, list):
+        return []
+    return [leaf for leaf in leaves if isinstance(leaf, dict)]
 
 
 def _gate_note(kind: str, data: dict[str, Any]) -> str:
@@ -183,11 +234,19 @@ def format_trace(steps: list[Step], session_id: str) -> str:
         if step.shadow:
             flag = "shadow" if step.decision != "allow" else flag
         out.append(f"  turn {step.turn:<3} {flag} {_flat(step.tool)}")
+        for note in step.before:
+            out.append(f"      before {_flat(note)}")
         for line in _short(step.args):
             out.append(f"      args   {line}")
         out.append(f"      rule   {_flat(step.rule)}")
         if step.reason:
             out.append(f"      reason {_flat(step.reason)}")
+        if step.code:
+            out.append(f"      code   {_flat(step.code)}")
+        # what failed, or, when nothing did, every value that let it through
+        failed = [leaf for leaf in step.anchors if leaf.get("status") != "anchored"]
+        for leaf in failed or step.anchors:
+            out.append(f"      anchor {_flat(explain_leaf(leaf))}")
         if step.shadow and step.decision != "allow":
             out.append("      NOTE   shadow mode: this ran anyway")
         for note in step.notes:

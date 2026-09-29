@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
+from pathlib import Path
 
 import anyio
 
-from tripwire.policy import PolicyError, load_policy
+from tripwire.intent import claude_code_hook
+from tripwire.policy import Policy, PolicyError, load_policy
+from tripwire.policy.anchoring import accepted
+from tripwire.policy.loader import policy_warnings
 from tripwire.tx import (
     AuditKeyError,
     AuditWriteError,
@@ -23,6 +28,7 @@ from tripwire.tx import (
 )
 
 KEY_ENV = "TRIPWIRE_AUDIT_KEY_FILE"
+TASK_ENV = "TRIPWIRE_TASK_FILE"
 
 
 def audit_key(key_file: str | None) -> bytes | None:
@@ -79,6 +85,59 @@ def check_chain(path: str, key_file: str | None) -> None:
     print(f"{message} Run `tripwire verify` for detail.\n", file=sys.stderr)
 
 
+def explain(policy: Policy) -> list[str]:
+    """Each tool rule as anchoring reads it: which flows skip the tool's
+    anchored calls, each argument's role, and what anchors it."""
+    out = [f"known {vtype}: {', '.join(entries)}" for vtype, entries in policy.known.items()]
+    for tool, rule in policy.tools.items():
+        head: list[str] = [rule.action]
+        if rule.destructive:
+            head.append("destructive")
+        if rule.self_scoped:
+            head.append("self_scoped")
+        flows = [
+            f"flows[{i}]"
+            for i, flow in enumerate(policy.flows)
+            if flow.unless == "anchored" and tool in flow.tools
+        ]
+        if rule.args is None:
+            head.append("no args contract")  # so no flow skips it
+        elif flows:
+            verb = "skips" if len(flows) == 1 else "skip"
+            head.append(f"{', '.join(flows)} {verb} it when anchored")
+        out.append(f"{tool}: {', '.join(head)}")
+
+        outward = any(spec.role == "target" for spec in (rule.args or {}).values())
+        for name, spec in (rule.args or {}).items():
+            line = f"  {name}: {spec.role}"
+            if spec.type != "auto":
+                line += f" ({spec.type})"
+            sources = ", ".join(accepted(spec.role, rule.destructive, spec.type))
+            if spec.role != "content":
+                line += f", anchored by {sources}"
+            elif outward:
+                line += f", links in it anchored by {sources}"
+            if spec.match == "under":
+                line += ", or by a task or known path above it"
+            out.append(line)
+    return out
+
+
+async def listed(command: str) -> bytes:
+    """An upstream's tool listing, as `recipe --tools` reads it."""
+    from tripwire.proxy import Upstream
+
+    upstream = Upstream(command)
+    await upstream.start()
+    try:
+        tools = [
+            t.model_dump(mode="json", by_alias=True, exclude_none=True) for t in upstream.tools
+        ]
+    finally:
+        await upstream.aclose()
+    return (json.dumps(tools, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode()
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tripwire", description="MCP firewall for AI agents")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -114,9 +173,39 @@ def main(argv: list[str] | None = None) -> None:
             f"can rewrite without it (default: ${KEY_ENV})"
         ),
     )
+    p_serve.add_argument(
+        "--task-file",
+        default=os.environ.get(TASK_ENV),
+        help=(
+            "file holding the user's task text, read again whenever it changes; "
+            f"what it names anchors (default: ${TASK_ENV})"
+        ),
+    )
 
     p_validate = sub.add_parser("validate", help="check a policy file")
     p_validate.add_argument("policy")
+
+    p_explain = sub.add_parser("explain", help="say what anchors each argument of a policy")
+    p_explain.add_argument("policy")
+
+    p_recipe = sub.add_parser(
+        "recipe", help="draft a policy from an MCP server's tool listing, to stdout"
+    )
+    listing = p_recipe.add_mutually_exclusive_group(required=True)
+    listing.add_argument("--tools", help="a tools/list result saved as JSON")
+    listing.add_argument(
+        "--upstream", help='an MCP server command to read the listing from, e.g. "npx some-server"'
+    )
+    p_recipe.add_argument(
+        "--strict",
+        action="store_true",
+        help="make no tool self_scoped, so a write naming nothing anchorable is always gated",
+    )
+
+    p_hook = sub.add_parser("hook", help="hand an agent host's prompts to serve --task-file")
+    hosts = p_hook.add_subparsers(dest="host", required=True)
+    p_claude = hosts.add_parser("claude-code", help="Claude Code's UserPromptSubmit hook")
+    p_claude.add_argument("--task-file", required=True, help="the file serve --task-file reads")
 
     p_verify = sub.add_parser("verify", help="check an audit log's hash chain")
     p_verify.add_argument("log")
@@ -142,7 +231,12 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
-    if args.command == "validate":
+    if args.command == "hook":
+        # what it prints reaches the model, and the prompt must go through
+        # whatever happens here: it says nothing and exits 0
+        claude_code_hook(args.task_file)
+
+    elif args.command == "validate":
         try:
             policy = load_policy(args.policy)
         except PolicyError as e:
@@ -150,6 +244,34 @@ def main(argv: list[str] | None = None) -> None:
             sys.exit(1)
         mode = "enforce" if policy.enforce else "shadow (nothing will be blocked)"
         print(f"ok: {args.policy} is valid, mode: {mode}, {len(policy.tools)} tool rules")
+        for warning in policy_warnings(policy):
+            print(f"warning: {warning}", file=sys.stderr)
+
+    elif args.command == "explain":
+        try:
+            policy = load_policy(args.policy)
+        except PolicyError as e:
+            print(e, file=sys.stderr)
+            sys.exit(1)
+        for line in explain(policy):
+            print(line)
+        for warning in policy_warnings(policy):
+            print(f"warning: {warning}", file=sys.stderr)
+
+    elif args.command == "recipe":
+        from tripwire.proxy import UpstreamError
+        from tripwire.recipe import recipe
+
+        try:
+            if args.tools is not None:
+                source = Path(args.tools).read_bytes()
+            else:
+                source = anyio.run(listed, args.upstream)
+            print(recipe(source, arm="strict" if args.strict else "primary"), end="")
+        # ValueError: a RecipeError, or a command shlex can't split
+        except (OSError, ValueError, UpstreamError) as e:
+            print(f"tripwire recipe: {e}", file=sys.stderr)
+            sys.exit(1)
 
     elif args.command == "verify":
         try:
@@ -234,6 +356,15 @@ def main(argv: list[str] | None = None) -> None:
         from tripwire.proxy import UpstreamError, serve
         from tripwire.tx.executor import TxError
 
+        if args.task_file == "":
+            # an unset variable in `--task-file "$TASK"` looks like this,
+            # and it would quietly leave the session without its task
+            print(
+                f"tripwire: refusing to start: the task file name is empty; to go without "
+                f"one, unset {TASK_ENV} and leave out --task-file",
+                file=sys.stderr,
+            )
+            sys.exit(2)
         try:
             key = audit_key(args.audit_key_file)
             anyio.run(
@@ -245,6 +376,7 @@ def main(argv: list[str] | None = None) -> None:
                 args.gate_port,
                 args.tx_db,
                 key,
+                args.task_file,
             )
         except (
             PolicyError,

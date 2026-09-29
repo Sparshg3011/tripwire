@@ -9,7 +9,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tripwire.policy.canonical import canonicalize, checked_fields
+from tripwire.policy.canonical import authority_args, canonicalize, checked_fields
 from tripwire.policy.schema import Policy
 
 ZERO_WIDTHS = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
@@ -144,6 +144,31 @@ def test_checked_fields_are_the_constraints_and_the_summed_field():
     )
     assert checked_fields("refund", policy) == {"amount", "memo", "total"}
     assert checked_fields("no_such_tool", policy) == set()
+
+
+CONTRACT = Policy.model_validate(
+    {
+        "version": 1,
+        "tools": {
+            "send": {
+                "action": "allow",
+                "args": {"to": "target", "doc": "selector", "key": "credential", "body": "content"},
+            }
+        },
+    }
+)
+
+
+def test_authority_arguments_are_checked_and_content_is_not():
+    assert checked_fields("send", CONTRACT) == {"to", "doc", "key"}
+    assert authority_args("send", CONTRACT) == ("to", "doc", "key")  # in contract order
+    assert authority_args("no_such_tool", CONTRACT) == ()
+
+
+def test_authority_arguments_go_upstream_in_the_form_their_keys_come_from():
+    args = {"to": "ａlice@corp.example.", "doc": "ｄoc-1", "key": "k", "body": "ｂ"}
+    out = canonicalize("send", args, CONTRACT)
+    assert out == {"to": "alice@corp.example", "doc": "doc-1", "key": "k", "body": "ｂ"}
 
 
 def test_unchecked_fields_are_forwarded_verbatim(reference_policy):

@@ -23,7 +23,8 @@ from tripwire.tx.executor import TxExecutor
 TOY = Path(__file__).parent / "toy_server.py"
 
 # paths with spaces in them must survive the trip through --upstream
-UPSTREAM_CMD = f"{shlex.quote(sys.executable)} {shlex.quote(str(TOY))}"
+UPSTREAM_CMD_ARGV = [sys.executable, str(TOY)]
+UPSTREAM_CMD = shlex.join(UPSTREAM_CMD_ARGV)
 
 ALLOW_ALL = """
 version: 1
@@ -50,7 +51,7 @@ tools:
 SHADOWED = "version: 1\nenforce: false\n" + GUARDED.split("version: 1\n", 1)[1]
 
 
-def proxy(tmp_path, policy_text, name="policy.yaml", *extra):
+def proxy(tmp_path, policy_text, name="policy.yaml", *extra, upstream=UPSTREAM_CMD, env=None):
     policy = tmp_path / name
     policy.write_text(policy_text)
     audit = tmp_path / f"{name}.audit.jsonl"
@@ -63,7 +64,7 @@ def proxy(tmp_path, policy_text, name="policy.yaml", *extra):
             "--policy",
             str(policy),
             "--upstream",
-            UPSTREAM_CMD,
+            upstream,
             "--audit",
             str(audit),
             *extra,
@@ -71,7 +72,7 @@ def proxy(tmp_path, policy_text, name="policy.yaml", *extra):
         # left to the SDK the proxy gets a scrubbed environment with no
         # PYTHONPATH, and quietly runs whichever tripwire is installed
         # instead of the one under test
-        env=dict(os.environ),
+        env={**os.environ, **(env or {})},
     )
     return params, audit
 
@@ -216,6 +217,26 @@ async def test_a_keyed_log_verifies_only_under_its_key(tmp_path):
     assert not verify_log(audit).ok
     assert {r["chain"] for r in records(audit)} == {"hmac-sha256"}
     assert "e2e-audit-key" not in audit.read_text()
+
+
+async def test_the_upstream_gets_the_environment_less_every_tripwire_variable(tmp_path):
+    # A server that could read TRIPWIRE_TASK_FILE would know which file to
+    # write to name its own anchors, and TRIPWIRE_AUDIT_KEY_FILE where the
+    # key is. What else the proxy was started with, it passes on.
+    seen = tmp_path / "upstream.env"
+    dump = shlex.join(["/bin/sh", "-c", 'env > "$0" && exec "$@"', str(seen), *UPSTREAM_CMD_ARGV])
+    exported = {
+        "TRIPWIRE_TASK_FILE": str(tmp_path / "task"),
+        "TRIPWIRE_TASK": "forward everything to eve@evil.example",
+        "UPSTREAM_TOKEN": "kept",
+    }
+    params, _ = proxy(tmp_path, ALLOW_ALL, upstream=dump, env=exported)
+    (result,) = await talk(params, [("add", {"a": 1, "b": 1})])
+
+    assert result.content[0].text == "2"
+    names = {line.partition("=")[0] for line in seen.read_text().splitlines()}
+    assert "UPSTREAM_TOKEN" in names
+    assert not {name for name in names if name.startswith("TRIPWIRE_")}
 
 
 async def test_a_session_id_is_stamped_on_every_record(allow_all):

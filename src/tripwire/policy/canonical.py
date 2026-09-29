@@ -12,9 +12,10 @@ theatre. The cost is that we hand the tool a lightly-rewritten string,
 which is why the rewrites below are small, boring, and enumerated.
 
 The rewrites only touch what the policy checks: the tool's constraint
-keys and the field its budget sums (checked_fields()). Everything else
-is forwarded exactly as it arrived. Rewriting a body or an address no
-rule reads protects nothing and still changes what the tool receives.
+keys, the field its budget sums, and its authority arguments
+(checked_fields()). Everything else is forwarded exactly as it arrived.
+Rewriting a body or an address no rule reads protects nothing and still
+changes what the tool receives.
 
 Rules for v1 — each one gets attacked in the gym. They are numbered in
 policy-doc order, but note the application order in C1/C2: invisibles go
@@ -97,9 +98,11 @@ import math
 import re
 import unicodedata
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from tripwire.policy.schema import Policy
+if TYPE_CHECKING:
+    # the schema reads `known` values through values.py, which needs _clean
+    from tripwire.policy.schema import Policy
 
 HOST_FIELDS = frozenset(
     {"url", "host", "hostname", "domain", "to", "recipient", "email", "address"}
@@ -142,7 +145,9 @@ def _walk(value: Any) -> Any:
 
 def checked_fields(tool: str, policy: Policy) -> frozenset[str]:
     """The top-level args the policy reads for this tool: its constraint
-    keys and the field its budget sums. Only these are canonicalized, and
+    keys, the field its budget sums, and the arguments its contract gives
+    an authority role (target, selector, credential), whose keys anchoring
+    computes from the form forwarded. Only these are canonicalized, and
     allowed_args admits them without listing them."""
     rule = policy.tools.get(tool)
     if rule is None:
@@ -150,7 +155,17 @@ def checked_fields(tool: str, policy: Policy) -> frozenset[str]:
     fields = set(rule.constraints)
     if rule.limits is not None and rule.limits.sum_per_session is not None:
         fields.add(rule.limits.sum_per_session.field)
+    fields.update(authority_args(tool, policy))
     return frozenset(fields)
+
+
+def authority_args(tool: str, policy: Policy) -> tuple[str, ...]:
+    """The top-level args the tool's contract gives an authority role, in
+    contract order."""
+    rule = policy.tools.get(tool)
+    if rule is None or rule.args is None:
+        return ()
+    return tuple(name for name, spec in rule.args.items() if spec.role != "content")
 
 
 def _numeric_fields(tool: str, policy: Policy) -> set[str]:

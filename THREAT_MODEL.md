@@ -74,6 +74,58 @@ v0.1 promises. Taint lives in the proxy's memory, so restarting the
 proxy starts a clean session, even if the agent still carries the text
 that tainted the old one.
 
+**Anchoring discharges one flow and nothing else.** A flow with `unless:
+anchored` lets a tainted call through when every target, selector and
+credential value is anchored: named by the user's task text, listed
+under `known`, first seen in a trusted tool's field, or minted by the
+session's own create call. It never lowers a constraint, limit,
+sequence, other flow or `require_approval`. What it doesn't stop:
+swapping one anchored value for another (a task-named recipient given
+the wrong document, a payee named in the task paid twice under the
+limit); an attacker's address or host the user typed into the task,
+negated or not; content with no link or target in it sent to an
+anchored recipient; a self-scoped write carrying injected content; a
+URL a tool assembles from separate values the agent sent it, which the
+tool then wrote first; a trusted tool whose store other people can
+write to; and anything the proxy never sees, such as another server's
+results or text the agent only restates in chat, since arguments sent
+before untrusted content are recorded as nothing. Task text and
+provenance live in memory like taint,
+with no ledger across sessions, so a value laundered through a store in
+one session starts fresh in the next. A denial tells the agent which of
+its own values failed and where the session first saw it, nothing it
+hadn't seen, but each refused call still answers one yes-or-no question.
+
+**The task file is as trusted as whatever can write it.** `tripwire
+serve --task-file` reads the user's task from a file before each call,
+and Claude Code's prompt hook writes it there. What the file names
+anchors, so it has to be out of the agent's reach. The proxy does its
+part: no call naming the file in any argument, content included, is
+discharged by anchoring, and no `TRIPWIRE_` variable reaches the
+upstream. That keeps the path out of what the server it wraps is
+handed, not out of its reach: running as the same user, the server can
+read the proxy's command line and environment, and a server that
+misuses what it finds there is the malicious upstream above. Tools
+that don't go through tripwire are another matter: Claude Code's own
+Write, Edit and Bash can reach it, and the deny rule in
+[docs/claude-code.md](docs/claude-code.md) covers the first two but not
+a shell. The file holds the latest prompt only, read when a call
+arrives, so a prompt replaced before any call is lost; that costs
+anchors, never adds them.
+
+**A drafted policy is only as good as the names it was drafted from.**
+`tripwire recipe` reads tool and argument names, never descriptions, so
+nothing a server writes about its tools can loosen the draft. But a
+name can mislead: a tool named like a read (`check_and_fix`, or
+`write_query`, whose only word in a table is `query`) is left ungated,
+one that runs code, sends somewhere or sets a credential under a name
+no word table knows (`disable_2fa`) is an ordinary write, `self_scoped`
+in the primary arm, and an argument named like content is never
+anchored: server-filesystem's `move_file(source, destination)` moves
+any file after untrusted content but a control file or tripwire's own.
+The draft says in a comment what each inference rests on; read them
+before enforcing it.
+
 **Canonicalization stops where stated.** NFKC, invisible-character
 stripping, trailing-dot hosts, numeric-string parsing — and nothing
 else. No HTML-entity decoding, no percent-decoding, no base64, no
@@ -167,23 +219,29 @@ letters included) show as escapes. The caller writes their names and
 picks how many there are, so the preview is capped. Each name is
 clipped at 60 characters and each value at 500 (web: 1000), with a
 marker saying how much was cut. The arguments the policy checks come
-first, a line each, and are always shown. The rest follow shortest
-first, short ones sharing a line, and from the first one that would
-take the preview past 1000 characters (web: 4000) they are left out,
-with a line saying exactly how many arguments and encoded characters
-that was. So a long body can't push the recipient out of view, and junk
-can't push out an argument a rule checks. It can push out one no rule
-checks, which is every argument of a tool with no constraints or
-budget, such as an unknown tool, but only by filling the preview; the
-prompt then says what it left out, and the terminal adds that approving
-forwards it anyway. Both gates clip the tool, rule, reason and taint
-trail as well, at 200 characters each (web: 500), because an unknown
-tool's name comes from the caller too, so nothing the caller sends can
-grow a question past a fixed size. A nested object is clipped as a
-whole, with its members shortest first, so a long member can't hide a
-short one. Enough short members can still push a longer one past the
-clip, though, since only the top-level arguments get a budget; and a
-list keeps its order, so a long first item can hide the ones after it.
+first, a line each, and are always shown. When anchoring ran, the
+tool's authority arguments lead, in contract order, then a content
+argument that failed anchoring, each with a note after its value saying
+where its values came from: "anchored: task", or the first that didn't
+anchor and where it was first seen. The rest follow shortest first,
+short ones sharing a line, and from the first one that would take the
+preview past 1000 characters (web: 4000) they are left out, with a line
+saying exactly how many arguments and encoded characters that was. So a
+long body can't push the recipient out of view, and junk can't push
+out an argument a rule checks. It can push out one no rule checks,
+which is every argument of a tool with no constraints or budget, such
+as an unknown tool, but only by filling the preview; the prompt then
+says what it left out, and the terminal adds that approving forwards it
+anyway. Both gates escape each note and clip it, with the tool, rule,
+reason and taint trail, at 200 characters (web: 500), because an
+unknown tool's name comes from the caller too, and so do the dict keys
+in a value's path; and there is one note an argument, however many
+values it holds, so nothing the caller sends can grow a question past a
+fixed size. A nested object is clipped as a whole, with its members
+shortest first, so a long member can't hide a short one. Enough short
+members can still push a longer one past the clip, though, since only
+the top-level arguments get a budget; and a list keeps its order, so a
+long first item can hide the ones after it.
 The marker says how much was cut, and the web gate keeps everything it
 clipped or left out on the page in full, escaped, a click away. It
 remains a human decision, and "make the human tired of saying yes" is a

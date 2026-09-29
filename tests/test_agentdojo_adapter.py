@@ -19,6 +19,7 @@ from tripwire_benchmarks.agentdojo import (
     _enforcement_receipt,
     _openai_messages,
     _pipeline_name,
+    _policy_path,
     _read_enforcement_receipts,
     _read_trace_errors,
     _read_trace_usage,
@@ -26,7 +27,9 @@ from tripwire_benchmarks.agentdojo import (
     _source_state,
     make_guarded_runtime,
     make_pipeline,
+    parse_args,
 )
+from tripwire_gym.resources import GYM
 
 ROOT = Path(__file__).parent.parent
 
@@ -397,3 +400,42 @@ def test_agentdojo_source_state_is_recorded():
 
     assert len(state["git_commit"]) == 40
     assert isinstance(state["git_dirty"], bool)
+
+
+@pytest.mark.parametrize(
+    ("chosen", "policy"),
+    [
+        ([], "external_policies/banking.yaml"),
+        (["--recipe", "primary"], "recipe_policies/banking.yaml"),
+        (["--recipe", "strict"], "recipe_policies/strict/banking.yaml"),
+        (["--recipe", "taint"], "recipe_policies/taint/banking.yaml"),
+    ],
+)
+def test_a_run_chooses_the_frozen_policy_or_a_recipe_arm(chosen, policy):
+    args = parse_args(
+        [
+            "--suite",
+            "banking",
+            "--model",
+            "m",
+            "--condition",
+            "tripwire-deny",
+            "--out",
+            "o",
+            *chosen,
+        ]
+    )
+    assert _policy_path(args) == GYM / policy
+    assert load_policy(_policy_path(args)).tools
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--condition", "direct", "--recipe", "primary"],
+        ["--condition", "tripwire-deny", "--recipe", "primary", "--policy", "p.yaml"],
+    ],
+)
+def test_a_recipe_arm_needs_a_tripwire_condition_and_no_policy_file(extra):
+    with pytest.raises(SystemExit):
+        parse_args(["--suite", "banking", "--model", "m", "--out", "o", *extra])

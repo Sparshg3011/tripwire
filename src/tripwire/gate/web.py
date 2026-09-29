@@ -40,10 +40,12 @@ from tripwire.gate.base import (
     NAME_PREVIEW,
     ApprovalRequest,
     GateUnavailable,
+    anchor_notes,
     clip,
     more_args,
     preview_arg,
     preview_args,
+    printable,
 )
 
 POLL_SECONDS = 0.2
@@ -62,9 +64,9 @@ ARG_PREVIEW = 1000  # per value; the rest of a longer one sits folded below the 
 # a long scroll away; the arguments that don't fit are folded below as well.
 ARG_BUDGET = 4000
 ARG_WIDTH = 70  # short args share a line this long; the preview box holds 71 a row
-# The tool, rule, reason and taint trail, above the buttons as well. An
-# unknown tool's name is the caller's to pick, and the reason and the
-# trail can repeat it.
+# The tool, rule, reason, taint trail and each anchoring note, above the
+# buttons as well. An unknown tool's name is the caller's to pick, and
+# the rest can repeat it.
 FIELD_PREVIEW = 500
 
 
@@ -206,10 +208,14 @@ def _token_ok(given: str, expected: str) -> bool:
     return secrets.compare_digest(given, expected)
 
 
-def _args_html(args: Mapping[str, Any], checked: Collection[str] = frozenset()) -> str:
+def _args_html(
+    args: Mapping[str, Any],
+    checked: Collection[str] = frozenset(),
+    notes: Mapping[str, str] | None = None,
+) -> str:
     """The arguments that fit, then, folded and in full, the ones that
     didn't and every one the preview clipped."""
-    lines, shown, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_WIDTH, ARG_BUDGET)
+    lines, shown, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_WIDTH, ARG_BUDGET, notes)
     preview = "\n".join(lines) or "{}"
     parts = [f"<pre>{html.escape(preview)}</pre>"]
     if hidden:
@@ -236,11 +242,17 @@ def _card(rid: str, req: ApprovalRequest, token: str) -> str:
     if trail:
         taint += f" (via {_field(trail)})"
     fields = {"tool": req.tool, "rule": req.rule_id, "reason": req.reason, "taint trail": trail}
+    # where each authority argument's values came from, beside them;
+    # printable, since a bidi control in a value's path reorders the line
+    notes = {
+        name: clip(printable(note), FIELD_PREVIEW)
+        for name, note in anchor_notes(req.authority, req.anchors).items()
+    }
     return CARD.format(
         tool=_field(req.tool),
         turn=req.turn,
         taint=taint,
-        args=_args_html(req.args, req.checked),
+        args=_args_html(req.args, req.checked, notes),
         rule=_field(req.rule_id),
         reason=_field(req.reason),
         fields="".join(

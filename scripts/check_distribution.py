@@ -36,6 +36,9 @@ def main() -> None:
         for name in (
             "policies/standard.yaml",
             "external_policies/banking.yaml",
+            "recipe_policies/banking.yaml",
+            "recipe_policies/strict/banking.yaml",
+            "recipe_policies/taint/banking.yaml",
             "agentdojo-heldout.yaml",
             "agentdojo-protectai-heldout.yaml",
         ):

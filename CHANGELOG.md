@@ -32,11 +32,22 @@ refused to start.
 - With `unknown_tools: allow` or `require_approval`, a tool without an entry
   still goes through sequences and flows.
 - Canonicalization rewrites only the arguments a tool's rule reads, its
-  constraint keys and its `sum_per_session` field, and forwards the rest
-  exactly as they arrived. `--tx-db` keys each call by the arguments it
-  forwards, which in shadow mode are all of them as they arrived.
+  constraint keys, its `sum_per_session` field and its contract's authority
+  arguments, and forwards the rest exactly as they arrived. `--tx-db` keys
+  each call by the arguments it forwards, which in shadow mode are all of
+  them as they arrived.
 - `evaluate()` never raises: an error during evaluation is a block with rule
   id `evaluator_error`.
+- A call that fails upstream taints the session whatever the tool's source
+  class, since the agent is handed the exception's text.
+- The upstream server no longer inherits tripwire's own `TRIPWIRE_`
+  environment variables, which say where the audit key and the task file
+  are.
+- The AgentDojo-family adapter runs each task through the proxy's own
+  Interceptor, with the task's prompt as its task text, and writes each
+  case's audit log beside its trace. A refused call's error is now the
+  proxy's refusal, so a call the deny bound refused ends with "The approval
+  gate denied this call."
 
 ### Fixed
 
@@ -57,6 +68,37 @@ refused to start.
 
 ### Added
 
+- Argument anchoring. A flow may say `unless: anchored`, and then skips a call
+  whose every target, selector and credential value came from the user's task
+  text, a `known` value, a trusted tool's field first seen there, or an id this
+  session's own create call returned. Tool rules gain an argument contract
+  (`args`), `destructive` and `self_scoped`; policies gain `known`. Content of
+  an outward call may only link to vouched hosts, by URLs someone else wrote.
+  Anchoring discharges only its own flow. Refusals it or a contract decides
+  carry a code, a fixed explanation and a JSON object for the agent; the audit
+  log gains `task`, `intent_rejected` and `provenance_observed` records and
+  the decision's code and anchor report; `tripwire trace` says where each
+  failed value came from, and both approval gates list the authority
+  arguments first, each with where its values came from; `tripwire
+  validate` warns about a tool such a flow can never discharge, and
+  `tripwire explain` prints what anchors each argument. Task text reaches a
+  session through the library's `Interceptor.add_task()`, or through a file
+  `tripwire serve --task-file` (or `TRIPWIRE_TASK_FILE`) reads before each
+  call, which `tripwire hook claude-code` fills with each prompt from a
+  Claude Code `UserPromptSubmit` hook
+  ([docs/claude-code.md](docs/claude-code.md)).
+- `tripwire recipe` drafts a policy from an MCP server's tool listing, read
+  from the server (`--upstream`) or a saved `tools/list` result (`--tools`):
+  every tool untrusted, reads allowed, and every write and URL fetch under one
+  `unless: anchored` flow, with argument contracts inferred from argument
+  names and each inference commented. It reads names, schemas and
+  `destructiveHint`, never descriptions. `--strict` makes no write
+  `self_scoped`.
+- Recipe policies for AgentDojo's banking, slack, travel and workspace suites
+  and AgentDyn's github, shopping and dailylife, drafted from their tool
+  schemas alone in three arms (primary, strict, and a taint-only comparator),
+  with the listings they were drafted from; CI fails if redrafting them
+  changes a byte. The AgentDojo adapter runs with one arm under `--recipe`.
 - `allowed_args` on a tool rule: an argument neither listed there nor read by
   the rule (a constraint key or the `sum_per_session` field) blocks the call.
 - `turns: session` on a sequence rule keeps it in force for the rest of the

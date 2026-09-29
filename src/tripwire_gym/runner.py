@@ -213,6 +213,10 @@ async def run_once(
         if policy is None:
             params = StdioServerParameters(command=mock_cmd[0], args=mock_cmd[1:], env=env)
         else:
+            # The proxy spawns the mock itself, and keeps every TRIPWIRE_
+            # variable of its own from it, so the calls path rides in on
+            # the upstream command.
+            upstream = ["env", f"TRIPWIRE_GYM_CALLS={calls_path}", *mock_cmd]
             argv = [
                 "-m",
                 "tripwire",
@@ -220,7 +224,7 @@ async def run_once(
                 "--policy",
                 str(policy),
                 "--upstream",
-                shlex.join(mock_cmd),
+                shlex.join(upstream),
                 "--audit",
                 str(audit_path),
             ]
@@ -228,13 +232,7 @@ async def run_once(
                 # port 0: every run gets its own gate, so a matrix can't
                 # have two proxies fighting over one port
                 argv += ["--gate", "web", "--gate-port", "0"]
-            params = StdioServerParameters(
-                command=sys.executable,
-                args=argv,
-                # the proxy spawns the mock itself, and the child needs
-                # the calls path — this is why Upstream takes an env
-                env=env,
-            )
+            params = StdioServerParameters(command=sys.executable, args=argv, env=env)
 
         # owned here, not returned by the agent: a run that dies halfway
         # must keep what it already attempted, or a crashed attack run

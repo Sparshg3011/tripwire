@@ -84,3 +84,21 @@ def load_policy(path: str | Path) -> Policy:
             where = ".".join(str(p) for p in err["loc"]) or "<root>"
             lines.append(f"  {where}: {err['msg']}")
         raise PolicyError("\n".join(lines)) from e
+
+
+def policy_warnings(policy: Policy) -> list[str]:
+    """What loads but probably doesn't do what its author meant: a tool
+    a flow with `unless: anchored` names but gives no argument contract,
+    which that flow therefore never discharges."""
+    out = []
+    for i, flow in enumerate(policy.flows):
+        if flow.unless != "anchored":
+            continue
+        for tool in flow.tools:
+            rule = policy.tools.get(tool)
+            if rule is None or rule.args is None:
+                out.append(
+                    f"flows[{i}] says unless: anchored, but {tool} has no args contract, "
+                    f"so the flow applies to every call of it"
+                )
+    return out

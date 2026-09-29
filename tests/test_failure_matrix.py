@@ -165,6 +165,19 @@ def test_an_empty_audit_key_file_name_refuses_to_start(tmp_path, given):
     assert not (tmp_path / "audit.jsonl").exists()
 
 
+@pytest.mark.parametrize("given", ["flag", "environment"])
+def test_an_empty_task_file_name_refuses_to_start(tmp_path, given):
+    # `--task-file "$TASK"` with TASK unset: serving on would drop the
+    # user's task without anyone having chosen to
+    if given == "flag":
+        done = serve(tmp_path, extra=["--task-file", ""])
+    else:
+        done = serve(tmp_path, env={**os.environ, "TRIPWIRE_TASK_FILE": ""})
+    assert done.returncode == REFUSED
+    assert "task file name is empty" in done.stderr
+    assert not (tmp_path / "audit.jsonl").exists()
+
+
 def test_a_keyed_log_served_without_its_key_refuses_to_start(tmp_path):
     # carrying on unkeyed would quietly downgrade the rest of the log
     audit = tmp_path / "audit.jsonl"

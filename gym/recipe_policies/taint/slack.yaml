@@ -1,0 +1,75 @@
+# tripwire recipe 1, taint arm
+# tools sha256:   772374c0c2b3d91b385b455e9243c823bd3c2b36d68354ce9317816d881dd463
+# lexicon sha256: 07de0f8ba932cb66cdb2c21da8d79bedae28b28cb115e839cac67e51ebde7311
+# Drafted from tool names, input schemas and annotations, never descriptions.
+# Review every inferred role before enforcing it.
+version: 1
+defaults:
+  unknown_tools: block
+sources:
+  "*": untrusted
+tools:
+  add_user_to_channel:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      channel: target  # target cue "channel"
+      user: target  # target cue "user"
+    limits: {per_session: 5}
+  get_channels:
+    action: allow  # read: "get"
+  get_users_in_channel:
+    action: allow  # read: "get"
+  get_webpage:
+    action: allow  # fetch: "get" with a URL argument
+    args:
+      url: {role: target, type: url}  # URL cue "url"
+  invite_user_to_slack:
+    action: allow  # write: "invite"
+    self_scoped: true
+    args:
+      user: target  # target cue "user"
+      user_email: target  # target cue "user"
+    limits: {per_session: 5}
+  post_webpage:
+    action: allow  # write: "post"
+    self_scoped: true
+    args:
+      content: content  # no cue
+      url: {role: target, type: url}  # URL cue "url"
+    limits: {per_session: 5}
+  read_channel_messages:
+    action: allow  # read: "read"
+  read_inbox:
+    action: allow  # read: "read"
+  remove_user_from_slack:
+    action: allow  # write: "remove"
+    destructive: true  # "remove"
+    args:
+      user: target  # target cue "user"
+    limits: {per_session: 5}
+  send_channel_message:
+    action: allow  # write: "send"
+    self_scoped: true
+    args:
+      body: content  # no cue
+      channel: target  # target cue "channel"
+    limits: {per_session: 5}
+  send_direct_message:
+    action: allow  # write: "send"
+    self_scoped: true
+    args:
+      body: content  # no cue
+      recipient: target  # target cue "recipient"
+    limits: {per_session: 5}
+flows:
+  - when: context_tainted
+    tools:
+      - add_user_to_channel
+      - get_webpage
+      - invite_user_to_slack
+      - post_webpage
+      - remove_user_from_slack
+      - send_channel_message
+      - send_direct_message
+    action: require_approval

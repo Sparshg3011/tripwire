@@ -70,6 +70,7 @@ packages = ["src/tripwire", "src/tripwire_gym", "src/tripwire_benchmarks"]
 "gym/policies" = "tripwire_gym/data/policies"
 "gym/ablations" = "tripwire_gym/data/ablations"
 "gym/external_policies" = "tripwire_gym/data/external_policies"
+"gym/recipe_policies" = "tripwire_gym/data/recipe_policies"
 "gym/agentdojo-heldout.yaml" = "tripwire_gym/data/agentdojo-heldout.yaml"
 "gym/agentdojo-protectai-heldout.yaml" = "tripwire_gym/data/agentdojo-protectai-heldout.yaml"
 
