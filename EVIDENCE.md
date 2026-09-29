@@ -155,9 +155,11 @@ Its limits apply to every table in this section:
   undefended, landed 13 attacks to undefended's 15 in the deny bracket, so a
   difference of a few attacks is noise.
 - **Brackets, not people.** A gated call is either always approved (`approve`)
-  or always refused (`deny`); a real operator falls between. Neither reads the
-  request, so the gate social-engineering family measures whether a gate fires,
-  not whether a person could be talked past it.
+  or always refused (`deny`); a real operator falls between, and the distance
+  between the two is how much of the protection depends on someone reading
+  carefully. Neither bracket reads the request, so the gate social-engineering
+  family measures whether a gate fires, not whether a person could be talked
+  past it.
 
 ### Five policy tiers, one model
 
