@@ -27,6 +27,7 @@ def main() -> None:
         names = archive.namelist()
         check_members(names)
         assert "tripwire/gate/exact.py" in names, "exact-approval API missing from wheel"
+        assert "tripwire/py.typed" in names, "py.typed missing from wheel"
         scenarios = [
             name
             for name in names

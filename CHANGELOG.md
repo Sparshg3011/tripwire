@@ -104,6 +104,8 @@ refused to start.
 - `turns: session` on a sequence rule keeps it in force for the rest of the
   session, where a numeric window can be padded out with harmless calls.
 - Python 3.14 support, with CI running the test suite on macOS as well.
+- `tripwire --version`, read from the installed distribution, and a
+  `py.typed` marker, so type checkers use the package's own annotations.
 - Experimental library-only exact pre-approvals: host-authorized full calls,
   one use, live-session binding, expiry, and revocation; no default-policy
   relaxation and no claim of improved AgentDojo utility yet.

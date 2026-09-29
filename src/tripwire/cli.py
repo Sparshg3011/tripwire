@@ -8,6 +8,7 @@ from pathlib import Path
 
 import anyio
 
+from tripwire import __version__
 from tripwire.intent import claude_code_hook
 from tripwire.policy import Policy, PolicyError, load_policy
 from tripwire.policy.anchoring import accepted
@@ -140,6 +141,7 @@ async def listed(command: str) -> bytes:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tripwire", description="MCP firewall for AI agents")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_serve = sub.add_parser("serve", help="run the proxy in front of an upstream MCP server")
