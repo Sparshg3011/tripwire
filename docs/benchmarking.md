@@ -142,11 +142,11 @@ protection depends on someone reading carefully.
 **Concurrency.** Runs share nothing (each has its own proxy, mock server, gate
 port and temp directory), so `--concurrency N` is safe, and results come back
 in matrix order either way: `tests/test_concurrency.py` checks that a
-concurrent `results.jsonl` matches a sequential one byte for byte. Load still
-matters, because each run has a 900-second deadline and a gated run gives the
-proxy five seconds to announce its gate. `run_benchmark.sh` writes the
-concurrency into the report's reproduce command; if a concurrent run and a
-sequential one disagree, suspect the concurrent one.
+concurrent run's records match a sequential one's in everything but the
+timings. Load still matters, because each run has a 900-second deadline and a
+gated run gives the proxy five seconds to announce its gate. `run_benchmark.sh`
+writes the concurrency into the report's reproduce command; if a concurrent run
+and a sequential one disagree, suspect the concurrent one.
 
 **Errors are reported, not dropped.** A crashed run is not a blocked attack.
 The runner records the error and exits non-zero if any run failed.
