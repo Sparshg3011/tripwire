@@ -82,6 +82,11 @@ Avoid subjects such as `changes`, `formatting`, or `fix stuff`. Before opening
 a pull request, squash local fixups into their logical parent commits. Never
 rewrite a branch that other contributors may already be using.
 
+## Releasing
+
+[docs/releasing.md](docs/releasing.md) covers building, checking and
+publishing a release.
+
 ## Security issues
 
 Please don't open a public issue. See [SECURITY.md](SECURITY.md).

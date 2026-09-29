@@ -17,7 +17,6 @@ Roughly in the order they were written:
 | [utility-recovery-research.md](utility-recovery-research.md) | The plan for an LLM action reviewer to win back v0.1's lost utility, and its first smoke run. |
 | [reviewer-failure-diagnosis.md](reviewer-failure-diagnosis.md) | Why the reviewer's development run failed where it did. |
 | [release-evidence-review.md](release-evidence-review.md) | What the reviewer work did and didn't establish, and what a release claim would need. |
-| [releasing.md](releasing.md) | How a release is built, checked and published. |
 
 The reviewer only ever ran in the research adapter, never in the proxy, and
 v0.2 went the argument-anchoring route instead.

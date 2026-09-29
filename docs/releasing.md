@@ -2,13 +2,13 @@
 
 The distribution is `tripwire-agent`; the command is `tripwire`. Version 0.1.0
 is the first alpha release. The firewall's enforcement guarantees are scoped
-to MCP tool calls, as described in [THREAT_MODEL.md](../../THREAT_MODEL.md).
+to MCP tool calls, as described in [THREAT_MODEL.md](../THREAT_MODEL.md).
 The AgentDojo result includes a material benign-utility penalty and does not
 establish production readiness.
 
 ## Evidence for the first release
 
-[EVIDENCE.md](../../EVIDENCE.md) carries what the release claims: the held-out
+[EVIDENCE.md](../EVIDENCE.md) carries what the release claims: the held-out
 AgentDojo result with its utility cost beside it, the complete ProtectAI
 comparison on the same pairs, and the scripted full-minus-one ablation as
 mechanism evidence only, with both approval bounds and no claim that the
