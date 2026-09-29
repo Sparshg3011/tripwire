@@ -1,38 +1,55 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
 name = "tripwire-agent"
 version = "0.1.0"
-description = "A deterministic MCP firewall for AI agents"
+description = "A deterministic firewall for AI-agent tool calls over MCP"
 readme = "README.md"
+# PEP 639: the SPDX expression replaces the deprecated License :: classifiers
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Sparsh Gupta" }]
-keywords = ["mcp", "agents", "security", "firewall", "prompt-injection"]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "llm",
+    "security",
+    "firewall",
+    "prompt-injection",
+    "policy",
+    "audit-log",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Security",
+    "Typing :: Typed",
 ]
 dependencies = [
     "mcp>=1.10,<2",
-    "pydantic>=2.8",
+    "pydantic>=2.8,<3",
     "pyyaml>=6.0",
     "anyio>=4.4",
 ]
 
 [project.urls]
-Source = "https://github.com/Sparshg3011/tripwire"
+Homepage = "https://github.com/Sparshg3011/tripwire"
 Documentation = "https://github.com/Sparshg3011/tripwire/tree/main/docs"
-Issues = "https://github.com/Sparshg3011/tripwire/issues"
+Source = "https://github.com/Sparshg3011/tripwire"
 Changelog = "https://github.com/Sparshg3011/tripwire/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Sparshg3011/tripwire/issues"
 
 [project.scripts]
 tripwire = "tripwire.cli:main"
