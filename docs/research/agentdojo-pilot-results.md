@@ -5,7 +5,7 @@ Status: **development evidence, not a publication headline**
 This pilot was run before the held-out experiment to validate the adapter,
 estimate attack signal, expose utility costs, and freeze the final evaluation
 protocol. Cases were selected with the predeclared seed in
-[`gym/agentdojo-pilot.yaml`](../gym/agentdojo-pilot.yaml), not selected after
+[`gym/agentdojo-pilot.yaml`](../../gym/agentdojo-pilot.yaml), not selected after
 seeing outcomes.
 
 ## Setup

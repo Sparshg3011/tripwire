@@ -259,7 +259,7 @@ grant. It neither clears taint nor overrides policy blocks. Host code must not
 derive grants from attacker-controlled messages, let the agent issue them, or
 automatically replenish them on restart. Unknown/content-dependent arguments
 still require review; the API does not establish a general utility fix. See
-[the exact-approval contract](docs/exact-approvals.md).
+[the exact-approval contract](docs/production.md#exact-pre-approvals).
 
 **Sessions are serialized.** One call at a time per session, including
 human think-time on gates. Parallel calls could otherwise race past

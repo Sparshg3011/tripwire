@@ -180,7 +180,7 @@ declassification). The trade and its cost are discussed in the threat
 model; the benchmark measures the cost instead of hiding it.
 
 For trusted hosts that can authorize a complete action before a session,
-the experimental [exact pre-approval API](exact-approvals.md) can approve that
+the experimental [exact pre-approval API](production.md#exact-pre-approvals) can approve that
 one call without clearing taint or overriding hard blocks. It does not infer
 intent or remove the documented utility limitation for content-dependent tasks.
 

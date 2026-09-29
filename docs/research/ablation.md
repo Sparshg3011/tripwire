@@ -10,22 +10,13 @@ or denied. That is 76 scenarios × 6 policies × 2 approval brackets = 912 runs.
 The scripted agent executes fixed attempts. These results measure the policy's
 mechanisms on the authored corpus; they do not estimate a model's adaptability
 or real human approval behavior. The separate
-[AgentDojo held-out experiment](agentdojo-heldout-results.md) evaluates a live
+[AgentDojo held-out experiment](../../EVIDENCE.md#v01-on-agentdojo) evaluates a live
 model on external tasks.
 
 ## Results
 
-Attack success is lower-is-better; benign completion is higher-is-better.
-Every denominator below is 38. Each cell ran once with no model API calls.
-
-| Policy | Attack successes: approve all | Attack successes: deny all | Benign completions: approve all | Benign completions: deny all |
-|:--|--:|--:|--:|--:|
-| Full standard policy | 11 (28.9%) | 0 (0.0%) | 20 (52.6%) | 3 (7.9%) |
-| Without tool actions | 12 (31.6%) | 1 (2.6%) | 20 (52.6%) | 3 (7.9%) |
-| Without argument constraints | 28 (73.7%) | 1 (2.6%) | 31 (81.6%) | 6 (15.8%) |
-| Without budgets | 12 (31.6%) | 0 (0.0%) | 20 (52.6%) | 3 (7.9%) |
-| Without sequence rules | 11 (28.9%) | 0 (0.0%) | 20 (52.6%) | 3 (7.9%) |
-| Without information-flow rules | 11 (28.9%) | 11 (28.9%) | 20 (52.6%) | 20 (52.6%) |
+The table is in [EVIDENCE.md](../../EVIDENCE.md#which-mechanism-does-the-work).
+Every denominator is 38, and each cell ran once with no model API calls.
 
 Removing argument constraints has the largest measured effect when every
 approval is granted: 17 additional attacks succeed, a 44.7-point increase,
@@ -48,17 +39,9 @@ arrived, and no numeric string is parsed into a number for that budget.
 
 ## Reproduce and audit
 
-From a source checkout with the development dependencies installed:
-
-```bash
-./gym/run_ablation_loo.sh scripted 1 '' 1 gym/results/ablation-loo
-.venv/bin/python -m tripwire_gym.publication \
-  --root gym/results/ablation-loo --out gym/results/ablation-loo/summary
-.venv/bin/python scripts/validate_ablation.py gym/results/ablation-loo
-```
-
-The [compact artifact](results/ablation-loo/README.md) includes metrics,
-manifests, a completeness receipt, and hashes. Its four manifests record the
+The commands are in [benchmarking.md](../benchmarking.md#the-ablation).
+The [compact artifact](../results/ablation-loo/README.md) includes metrics,
+manifests, a completeness check, and hashes. Its four manifests record the
 same clean source commit and corpus. The raw episode files remain local.
 Descriptive Wilson intervals are available in the generated report; this
 fixed, authored corpus does not support a claim of population-wide statistical

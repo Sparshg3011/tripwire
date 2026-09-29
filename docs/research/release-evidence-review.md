@@ -66,8 +66,8 @@ tests reject missing/duplicate traces, duplicate outcome rows, changed outcomes,
 trace errors and hidden reviewer errors. The test for equal completion totals
 with completely different successful tasks prevents misleading retention claims.
 
-Audited artifacts: [full development audit](results/review-development-audit/audit.json)
-and [Slack v2 audit](results/review-slack-policy-v2-audit/audit.json). The latter
+Audited artifacts: [full development audit](../results/review-development-audit/audit.json)
+and [Slack v2 audit](../results/review-slack-policy-v2-audit/audit.json). The latter
 checks all 11 expected traces (three benign, six attacked, two setup) and does not
 invent a contemporaneous control for this standalone run.
 
@@ -136,8 +136,3 @@ support a general security-rate claim, and these tasks were already inspected.
    explicit opt-in, fail-closed errors, immutable action binding, documentation,
    and real upstream effect tests. Rebuild and install the final wheel outside
    the checkout. Publish limitations alongside results, not a blanket guarantee.
-
-All current API authorization is free-access only. Do not purchase credits,
-change billing, switch models silently, or treat unavailable service as successful
-defense. The current NVIDIA model's retirement notice also makes preserving
-model identity and documenting any later migration essential.

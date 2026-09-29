@@ -8,7 +8,7 @@ The original strict condition completed 31/85 benign tasks (36.5%), versus
 70/85 (82.4%) without protection. It denied every approval request after a
 relevant policy gate. The paired audit found 40 regressions, 36 with a recorded
 intervention, and one improvement. An intervention is not proof of sole cause.
-See [the complete audit](results/utility-diagnosis/REPORT.md).
+See [the complete audit](../results/utility-diagnosis/REPORT.md).
 
 Exact host approvals solve calls whose complete arguments are known in advance.
 The eight action-taking tasks in the original 12-task development selection
@@ -73,19 +73,18 @@ successes or attacks, report counts and do not compute an undefined ratio.
 
 ## Reproduce the first development test
 
-Use a clean committed checkout and an existing NVIDIA key with free access:
+From a clean committed checkout, with `NVIDIA_API_KEY` set:
 
 ```sh
 .venv/bin/python scripts/run_review_smoke.py --out gym/results/review-smoke-r1
 ```
 
-The script freezes the source commit and exact commands before calls, uses only
-the original NVIDIA endpoint/model, caps each condition at 30 minutes, retains
-streaming logs, and refuses a changed resume contract. It neither purchases
-credits nor changes billing. Stop if free access is unavailable; do not silently
-switch providers or models. A completion receipt requires all expected outcomes
-and no recorded experiment errors. The smoke is at most nine episodes, not nine
-API calls. Its results must never be presented as a publication benchmark.
+The script records the source commit and exact commands before any call, uses
+only the original NVIDIA endpoint and model, caps each condition at 30 minutes,
+keeps streaming logs, and refuses to resume under a changed contract. It counts
+as complete only with every expected outcome and no recorded experiment errors.
+The smoke is at most nine episodes, not nine API calls, and its results are not
+a publication benchmark.
 
 ## First live smoke observation — September 12, 2026
 

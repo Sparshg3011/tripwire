@@ -234,6 +234,99 @@ redactor does **not** reach it, so give the database the same file
 permissions as the log; and redaction is lossy by design — you cannot
 later recover what you chose not to record.
 
+## Exact pre-approvals
+
+Experimental, and library-only: `tripwire serve` doesn't expose it.
+`ExactApprovalGate` lets a trusted host approve one complete, known tool
+call before a session starts, so that call can run after untrusted
+content without approving anything else or clearing taint. It fits
+tasks whose arguments are known up front: a payment the user already
+confirmed, a fixed message, a specific record update. It doesn't infer
+intent or check a generated summary. In the 12-task AgentDojo
+development set, all eight tasks that take an action need arguments that
+depend on what the agent reads, so exact grants alone don't recover the
+utility v0.1 lost.
+
+The host, not the agent, gets approval for the exact tool name and every
+argument through its own trusted interface, then registers the grant
+before any call or untrusted result in the session:
+
+```python
+from tripwire.gate import ExactApprovalGate
+from tripwire.policy import load_policy
+from tripwire.policy.types import ToolCall
+from tripwire.proxy.interceptor import Interceptor
+from tripwire.session import SessionState
+
+policy = load_policy("policy.yaml")
+session = SessionState(policy)
+
+# Supplied by the trusted host after explicit authorization, not extracted
+# from an agent plan, email, webpage, or benchmark solution.
+gate = ExactApprovalGate(
+    session,
+    [ToolCall("send_email", {
+        "to": "colleague@example.com",
+        "subject": "Meeting",
+        "body": "The meeting is confirmed for 10:00.",
+    })],
+    ttl_seconds=300,
+)
+# audit is an AuditLog; upstream is an already-started MCP Upstream.
+interceptor = Interceptor(policy, audit, upstream, session, gate=gate)
+# Send the agent's calls through interceptor.handle(...), and revoke what
+# is left when the task ends: gate.close()
+```
+
+Every tool with a grant must have `action: require_approval`
+unconditionally:
+
+```yaml
+version: 1
+defaults: {unknown_tools: block}
+sources: {read_email: untrusted}
+tools:
+  read_email: {action: allow}
+  send_email:
+    action: require_approval
+    constraints:
+      body: {type: string, max_length: 1000}
+    limits: {per_session: 1}
+```
+
+A grant for a tool that only a flow gates is refused at registration:
+the call could run before taint without spending the grant, then run
+again after. The contract:
+
+- Matching is exact over every argument, nested values and extra or
+  missing keys included, with no wildcards, patterns or defaults.
+  Arguments the policy checks are compared in canonical form, which is
+  also what gets forwarded; the rest must match byte for byte.
+- A grant is spent once, in the live session it was registered in, and
+  expires (five minutes by default) by whichever of the monotonic and
+  wall clocks runs out first, so sleep doesn't extend it. Registering
+  the same call twice is refused, not counted as two.
+- It is spent before forwarding. An error, a cancellation or an unknown
+  outcome doesn't give it back; find out what happened before issuing
+  another.
+- It overrides nothing: blocks, constraints, limits and sequences still
+  apply, and taint stays set. A changed policy, or an execution the
+  gate didn't see, invalidates grants once noticed, so don't change a
+  policy mid-session.
+- Grants live in memory. There is no MCP endpoint to issue them and no
+  persistence across processes, so keep host code, policies and
+  approval inputs out of the agent's reach, and use upstream
+  idempotency where a side effect must happen exactly once.
+- A grant doesn't impose order. If the call must come after a read,
+  write that as a sequence rule.
+- The audit log records the gate's type, and a refusal says the gate
+  denied the call, so nothing pretends a person reviewed it.
+
+`tests/test_exact_gate.py` covers substituted recipients, amounts,
+bodies and extra fields, one-use spending before and after taint,
+replay, cross-session use, concurrency, expiry, revocation, failed and
+cancelled forwarding, and hard blocks, against a real MCP upstream.
+
 ## What to watch for
 
 | Symptom | Usually means |

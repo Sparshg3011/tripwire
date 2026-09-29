@@ -24,8 +24,8 @@ python -m tripwire_gym --agent scripted --conditions undefended,standard --out /
 
 If you can get something past tripwire, that's the most useful thing
 you can send. A scenario is one YAML file in `gym/scenarios/` plus its
-benign twin — [docs/gym.md](docs/gym.md) has the schema and a worked
-example.
+benign twin — [docs/benchmarking.md](docs/benchmarking.md#scenarios)
+has the schema and a worked example.
 
 The bar is that it has to be **machine-checkable**. "The model said
 something alarming" isn't a scenario; "the agent called `send_email`

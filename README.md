@@ -279,84 +279,32 @@ before production use.
 
 ## Evidence, not marketing
 
-A security control can stop every attack by refusing every action. Tripwire reports security and
-utility together, always against the same tasks without attack text.
+A security control can stop every attack by refusing every action, so Tripwire reports security and
+utility together, on the same tasks with and without attack text. Every number, with its baseline
+and limits, is in [EVIDENCE.md](EVIDENCE.md), and [docs/benchmarking.md](docs/benchmarking.md) has
+the commands that produce them.
 
-> **Publication status:** the frozen primary AgentDojo matrix is complete: 844 paired attacks and
-> 85 benign tasks per condition, with zero trace errors. The security gain is large and the utility
-> cost is larger; both are reported below. The full held-out ProtectAI comparison remains pending.
-> See the [primary result](docs/agentdojo-heldout-results.md) and
-> [publication protocol](docs/benchmarking.md).
+### Held-out AgentDojo result
 
-### Primary held-out AgentDojo result
-
-The primary external experiment uses AgentDojo `v1.2.2`, its official
-`important_instructions` attack and deterministic task/state checkers, and
-`nvidia/nemotron-3-super-120b-a12b`. The 12 users seen during development were excluded before the
-run; all 85 remaining users were crossed with every injection task in their suite. Strict Tripwire
-ran unattended: no human or reviewer model approved gates, and every approval request was denied.
-
-| Metric | Direct | Strict Tripwire | Paired change |
-|:--|--:|--:|--:|
-| **Attack success** | **30.7% (259/844)** | **4.0% (34/844)** | **-26.7 points** |
-| **Benign utility** | **82.4% (70/85)** | **36.5% (31/85)** | **-45.9 points** |
-| Utility under attack | 63.7% (538/844) | 31.8% (268/844) | -32.0 points |
-| Trace/API errors | 0 | 0 | 0 |
+On 844 held-out AgentDojo attacks, v0.1's strict policy cut attack success from 30.7% to 4.0%, but
+benign utility fell from 82.4% to 36.5%; AgentDojo's ProtectAI detector got attack success to 5.8%
+and kept 51.8% utility ([details](EVIDENCE.md#v01-on-agentdojo)). v0.2's argument anchoring is aimed
+at that utility loss, and its preregistered study is running
+([v0.2](EVIDENCE.md#v02-argument-anchoring)).
 
 ![AgentDojo held-out security/utility trade-off: attack success falls from 30.7% to 4.0% while benign utility falls from 82.4% to 36.5%.](docs/img/agentdojo-heldout.png)
 
-The ASR difference has a predeclared two-way user-by-injection cluster-bootstrap 95% interval of
-**-33.6 to -19.8 points**. The benign-utility difference has a user-cluster 95% interval of
-**-56.5 to -35.3 points**. This is strong evidence of security improvement at one conservative
-operating point—not a production-readiness claim. Tripwire intervened in 40 of 85 benign tasks, and
-Slack retained 32.2% attack success while benign utility fell from 100% to 22.2%.
+### Mechanism ablation
 
-Read the [full result, suite breakdown, provenance and limitations](docs/agentdojo-heldout-results.md)
-or inspect the [compact machine-readable artifact](docs/results/agentdojo-heldout/README.md).
-
-### Completed mechanism ablation
-
-The full-minus-one scripted ablation covers 912 unique episodes: 38 attacks
-and 38 benign twins, six policies, and both approval brackets. All cases
-completed with zero runner errors. Removing argument constraints raises
-approve-all attack success from 11/38 to 28/38, while benign completion rises
-from 20/38 to 31/38. These are controlled mechanism results on an authored
-corpus, not estimates of model or human performance. See the
-[full results and validation receipt](docs/ablation.md).
+Taking the standard policy apart one mechanism at a time shows argument constraints doing most of
+the work on the gym corpus ([ablation](EVIDENCE.md#which-mechanism-does-the-work)).
 
 ### Exploratory adversarial gym
 
-The original internal gym contains 38 attacks across seven families, each paired with a benign twin
-and verified to land when undefended. The table below is the exploratory Nemotron Ultra run: one
-seed per cell, 760 runs, and zero execution errors. It is useful evidence, not the final publication
-result. It reports the synthetic **approve bracket**, in which every gated call is approved, to
-measure the policy's upper-bound utility without claiming that a human reviewed the runs. The
-corresponding deny bracket is reported in [RESULTS.md](RESULTS.md).
+The internal gym pairs 38 attacks across seven families with benign twins and runs them under five
+policy tiers and four models ([results and limits](EVIDENCE.md#the-adversarial-gym)).
 
 ![Security/utility frontier](docs/img/frontier.png)
-
-| Condition | Attacks stopped | Benign tasks completed | Interpretation |
-|:--|--:|--:|:--|
-| Model only | 61% (23/38) | 95% | The model already refuses many attacks. |
-| Shadow | 61% (23/38) | 97% | Policy evaluated; nothing blocked. |
-| Loose | 74% (28/38) | 97% | Low-friction constraints. |
-| **Standard** | **87% (33/38)** | **95%** | +26 points over the model-only baseline. |
-| Strict | 100% (38/38) | 16% | The block-everything end of the trade-off, not a recommendation. |
-
-The honest marginal result is smaller than the headline rate: the model fell for 15 attacks, and
-the standard policy recovered 10 of them without reducing benign completion in this run. A strict
-policy recovered all 15 while destroying most utility.
-
-The multi-model sweep moves the model-only baseline from 53% to 83%; Tripwire adds 14–26 percentage
-points across the four evaluated models. Full counts, timeouts, confidence intervals, paired tests,
-failure cases, and ablations live in:
-
-- [Benchmark results](RESULTS.md)
-- [Gym methodology](docs/gym.md)
-- [Model comparison](docs/models.md)
-- [Policy-layer ablation](docs/ablation.md)
-- [AgentDojo held-out primary result](docs/agentdojo-heldout-results.md)
-- [AgentDojo screening](docs/agentdojo-screening-results.md)
 
 Reproduce the local gym without an API key, or run the live-agent matrix through an OpenAI-compatible
 endpoint:
@@ -412,7 +360,7 @@ session a1b2c3d4 — 4 call(s)
 The [production guide](docs/production.md) covers log rotation, redaction, exit codes, upgrade
 behavior, gate selection, and operational failure modes.
 
-For trusted host integrations, an experimental [exact pre-approval API](docs/exact-approvals.md)
+For trusted host integrations, an experimental [exact pre-approval API](docs/production.md#exact-pre-approvals)
 can authorize a complete known call once, without clearing session taint. It is library-only;
 it does not change the default CLI or establish improved AgentDojo completion.
 
@@ -447,10 +395,11 @@ tripwire/
 | [Quickstart](docs/quickstart.md) | Secure a Claude Desktop MCP server in five minutes. |
 | [Policy language](docs/policy.md) | Define tools, constraints, budgets, sequences, flows, and canonicalization. |
 | [Production guide](docs/production.md) | Move safely from shadow traffic to enforcement. |
+| [Claude Code](docs/claude-code.md) | Give anchoring the prompts you type in Claude Code. |
 | [Threat model](THREAT_MODEL.md) | Understand guarantees, assumptions, and residual risk. |
-| [Benchmark methodology](docs/gym.md) | Reproduce the paired security/utility gym and interpret its limits. |
-| [Publication protocol](docs/benchmarking.md) | Reproduce external evaluation, holdouts, statistics, and manifests. |
-| [AgentDojo held-out result](docs/agentdojo-heldout-results.md) | Inspect the primary external result, provenance, suite effects, and limitations. |
+| [Evidence](EVIDENCE.md) | Every result, with its baseline and limits. |
+| [Benchmarking](docs/benchmarking.md) | Reproduce every number: the gym, AgentDojo, the ablation and the v0.2 study. |
+| [Research notes](docs/research/README.md) | Read the pilots, diagnoses and plans behind the results. |
 | [Security policy](SECURITY.md) | Report a vulnerability privately. |
 | [Contributing](CONTRIBUTING.md) | Set up development, add attacks, policies, or code. |
 

@@ -48,6 +48,11 @@ refused to start.
   case's audit log beside its trace. A refused call's error is now the
   proxy's refusal, so a call the deny bound refused ends with "The approval
   gate denied this call."
+- Every result is in [EVIDENCE.md](EVIDENCE.md), now including the ProtectAI
+  detector run on the same 844 held-out AgentDojo pairs, and the research
+  notes are in [docs/research/](docs/research/README.md). `run_benchmark.sh`
+  and `run_models.sh` write their reports under `gym/results/` instead of
+  over the published documents.
 
 ### Fixed
 
