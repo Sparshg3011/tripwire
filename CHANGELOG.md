@@ -48,6 +48,11 @@ refused to start.
   case's audit log beside its trace. A refused call's error is now the
   proxy's refusal, so a call the deny bound refused ends with "The approval
   gate denied this call."
+- Every result is in [EVIDENCE.md](EVIDENCE.md), now including the ProtectAI
+  detector run on the same 844 held-out AgentDojo pairs, and the research
+  notes are in [docs/research/](docs/research/README.md). `run_benchmark.sh`
+  and `run_models.sh` write what they produce under `gym/results/` instead
+  of over the published documents and charts.
 
 ### Fixed
 
@@ -56,7 +61,7 @@ refused to start.
   refusal lost its structured denial. The old floor, 1.10, let pip keep them.
   CI smoke-tests the wheel with the oldest mcp it accepts as well as the
   newest.
-- Include benchmark scenarios, policies, and frozen protocols in the wheel so
+- Include benchmark scenarios, policies, and protocol files in the wheel so
   installed benchmark commands work outside a repository checkout.
 - On PyPI, the README's links and images point at the release's tag on
   GitHub, where before they led nowhere, and the architecture diagram, which
@@ -146,10 +151,10 @@ refused to start.
   scenarios across seven families, each with a twin, each verified to
   land undefended, plus an ablation isolating what each policy layer
   contributes.
-- Frozen AgentDojo `v1.2.2` held-out evaluation with 844 paired attacks
-  and 85 benign tasks per condition, clustered effect intervals,
-  completeness and transport-resume receipts, and compact reproducibility
-  artifacts.
+- AgentDojo `v1.2.2` held-out evaluation, its protocol fixed before it
+  ran, with 844 paired attacks and 85 benign tasks per condition,
+  clustered effect intervals, completeness and transport-resume records,
+  and compact reproducibility artifacts.
 - Completed full-minus-one scripted ablation: 912 runs across six policies
   and both approval brackets, with zero runner errors and compact evidence.
 

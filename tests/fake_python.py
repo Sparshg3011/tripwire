@@ -9,6 +9,9 @@ import sys
 from pathlib import Path
 
 log, argv = Path(sys.argv[1]), sys.argv[2:]
+# a script handed over on stdin is recorded as the call's last argument
+if argv[:1] == ["-"]:
+    argv.append(sys.stdin.read())
 with log.open("a") as calls:
     calls.write(json.dumps(argv) + "\n")
 

@@ -7,6 +7,7 @@ nothing else: what is under test is the shell, not the benchmark.
 """
 
 import os
+import re
 import shlex
 import subprocess
 from pathlib import Path
@@ -60,6 +61,21 @@ def test_scripts_run_the_python_they_are_given(tmp_path, fake_python, script, ar
 
     assert done.returncode == 0, done.stderr
     assert calls()
+
+
+@pytest.mark.parametrize("script", ["run_benchmark.sh", "run_models.sh"])
+def test_reports_and_charts_stay_under_gym_results(tmp_path, fake_python, script):
+    # a rerun measures something new, so it can't write over a published file
+    python, calls = fake_python
+    env = {**os.environ, "PY": str(python), "NVIDIA_API_KEY": "unused"}
+
+    done = run(script, cwd=tmp_path, env=env)
+
+    assert done.returncode == 0, done.stderr
+    inline = [call[-1] for call in calls() if call[:1] == ["-"]]
+    written = [path for source in inline for path in re.findall(r"[\w./-]+\.(?:md|png)\b", source)]
+    assert written
+    assert all(path.startswith("gym/results/") for path in written), written
 
 
 def test_setup_builds_its_environments_with_the_python_it_is_given(tmp_path, fake_python):

@@ -291,8 +291,8 @@ class Interceptor:
         self, name: str, args: Mapping[str, Any], verdict: Verdict, snapshot: SessionSnapshot
     ) -> tuple[bool, str]:
         """One question, one answer, and only "yes" is a yes. A timeout,
-        a crashed gate, or no gate at all air on the side the firewall
-        always airs on.
+        a crashed gate, or no gate at all err on the side the firewall
+        always errs on.
 
         Note what holding the session lock through this means: while a
         human thinks, the session queues. That's not an accident — later

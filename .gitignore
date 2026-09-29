@@ -18,7 +18,7 @@ audit*.jsonl
 *.db
 
 # gym artefacts are regenerated; the committed chart lives in docs/
-gym/results/*/
+gym/results/
 gym-results/
 .benchmark-deps/
 .venv-agentdyn/

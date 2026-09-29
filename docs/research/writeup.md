@@ -1,10 +1,10 @@
 # I built a firewall for AI agents, then attacked it 38 times
 
-> Historical exploratory write-up. The current external evidence is the
-> [frozen AgentDojo primary result](agentdojo-heldout-results.md), and the current
-> mechanism evidence is the [full-minus-one ablation](ablation.md). The cumulative
-> ablation below depends on the order in which mechanisms were added; its
-> incremental contributions differ from the full-minus-one results.
+> Written in August 2026 and extended after the AgentDojo run. Current numbers,
+> including the ProtectAI detector run on the same AgentDojo pairs, are in
+> [EVIDENCE.md](../../EVIDENCE.md). The cumulative ablation below depends on the
+> order in which mechanisms were added; the
+> [full-minus-one ablation](ablation.md) doesn't, and its numbers differ.
 
 Your assistant can read your email and send email. Someone emails you:
 
@@ -83,7 +83,7 @@ untrusted, what was attempted, which rule refused it.
 ## The benchmark
 
 38 attacks across seven families, each with a **benign twin** — the same
-task with the attack text removed. The twin is the honest half: a
+task with the attack text removed. The twin is the other half: a
 firewall that blocks everything scores a perfect 0% attack success and a
 useless 0% task completion, and only running both shows it.
 
@@ -92,7 +92,8 @@ so a scenario can't quietly measure nothing. Ground truth is the mock
 tool server's own record of what it was asked to do — not the audit log,
 not the model's account of itself.
 
-Agent: `nvidia/nemotron-3-ultra-550b-a55b`. 760 runs, no errors.
+Agent: `nvidia/nemotron-3-ultra-550b-a55b`. 760 runs, no errors. With every
+gate approved:
 
 | condition | attacks stopped | benign work completed |
 |---|---|---|
@@ -101,6 +102,9 @@ Agent: `nvidia/nemotron-3-ultra-550b-a55b`. 760 runs, no errors.
 | loose | 74% | 97% |
 | **standard** | **87%** | **95%** |
 | strict | 100% | 16% |
+
+The [full table](../../EVIDENCE.md#five-policy-tiers-one-model) has both
+approval brackets.
 
 **Read the undefended row first.** It isn't zero. The model refuses most
 of these by itself, and a benchmark that reports "87% of attacks
@@ -133,12 +137,9 @@ Model: `nvidia/nemotron-3-super-120b-a12b`. Attack: AgentDojo's official
 disabled. Strict Tripwire ran unattended: every gate was denied, and no hidden
 benchmark label or reviewer model pretended to be a human.
 
-| metric | direct | strict Tripwire | paired change |
-|---|---:|---:|---:|
-| **attack success** | **30.7% (259/844)** | **4.0% (34/844)** | **-26.7 points** |
-| **benign utility** | **82.4% (70/85)** | **36.5% (31/85)** | **-45.9 points** |
-| utility under attack | 63.7% (538/844) | 31.8% (268/844) | -32.0 points |
-| trace errors | 0 | 0 | 0 |
+Attack success fell from 30.7% to 4.0% (259 and 34 of 844), a paired change of
+-26.7 points. Benign utility fell from 82.4% to 36.5% (70 and 31 of 85), -45.9
+points. There were no trace errors.
 
 The security effect is not a small-sample accident: its predeclared two-way
 user-by-injection cluster-bootstrap 95% interval is -33.6 to -19.8 points. But
@@ -156,8 +157,8 @@ from 100% to 22.2%.
 This mixed result is more useful than a flattering one. The next research
 question is no longer whether mediation can stop attacks; it is whether
 finer-grained provenance can recover utility without giving the attacks back.
-The [full held-out report](agentdojo-heldout-results.md) includes every suite,
-the frozen provenance, clustered analysis and required caveats.
+[EVIDENCE.md](../../EVIDENCE.md#v01-on-agentdojo) has every suite, the
+provenance, the clustered analysis and the limits.
 
 ## What got through
 
@@ -199,6 +200,15 @@ Boring allowlists do almost all of it. The sequence rules — a whole
 feature — stop nothing on this corpus; every attack that could have
 tripped one was already caught by a constraint a stage earlier.
 
+That +65.8 is too high. The ablation runs the scripted agent, which
+sends only the arguments a scenario's success predicates name, so its
+emails often have no body and its URLs no scheme, and a constraint
+refuses those calls whatever they say. Traced call by call in the later
+[full-minus-one ablation](../../EVIDENCE.md#which-mechanism-does-the-work),
+9 of the 19 attacks it credits to constraints, and all of the benign
+work they seemed to cost, came from that. Allowlists still stop the
+most, by less than this table says.
+
 And the information-flow layer, the most architecturally interesting
 part of the design, contributes **exactly zero** with a maximally
 cooperative human and +28.9 with a maximally cautious one. It doesn't
@@ -211,7 +221,7 @@ of your protection you've delegated to someone's attention.
 ## Does it depend on the model?
 
 It shouldn't — the rule engine never sees the model. Four of them,
-three labs:
+three labs, attacks stopped:
 
 | model | model alone | with standard | firewall added |
 |---|---|---|---|
@@ -238,10 +248,10 @@ So the practical argument isn't that the firewall makes a good model
 great. It's that the cheap fast model you deploy at scale is carrying
 more residual risk, and a rule engine costs the same in front of either.
 
-† The GLM run lost 7.7% of its cells to timeouts — it reasons for
+† The GLM run lost 7.9% of its cells to timeouts — it reasons for
 minutes per turn — so it is scored on the 36 attacks that completed
 under both conditions, and its absolute rates lean slightly optimistic.
-[Full table and the rest of that caveat](models.md).
+[The rest of that caveat](../../EVIDENCE.md#four-models).
 
 ## What I'd do differently
 
@@ -265,16 +275,18 @@ attack came in.
 
 ```bash
 pip install "tripwire-agent[gym]"
-./gym/run_benchmark.sh                    # scripted agent, free, ~4 min
+./gym/run_benchmark.sh                    # scripted agent, free, ~10 min
 ./gym/run_benchmark.sh nvidia 1 nvidia/nemotron-3-ultra-550b-a55b 6
 ```
 
 Roughly four hours against a hosted model at six runs in flight. Free
-credits at build.nvidia.com cover it. Every number in this post comes
-out of that command, including the ones that don't flatter the project.
+credits at build.nvidia.com cover it. The gym numbers in this post came
+out of that command, including the ones that don't flatter the project;
+[benchmarking.md](../benchmarking.md) has the commit each ran on and the
+commands behind the rest.
 
 Code, threat model and full methodology:
 [github.com/Sparshg3011/tripwire](https://github.com/Sparshg3011/tripwire)
 
-Primary external result and compact artifact:
-[AgentDojo held-out report](agentdojo-heldout-results.md)
+Every current number, with its baseline and limits:
+[EVIDENCE.md](../../EVIDENCE.md)

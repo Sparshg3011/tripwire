@@ -5,7 +5,7 @@ Status: **development evidence, not a publication headline**
 This pilot was run before the held-out experiment to validate the adapter,
 estimate attack signal, expose utility costs, and freeze the final evaluation
 protocol. Cases were selected with the predeclared seed in
-[`gym/agentdojo-pilot.yaml`](../gym/agentdojo-pilot.yaml), not selected after
+[`gym/agentdojo-pilot.yaml`](../../gym/agentdojo-pilot.yaml), not selected after
 seeing outcomes.
 
 ## Setup
@@ -82,5 +82,9 @@ approval is a separate deployment mode and must not be simulated with hidden
 benchmark labels.
 
 The machine-readable results, Wilson intervals, paired effects, raw traces,
-token counts, and intervention receipts are under
+token counts, and intervention records are under
 `gym/results/agentdojo-pilot-live/`.
+
+The v0.2 pilot reran these pairs undefended in September, with the same
+pipeline, and 12 of 24 attacks landed and 6 of 12 benign tasks finished; see
+[EVIDENCE.md](../../EVIDENCE.md#v02-argument-anchoring).

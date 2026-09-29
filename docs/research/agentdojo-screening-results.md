@@ -2,10 +2,10 @@
 
 Status: **development evidence, not a publication headline**
 
-The screen reused the frozen Direct and strict Tripwire development pilot and
-made new calls only for AgentDojo's repeat-prompt, spotlighting, and ProtectAI
-detector defenses. It used the same 12 development user tasks and 24 attack
-pairs across four suites. None of the 85 frozen held-out user tasks were used.
+The screen reused the development pilot's Direct and strict Tripwire results
+and made new calls only for AgentDojo's repeat-prompt, spotlighting, and
+ProtectAI detector defenses. It used the same 12 development user tasks and 24
+attack pairs across four suites. None of the 85 held-out user tasks were used.
 
 ## Result
 
@@ -23,12 +23,13 @@ strict Tripwire. This sample is deliberately small and was already exposed
 during development, so those estimates select the next experiment rather than
 supporting final claims.
 
-## Frozen advancement decision
+## Advancement decision
 
 - **Advance:** Direct, strict Tripwire, and ProtectAI. These were predeclared
   as the full-run anchors.
 - **Do not advance:** repeat-user-prompt and spotlighting. Each reduced attack
-  success by only 16.7 points, below the frozen 20-point threshold.
+  success by only 16.7 points, below the 20-point threshold fixed before the
+  screen.
 - **Defer:** CaMeL remains a separate system-level screen after its NVIDIA
   provider adapter is validated.
 
@@ -47,5 +48,5 @@ behavior must be included in the full-run time budget and reported as an
 implementation limitation. A truncated or chunked variant would be a separate
 ablation, not silently substituted for the official baseline.
 
-Machine-readable receipts and the combined report are under
+The machine-readable results and the combined report are under
 `gym/results/agentdojo-screening/`.

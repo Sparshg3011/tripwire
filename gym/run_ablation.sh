@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Which of standard's five mechanisms actually stops the attacks?
 #
-#   ./gym/run_ablation.sh                  # scripted agent, free, ~4 min
+#   ./gym/run_ablation.sh                  # scripted agent, free, ~15 min
 #   ./gym/run_ablation.sh claude 5         # real model, 5 seeds per cell
 #   ./gym/run_ablation.sh claude 5 "" 8    # 8 runs in flight
 #
