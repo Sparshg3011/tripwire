@@ -40,6 +40,8 @@ def main() -> None:
         check_members(names)
         assert "tripwire/gate/exact.py" in names, "exact-approval API missing from wheel"
         assert "tripwire/py.typed" in names, "py.typed missing from wheel"
+        for name in ("policy.yaml", "mailbox.py", "play.py"):
+            assert f"tripwire/demo/{name}" in names, f"tripwire demo needs {name}"
         (metadata,) = [name for name in names if name.endswith(".dist-info/METADATA")]
         check_description(archive.read(metadata))
         scenarios = [

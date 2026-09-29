@@ -71,6 +71,12 @@ refused to start.
 
 ### Added
 
+- `tripwire demo` plays one scripted agent session through the real proxy,
+  in front of a bundled mailbox server, offline and without an API key. The
+  send an injected email asks for is blocked, with where its recipient was
+  first seen; the send the task asked for goes through because its recipient
+  is anchored; and the session is read back from the audit log. `demo.tape`
+  records it with [VHS](https://github.com/charmbracelet/vhs).
 - Argument anchoring. A flow may say `unless: anchored`, and then skips a call
   whose every target, selector and credential value came from the user's task
   text, a `known` value, a trusted tool's field first seen there, or an id this

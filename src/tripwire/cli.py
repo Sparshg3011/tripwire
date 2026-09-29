@@ -204,6 +204,13 @@ def main(argv: list[str] | None = None) -> None:
         help="make no tool self_scoped, so a write naming nothing anchorable is always gated",
     )
 
+    p_demo = sub.add_parser("demo", help="play a scripted agent session through the proxy, offline")
+    p_demo.add_argument(
+        "--dir",
+        help="keep the audit log, task file and mailbox outbox here (default: a temporary "
+        "directory, removed afterwards)",
+    )
+
     p_hook = sub.add_parser("hook", help="hand an agent host's prompts to serve --task-file")
     hosts = p_hook.add_subparsers(dest="host", required=True)
     p_claude = hosts.add_parser("claude-code", help="Claude Code's UserPromptSubmit hook")
@@ -274,6 +281,11 @@ def main(argv: list[str] | None = None) -> None:
         except (OSError, ValueError, UpstreamError) as e:
             print(f"tripwire recipe: {e}", file=sys.stderr)
             sys.exit(1)
+
+    elif args.command == "demo":
+        from tripwire.demo.play import play
+
+        sys.exit(play(args.dir))
 
     elif args.command == "verify":
         try:
