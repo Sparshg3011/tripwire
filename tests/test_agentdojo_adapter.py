@@ -320,8 +320,21 @@ def test_transient_provider_failures_are_retried(monkeypatch, failure_kind):
                 raise failure
             return completion
 
+    llm = _fake_llm(Completions())
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    llm.query("hello", SimpleNamespace(functions={}), None)
+
+    assert llm.client.chat.completions.calls == 2
+    assert llm.provider_attempts == 2
+    assert llm.model_calls == 1
+    assert llm.transient_error_retry_count == 1
+    assert llm.transient_error_wait_seconds == 1.0
+
+
+def _fake_llm(completions, pacer=None):
     llm = OpenAICompatibleLLM.__new__(OpenAICompatibleLLM)
-    llm.client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    llm.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     llm.model = "nvidia/test"
     llm.temperature = 0.0
     llm.max_tokens = 32
@@ -341,15 +354,53 @@ def test_transient_provider_failures_are_retried(monkeypatch, failure_kind):
     llm.retry_base_seconds = 1.0
     llm.retry_cap_seconds = 1.0
     llm._last_request_started = None
-    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    llm.pacer = pacer
+    return llm
+
+
+def test_a_shared_budget_holds_every_process_on_a_rate_limit(monkeypatch):
+    import httpx
+    from openai import RateLimitError
+
+    request = httpx.Request("POST", "https://integrate.api.nvidia.com/v1/chat/completions")
+    limited = RateLimitError("slow down", response=httpx.Response(429, request=request), body=None)
+    completion = SimpleNamespace(
+        usage=None,
+        choices=[SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=None))],
+    )
+
+    class Completions:
+        calls = 0
+
+        def create(self, **_request):
+            self.calls += 1
+            if self.calls == 1:
+                raise limited
+            return completion
+
+    class Pacer:
+        def __init__(self):
+            self.waits = 0
+            self.held: list[float] = []
+
+        def wait(self):
+            self.waits += 1
+            return 0.0
+
+        def back_off(self, seconds):
+            self.held.append(seconds)
+
+    slept: list[float] = []
+    monkeypatch.setattr("time.sleep", slept.append)
+    pacer = Pacer()
+    llm = _fake_llm(Completions(), pacer)
 
     llm.query("hello", SimpleNamespace(functions={}), None)
 
-    assert llm.client.chat.completions.calls == 2
-    assert llm.provider_attempts == 2
-    assert llm.model_calls == 1
-    assert llm.transient_error_retry_count == 1
-    assert llm.transient_error_wait_seconds == 1.0
+    assert pacer.waits == 2
+    assert pacer.held == [1.0]
+    assert slept == []
+    assert llm.rate_limit_retry_count == 1
 
 
 def test_rate_limit_delay_is_bounded_and_respects_provider_header():

@@ -43,6 +43,7 @@ from tripwire.proxy.interceptor import Interceptor
 from tripwire.session import SessionState
 from tripwire.tx import AuditLog
 from tripwire_benchmarks import recipe_policies
+from tripwire_benchmarks.pacing import SharedPacer
 from tripwire_benchmarks.reviewer import PROMPT_SHA256, ActionReviewer
 from tripwire_gym.resources import GYM
 
@@ -661,6 +662,12 @@ def _read_trace_usage(*trace_dirs: Path) -> dict[str, int | float]:
     return total
 
 
+def _pacer(args: argparse.Namespace) -> SharedPacer | None:
+    if args.pace_file is None:
+        return None
+    return SharedPacer(args.pace_file, args.per_minute)
+
+
 def _retry_delay(
     *,
     attempt: int,
@@ -722,6 +729,7 @@ class OpenAICompatibleLLM:
         rate_limit_retries: int = 20,
         retry_base_seconds: float = 10.0,
         retry_cap_seconds: float = 60.0,
+        pacer: SharedPacer | None = None,
     ):
         try:
             from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
@@ -760,6 +768,7 @@ class OpenAICompatibleLLM:
         self.rate_limit_retries = rate_limit_retries
         self.retry_base_seconds = retry_base_seconds
         self.retry_cap_seconds = retry_cap_seconds
+        self.pacer = pacer
         self._last_request_started: float | None = None
 
     def query(self, query, runtime, env, messages=(), extra_args=None):
@@ -792,7 +801,9 @@ class OpenAICompatibleLLM:
         from openai import APIConnectionError, InternalServerError, RateLimitError
 
         for attempt in range(self.rate_limit_retries + 1):
-            if self._last_request_started is not None:
+            if self.pacer is not None:
+                self.pacer.wait()
+            elif self._last_request_started is not None:
                 interval_wait = self.min_call_interval - (
                     time.monotonic() - self._last_request_started
                 )
@@ -835,7 +846,12 @@ class OpenAICompatibleLLM:
                     f"{self.rate_limit_retries} after {delay:.1f}s",
                     stacklevel=2,
                 )
-                time.sleep(delay)
+                if is_rate_limit and self.pacer is not None:
+                    # the limit is the account's: hold every process, and
+                    # let the next wait() serve this one's delay too
+                    self.pacer.back_off(delay)
+                else:
+                    time.sleep(delay)
                 continue
             elapsed = time.perf_counter() - started
             break
@@ -1081,6 +1097,7 @@ def run_once(args, repetition: int) -> dict[str, Any]:
         rate_limit_retries=args.rate_limit_retries,
         retry_base_seconds=args.retry_base_seconds,
         retry_cap_seconds=args.retry_cap_seconds,
+        pacer=_pacer(args),
     )
     prompt_defense = None
     protected = suite
@@ -1104,6 +1121,7 @@ def run_once(args, repetition: int) -> dict[str, Any]:
                 rate_limit_retries=args.rate_limit_retries,
                 retry_base_seconds=args.retry_base_seconds,
                 retry_cap_seconds=args.retry_cap_seconds,
+                pacer=_pacer(args),
             )
             reviewer_factory = make_reviewer_factory(review_llm)
         protected = protect_suite(suite, policy, gate, reviewer_factory)
@@ -1239,6 +1257,11 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--min-call-interval", type=float, default=2.0)
     parser.add_argument("--rate-limit-retries", type=int, default=20)
+    parser.add_argument(
+        "--pace-file",
+        help="share one request budget with every run using this file; needs --per-minute",
+    )
+    parser.add_argument("--per-minute", type=float, help="requests a minute across --pace-file")
     parser.add_argument("--retry-base-seconds", type=float, default=10.0)
     parser.add_argument("--retry-cap-seconds", type=float, default=60.0)
     parser.add_argument("--api-seed", action="store_true")
@@ -1250,6 +1273,10 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--force-rerun", action="store_true")
     parser.add_argument("--out", required=True)
     args = parser.parse_args(argv)
+    if (args.pace_file is None) != (args.per_minute is None):
+        parser.error("--pace-file and --per-minute go together")
+    if args.per_minute is not None and not args.per_minute > 0:
+        parser.error("--per-minute must be positive")
     if args.reviewer_model and args.condition != "tripwire-review":
         parser.error("--reviewer-model requires --condition tripwire-review")
     if args.recipe and not args.condition.startswith("tripwire-"):
@@ -1311,6 +1338,7 @@ def main(argv: list[str] | None = None) -> None:
             "repetitions": args.repetitions,
             "min_call_interval": args.min_call_interval,
             "rate_limit_retries": args.rate_limit_retries,
+            "shared_per_minute": args.per_minute,
             "retry_base_seconds": args.retry_base_seconds,
             "retry_cap_seconds": args.retry_cap_seconds,
             "protectai_model_name": (
