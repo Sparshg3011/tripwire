@@ -9,7 +9,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/Sparshg3011/tripwire/ci.yml?branch=main&style=for-the-badge&label=CI&logo=github)](https://github.com/Sparshg3011/tripwire/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache--2.0-3DA639?style=for-the-badge)](LICENSE)
 
-[Why Tripwire](#why-tripwire) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Policy](#policy-as-code) · [Evidence](#evidence-not-marketing) · [Documentation](#documentation)
+[Why Tripwire](#why-tripwire) · [Architecture](#architecture) · [Quick Start](#quick-start) · [Policy](#policy-as-code) · [Evidence](#evidence) · [Documentation](#documentation)
 
 </div>
 
@@ -277,19 +277,18 @@ before production use.
 
 ---
 
-## Evidence, not marketing
+## Evidence
 
-A security control can stop every attack by refusing every action, so Tripwire reports security and
-utility together, on the same tasks with and without attack text. Every number, with its baseline
-and limits, is in [EVIDENCE.md](EVIDENCE.md), and [docs/benchmarking.md](docs/benchmarking.md) has
-the commands that produce them.
+Tripwire reports attack success and utility together, on the same tasks with and without the attack
+text. Every result, with its baseline and limits, is in [EVIDENCE.md](EVIDENCE.md), and
+[docs/benchmarking.md](docs/benchmarking.md) has the commands that produce them.
 
 ### Held-out AgentDojo result
 
-On 844 held-out AgentDojo attacks, v0.1's strict policy cut attack success from 30.7% to 4.0%, but
-benign utility fell from 82.4% to 36.5%; AgentDojo's ProtectAI detector got attack success to 5.8%
-and kept 51.8% utility ([details](EVIDENCE.md#v01-on-agentdojo)). v0.2's argument anchoring is aimed
-at that utility loss, and its preregistered study is running
+On 844 held-out AgentDojo attacks, v0.1 with every approval refused cut attack success from 30.7% to
+4.0%, but benign utility fell from 82.4% to 36.5%; AgentDojo's ProtectAI detector got attack success
+to 5.8% and kept 51.8% utility ([details](EVIDENCE.md#v01-on-agentdojo)). v0.2's argument anchoring
+is aimed at that utility loss, and its preregistered study is running
 ([v0.2](EVIDENCE.md#v02-argument-anchoring)).
 
 ![AgentDojo held-out security/utility trade-off: attack success falls from 30.7% to 4.0% while benign utility falls from 82.4% to 36.5%.](docs/img/agentdojo-heldout.png)
@@ -303,8 +302,9 @@ ablation sends incomplete calls, and constraints refuse those too
 
 ### Exploratory adversarial gym
 
-The internal gym pairs 38 attacks across seven families with benign twins and runs them under five
-policy tiers and four models ([results and limits](EVIDENCE.md#the-adversarial-gym)).
+The internal gym pairs 38 attacks across seven families with benign twins. It has run five policy
+tiers on one model, and undefended against standard on four
+([results and limits](EVIDENCE.md#the-adversarial-gym)).
 
 ![Security/utility frontier](docs/img/frontier.png)
 
