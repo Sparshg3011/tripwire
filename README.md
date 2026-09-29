@@ -386,7 +386,7 @@ tripwire/
 │   └── cli.py                  # serve · validate · explain · recipe · hook · verify · trace · report · replay
 ├── src/tripwire_gym/           # paired adversarial benchmark harness
 ├── src/tripwire_benchmarks/    # AgentDojo/AgentDyn adapters and publication analysis
-├── gym/                        # scenarios, policies, frozen plans, and runners
+├── gym/                        # scenarios, policies, study plans, and runners
 ├── docs/                       # operator, policy, benchmark, and design documentation
 └── tests/                      # unit, property, failure-matrix, concurrency, and E2E tests
 ```

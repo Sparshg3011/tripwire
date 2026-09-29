@@ -82,7 +82,7 @@ approval is a separate deployment mode and must not be simulated with hidden
 benchmark labels.
 
 The machine-readable results, Wilson intervals, paired effects, raw traces,
-token counts, and intervention receipts are under
+token counts, and intervention records are under
 `gym/results/agentdojo-pilot-live/`.
 
 The v0.2 pilot reran these pairs undefended in September, with the same

@@ -46,7 +46,7 @@ actually returned to the actor. It receives no hidden environment, evaluator
 answers, task identifiers, or attack labels. It cannot call tools. Malformed
 answers and provider failures deny the call and are counted as experiment errors.
 Each task permits at most 12 reviews; an oversized evidence bundle is refused,
-not silently truncated. Review latency and usage are included in trace receipts.
+not silently truncated. Review latency and usage are recorded in each trace.
 
 ## Ordered evaluation
 

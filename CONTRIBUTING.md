@@ -75,7 +75,7 @@ the change exists when the diff cannot do that on its own.
 Good subjects describe an outcome:
 
 - `Harden AgentDojo runs against API rate limits`
-- `Add completeness receipts to publication reports`
+- `Add completeness checks to publication reports`
 - `Document the shadow-to-enforcement rollout`
 
 Avoid subjects such as `changes`, `formatting`, or `fix stuff`. Before opening

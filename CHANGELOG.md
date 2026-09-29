@@ -56,7 +56,7 @@ refused to start.
 
 ### Fixed
 
-- Include benchmark scenarios, policies, and frozen protocols in the wheel so
+- Include benchmark scenarios, policies, and protocol files in the wheel so
   installed benchmark commands work outside a repository checkout.
 - Exercise the installed wheel on Python 3.11 through 3.14 before publishing,
   and run the same CI and dependency audit for tags as for pull requests.
@@ -131,10 +131,10 @@ refused to start.
   scenarios across seven families, each with a twin, each verified to
   land undefended, plus an ablation isolating what each policy layer
   contributes.
-- Frozen AgentDojo `v1.2.2` held-out evaluation with 844 paired attacks
-  and 85 benign tasks per condition, clustered effect intervals,
-  completeness and transport-resume receipts, and compact reproducibility
-  artifacts.
+- AgentDojo `v1.2.2` held-out evaluation, its protocol fixed before it
+  ran, with 844 paired attacks and 85 benign tasks per condition,
+  clustered effect intervals, completeness and transport-resume records,
+  and compact reproducibility artifacts.
 - Completed full-minus-one scripted ablation: 912 runs across six policies
   and both approval brackets, with zero runner errors and compact evidence.
 

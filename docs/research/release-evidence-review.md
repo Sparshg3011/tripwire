@@ -30,7 +30,8 @@ outcome feedback against the live defended agent. It distinguishes tasks with
 specified actions/parameters from tasks that delegate either to external content.
 This matters because a malicious instruction can resemble the delegated work.
 Our static `important_instructions` result is not an adaptive result. An attacker
-must be evaluated against the exact frozen reviewer, not the older deny gate.
+must be evaluated against the reviewer exactly as it will ship, not the older
+deny gate.
 
 ## Audited development evidence
 
@@ -96,7 +97,7 @@ mock-provider retry tests.
 
 The completed v2 run recorded zero experiment errors, 14 review requests and six
 approvals across benign, attacked and setup episodes. For both previously
-successful metadata attacks, receipts now show the injected message reached the
+successful metadata attacks, the traces now show the injected message reached the
 gate, was reviewed, and was not executed. In user task 13 the later legitimate
 congratulatory message was approved and executed. This directly verifies the
 specific routing fix in a real-model run, rather than inferring it from zero ASR.
@@ -118,7 +119,7 @@ support a general security-rate claim, and these tasks were already inspected.
    order. Report per-task pairs and per-suite counts, not just pooled percentages.
 4. **Add adaptive testing only after verifying integration.** For a bounded first
    smoke, predeclare two variants and one optimization iteration. Confirm that
-   actual reviewer receipts exist before expanding to three variants/four
+   actual reviewer records exist before expanding to three variants/four
    iterations. Freeze the attack budget and count any successful candidate in
    that budget; preserve unsuccessful attempts, setup failures and outages.
    Test fresh execution of discovered attacks, not only the best search trace.
