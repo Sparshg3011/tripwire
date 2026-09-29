@@ -51,6 +51,11 @@ refused to start.
 
 ### Fixed
 
+- Require mcp 1.19 or newer. Earlier versions can't take the result the proxy
+  hands back: every call it allowed came back as a validation error, and every
+  refusal lost its structured denial. The old floor, 1.10, let pip keep them.
+  CI smoke-tests the wheel with the oldest mcp it accepts as well as the
+  newest.
 - Include benchmark scenarios, policies, and frozen protocols in the wheel so
   installed benchmark commands work outside a repository checkout.
 - On PyPI, the README's links and images point at the release's tag on

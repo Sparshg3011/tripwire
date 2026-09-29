@@ -38,7 +38,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "mcp>=1.10,<2",
+    # 1.19 is the first whose low-level server takes the CallToolResult
+    # the proxy's call_tool handler returns
+    "mcp>=1.19,<2",
     "pydantic>=2.8,<3",
     "pyyaml>=6.0",
     "anyio>=4.4",

@@ -86,6 +86,14 @@ jobs:
           /tmp/installed/bin/pip install dist/*.whl
           cd /tmp
           /tmp/installed/bin/python "$GITHUB_WORKSPACE/scripts/smoke_installed.py"
+      # pip leaves an installed mcp alone if it meets the floor, so the
+      # floor has to work, not just the newest release
+      - name: Exercise it again with the oldest mcp it accepts
+        run: |
+          python -m venv /tmp/oldest
+          /tmp/oldest/bin/pip install dist/*.whl "mcp==$(python scripts/dependency_floor.py mcp)"
+          cd /tmp
+          /tmp/oldest/bin/python "$GITHUB_WORKSPACE/scripts/smoke_installed.py"
 
   audit:
     runs-on: ubuntu-latest
