@@ -8,6 +8,7 @@ from pathlib import Path
 
 import anyio
 
+from tripwire import __version__
 from tripwire.intent import claude_code_hook
 from tripwire.policy import Policy, PolicyError, load_policy
 from tripwire.policy.anchoring import accepted
@@ -140,6 +141,7 @@ async def listed(command: str) -> bytes:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="tripwire", description="MCP firewall for AI agents")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_serve = sub.add_parser("serve", help="run the proxy in front of an upstream MCP server")
@@ -200,6 +202,13 @@ def main(argv: list[str] | None = None) -> None:
         "--strict",
         action="store_true",
         help="make no tool self_scoped, so a write naming nothing anchorable is always gated",
+    )
+
+    p_demo = sub.add_parser("demo", help="play a scripted agent session through the proxy, offline")
+    p_demo.add_argument(
+        "--dir",
+        help="keep the audit log, task file and mailbox outbox here (default: a temporary "
+        "directory, removed afterwards)",
     )
 
     p_hook = sub.add_parser("hook", help="hand an agent host's prompts to serve --task-file")
@@ -272,6 +281,11 @@ def main(argv: list[str] | None = None) -> None:
         except (OSError, ValueError, UpstreamError) as e:
             print(f"tripwire recipe: {e}", file=sys.stderr)
             sys.exit(1)
+
+    elif args.command == "demo":
+        from tripwire.demo.play import play
+
+        sys.exit(play(args.dir))
 
     elif args.command == "verify":
         try:

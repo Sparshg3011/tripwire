@@ -1,38 +1,57 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling>=1.27", "hatch-fancy-pypi-readme>=25.1"]
 build-backend = "hatchling.build"
 
 [project]
 name = "tripwire-agent"
 version = "0.1.0"
-description = "A deterministic MCP firewall for AI agents"
-readme = "README.md"
+description = "A deterministic firewall for AI-agent tool calls over MCP"
+dynamic = ["readme"]
+# PEP 639: the SPDX expression replaces the deprecated License :: classifiers
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 requires-python = ">=3.11"
 authors = [{ name = "Sparsh Gupta" }]
-keywords = ["mcp", "agents", "security", "firewall", "prompt-injection"]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "ai-agents",
+    "llm",
+    "security",
+    "firewall",
+    "prompt-injection",
+    "policy",
+    "audit-log",
+]
 classifiers = [
     "Development Status :: 3 - Alpha",
+    "Environment :: Console",
     "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Security",
+    "Typing :: Typed",
 ]
 dependencies = [
-    "mcp>=1.10,<2",
-    "pydantic>=2.8",
+    # 1.19 is the first whose low-level server takes the CallToolResult
+    # the proxy's call_tool handler returns
+    "mcp>=1.19,<2",
+    "pydantic>=2.8,<3",
     "pyyaml>=6.0",
     "anyio>=4.4",
 ]
 
 [project.urls]
-Source = "https://github.com/Sparshg3011/tripwire"
+Homepage = "https://github.com/Sparshg3011/tripwire"
 Documentation = "https://github.com/Sparshg3011/tripwire/tree/main/docs"
-Issues = "https://github.com/Sparshg3011/tripwire/issues"
+Source = "https://github.com/Sparshg3011/tripwire"
 Changelog = "https://github.com/Sparshg3011/tripwire/blob/main/CHANGELOG.md"
+Issues = "https://github.com/Sparshg3011/tripwire/issues"
 
 [project.scripts]
 tripwire = "tripwire.cli:main"
@@ -77,6 +96,27 @@ packages = ["src/tripwire", "src/tripwire_gym", "src/tripwire_benchmarks"]
 [tool.hatch.build.targets.sdist]
 include = ["/src", "/tests", "/scripts", "/gym", "/docs", "/examples", "/*.md", "/LICENSE", "/pyproject.toml"]
 exclude = ["/gym/results", "**/__pycache__", "**/*.pyc", "/.env", "/.cache"]
+
+# PyPI shows the README without the repository around it: relative links
+# and images point at the release tag on GitHub instead, and the Mermaid
+# diagram, which PyPI doesn't render, becomes a link to where it does.
+[tool.hatch.metadata.hooks.fancy-pypi-readme]
+content-type = "text/markdown"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.fragments]]
+path = "README.md"
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(?s)```mermaid\n.*?```\n'
+replacement = 'See the [architecture diagram](https://github.com/Sparshg3011/tripwire/blob/v$HFPR_VERSION/README.md#architecture) on GitHub.\n'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '(!\[[^\]]*\])\((?!https?://)([^)\s]+)\)'
+replacement = '\1(https://raw.githubusercontent.com/Sparshg3011/tripwire/v$HFPR_VERSION/\2)'
+
+[[tool.hatch.metadata.hooks.fancy-pypi-readme.substitutions]]
+pattern = '\]\((?!https?://|#|mailto:)([^)\s]+)\)'
+replacement = '](https://github.com/Sparshg3011/tripwire/blob/v$HFPR_VERSION/\1)'
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

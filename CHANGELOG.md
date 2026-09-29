@@ -51,10 +51,22 @@ refused to start.
 
 ### Fixed
 
+- Require mcp 1.19 or newer. Earlier versions can't take the result the proxy
+  hands back: every call it allowed came back as a validation error, and every
+  refusal lost its structured denial. The old floor, 1.10, let pip keep them.
+  CI smoke-tests the wheel with the oldest mcp it accepts as well as the
+  newest.
 - Include benchmark scenarios, policies, and frozen protocols in the wheel so
   installed benchmark commands work outside a repository checkout.
+- On PyPI, the README's links and images point at the release's tag on
+  GitHub, where before they led nowhere, and the architecture diagram, which
+  PyPI doesn't render, is a link to it.
 - Exercise the installed wheel on Python 3.11 through 3.14 before publishing,
   and run the same CI and dependency audit for tags as for pull requests.
+  A release builds its archives once, smoke-tests that wheel, and publishes
+  those same files through PyPI trusted publishing from a `pypi` environment.
+  Every workflow action is pinned to a commit, and each job gets only the
+  permissions it uses.
 - Preserve all five leave-one-out policy conditions across both approval
   brackets in the ablation runner.
 - Keep `allowed_args` admitting what a removed mechanism read in the
@@ -68,6 +80,12 @@ refused to start.
 
 ### Added
 
+- `tripwire demo` plays one scripted agent session through the real proxy,
+  in front of a bundled mailbox server, offline and without an API key. The
+  send an injected email asks for is blocked, with where its recipient was
+  first seen; the send the task asked for goes through because its recipient
+  is anchored; and the session is read back from the audit log. `demo.tape`
+  records it with [VHS](https://github.com/charmbracelet/vhs).
 - Argument anchoring. A flow may say `unless: anchored`, and then skips a call
   whose every target, selector and credential value came from the user's task
   text, a `known` value, a trusted tool's field first seen there, or an id this
@@ -104,6 +122,8 @@ refused to start.
 - `turns: session` on a sequence rule keeps it in force for the rest of the
   session, where a numeric window can be padded out with harmless calls.
 - Python 3.14 support, with CI running the test suite on macOS as well.
+- `tripwire --version`, read from the installed distribution, and a
+  `py.typed` marker, so type checkers use the package's own annotations.
 - Experimental library-only exact pre-approvals: host-authorized full calls,
   one use, live-session binding, expiry, and revocation; no default-policy
   relaxation and no claim of improved AgentDojo utility yet.

@@ -81,6 +81,12 @@ Avoid subjects such as `changes`, `formatting`, or `fix stuff`. Before opening
 a pull request, squash local fixups into their logical parent commits. Never
 rewrite a branch that other contributors may already be using.
 
+## Releasing
+
+The owner cuts releases following [docs/releasing.md](docs/releasing.md),
+which says what has to be true first, how to check the archives, and
+what to verify once the version is on PyPI.
+
 ## Security issues
 
 Please don't open a public issue. See [SECURITY.md](SECURITY.md).

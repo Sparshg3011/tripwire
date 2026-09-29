@@ -111,10 +111,17 @@ a later stage.
 
 ```bash
 pip install tripwire-agent
+tripwire demo
 ```
 
-The base package includes the command-line firewall and a deterministic smoke
-benchmark. It needs Python 3.11 or newer and no model API key:
+`tripwire demo` plays one agent session through the real proxy, offline, in a
+few seconds. An email tells the agent to mail the inbox to an attacker.
+Tripwire blocks that send, saying the address came from the email and not from
+the user's task, and lets the summary the user asked for go to the address the
+task names.
+
+The base package also includes a deterministic smoke benchmark. It needs
+Python 3.11 or newer and no model API key:
 
 ```bash
 python -m tripwire_gym --agent scripted \
@@ -383,6 +390,7 @@ fire, and replay a candidate policy against the recorded history before tighteni
 
 | Command | Purpose |
 |:--|:--|
+| `tripwire demo` | Play a scripted agent session through the proxy, offline. |
 | `tripwire serve` | Run the MCP proxy in front of an upstream server. |
 | `tripwire validate` | Reject an invalid policy before deployment. |
 | `tripwire explain` | Show each tool's argument roles and what can anchor them. |
@@ -428,9 +436,10 @@ tripwire/
 │   ├── gate/                   # terminal and token-protected localhost approvals
 │   ├── taint/                  # sticky session information-flow state
 │   ├── tx/                     # audit chain, forensics, and idempotency ledger
+│   ├── demo/                   # the demo's policy, mailbox server, and scripted session
 │   ├── replay.py               # re-judge captured traffic under a candidate policy
 │   ├── recipe.py               # draft a policy from a server's tool listing
-│   └── cli.py                  # serve · validate · explain · recipe · hook · verify · trace · report · replay
+│   └── cli.py                  # demo · serve · validate · explain · recipe · hook · verify · trace · report · replay
 ├── src/tripwire_gym/           # paired adversarial benchmark harness
 ├── src/tripwire_benchmarks/    # AgentDojo/AgentDyn adapters and publication analysis
 ├── gym/                        # scenarios, policies, frozen plans, and runners
