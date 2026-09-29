@@ -13,7 +13,7 @@ Roughly in the order they were written:
 | [publication-protocol.md](publication-protocol.md) | The plan for the external evaluation: evidence ladder, prior work, stages and statistics. |
 | [agentdojo-pilot-results.md](agentdojo-pilot-results.md) | The 24-pair AgentDojo pilot that fixed the held-out protocol. |
 | [agentdojo-screening-results.md](agentdojo-screening-results.md) | Which secondary defenses went on to the held-out run, and why ProtectAI did. |
-| [ablation.md](ablation.md) | The full-minus-one ablation, discussed at more length than in EVIDENCE.md. |
+| [ablation.md](ablation.md) | The full-minus-one ablation, with the scenarios behind each count. |
 | [utility-recovery-research.md](utility-recovery-research.md) | The plan for an LLM action reviewer to win back v0.1's lost utility, and its first smoke run. |
 | [reviewer-failure-diagnosis.md](reviewer-failure-diagnosis.md) | Why the reviewer's development run failed where it did. |
 | [release-evidence-review.md](release-evidence-review.md) | What the reviewer work did and didn't establish, and what a release claim would need. |

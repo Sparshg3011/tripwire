@@ -296,8 +296,10 @@ at that utility loss, and its preregistered study is running
 
 ### Mechanism ablation
 
-Taking the standard policy apart one mechanism at a time shows argument constraints doing most of
-the work on the gym corpus ([ablation](EVIDENCE.md#which-mechanism-does-the-work)).
+With the standard policy taken apart one mechanism at a time, argument constraints stop the most
+attacks on the gym corpus, though fewer than the raw counts say: the scripted agent that ran the
+ablation sends incomplete calls, and constraints refuse those too
+([ablation](EVIDENCE.md#which-mechanism-does-the-work)).
 
 ### Exploratory adversarial gym
 

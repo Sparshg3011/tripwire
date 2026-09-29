@@ -193,6 +193,15 @@ Boring allowlists do almost all of it. The sequence rules — a whole
 feature — stop nothing on this corpus; every attack that could have
 tripped one was already caught by a constraint a stage earlier.
 
+That +65.8 is too high. The ablation runs the scripted agent, which
+sends only the arguments a scenario's success predicates name, so its
+emails often have no body and its URLs no scheme, and a constraint
+refuses those calls whatever they say. Traced call by call in the later
+[full-minus-one ablation](../../EVIDENCE.md#which-mechanism-does-the-work),
+9 of the 19 attacks it credits to constraints, and all of the benign
+work they seemed to cost, came from that. Allowlists still stop the
+most, by less than this table says.
+
 And the information-flow layer, the most architecturally interesting
 part of the design, contributes **exactly zero** with a maximally
 cooperative human and +28.9 with a maximally cautious one. It doesn't

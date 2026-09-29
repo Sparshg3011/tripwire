@@ -147,12 +147,6 @@ Its limits apply to every table in this section:
   or always refused (`deny`); a real operator falls between. Neither reads the
   request, so the gate social-engineering family measures whether a gate fires,
   not whether a person could be talked past it.
-- **The ablation's scripted agent sends incomplete calls.** It builds each call
-  from the scenario's success predicates, so it leaves out any argument a
-  predicate doesn't name, such as an email's body, and sends partial values,
-  such as a host with no scheme. A constraint on a missing or malformed
-  argument blocks. Part of what the ablation credits to argument constraints,
-  on both axes, is the script tripping over its own calls.
 
 ### Five policy tiers, one model
 
@@ -220,10 +214,9 @@ harness printed as it ran, and that log is not in the repository.
 
 ### Which mechanism does the work
 
-The standard policy with one mechanism removed at a time, run by the scripted
-agent over all 38 attacks and their twins in both brackets: 912 runs, zero
-errors, commit `effb26e`. The scripted agent never adapts to a refusal, so its
-absolute utility is low; compare rows, not cells. Counts are out of 38.
+The standard policy with one mechanism removed at a time, over all 38 attacks
+and their twins in both brackets: 912 runs, zero errors, commit `effb26e`.
+Counts are out of 38.
 
 | Policy | Attacks landed, approve | Attacks landed, deny | Benign done, approve | Benign done, deny |
 |:--|--:|--:|--:|--:|
@@ -234,13 +227,33 @@ absolute utility is low; compare rows, not cells. Counts are out of 38.
 | Without sequence rules | 11 | 0 | 20 | 3 |
 | Without information-flow rules | 11 | 11 | 20 | 20 |
 
-Argument constraints matter most: without them, 17 more attacks land and 11
-more benign tasks finish when every gate is approved, though part of that is
-the scripted agent's incomplete calls described above. Sequence rules change
-nothing on this corpus. Information-flow rules matter only when gates are
-refused, where removing them lets 11 attacks through and 17 more benign tasks
-finish. The effects are conditional on the mechanisms left in place, so they
-don't add up to the full policy's effect. The compact artifact is in
+The agent here is the scripted one, and it shapes these numbers. It builds
+each call from the scenario's success predicates, so it never adapts to a
+refusal, which keeps its utility low, and it leaves out whatever a predicate
+doesn't name: an email's body, a URL's scheme, sometimes the whole URL. It also
+sends amounts as strings. Constraints refuse a missing or malformed argument,
+so part of what this table credits to them is the script.
+
+Removing constraints lets 17 more attacks land with every gate approved.
+Traced call by call, that is 19 attacks that land only without constraints,
+less 2 that land only with them. Ten of the 19 were stopped on the value
+itself, a recipient, host or path outside the allowlist. The other 9 were
+stopped only because the script's call left out an email's body or recipient,
+or a URL's scheme. The 2 going the other way are string amounts: with no
+constraint to parse them into numbers, the refund budget refuses them. The 11
+extra benign tasks are all the script: each of the 17 twins that finish only
+without constraints had sent a call with an argument missing or cut short, and
+the 6 that fail only without them sent string amounts. The deny bracket's
+differences, 1 attack and 3 benign tasks, are the script too. So constraints
+stop 10 attacks here that a complete call wouldn't get past, and this run
+can't say what they cost in benign work.
+
+Tool actions and budgets each stop one more attack when gates are approved,
+and sequence rules change nothing on this corpus. Information-flow rules
+matter only when gates are refused: removing them lets 11 attacks through and
+17 more benign tasks finish, every one a call a refused gate had stopped. The
+effects are conditional on the mechanisms left in place, so they don't add up
+to the full policy's effect. The compact artifact is in
 [docs/results/ablation-loo/](docs/results/ablation-loo/README.md), and
-[docs/research/ablation.md](docs/research/ablation.md) has the longer
-discussion.
+[docs/research/ablation.md](docs/research/ablation.md) names the scenarios
+behind each count.
