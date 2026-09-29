@@ -1,6 +1,8 @@
 """Verify release archive contents before uploading them to a package index."""
 
 import argparse
+import email
+import re
 import tarfile
 import zipfile
 from pathlib import Path, PurePosixPath
@@ -16,6 +18,16 @@ def check_members(names: list[str]) -> None:
         assert not name.endswith((".pyc", ".db", ".log")), name
 
 
+def check_description(metadata: bytes) -> None:
+    """PyPI shows the README on its own: a relative link there leads
+    nowhere, and it doesn't render Mermaid."""
+    description = email.message_from_bytes(metadata).get_payload()
+    assert isinstance(description, str) and description, "no long description"
+    assert "```mermaid" not in description, "a Mermaid block reached the long description"
+    relative = re.findall(r"\]\((?!https?://|#|mailto:)([^)\s]*)\)", description)
+    assert not relative, f"relative links in the long description: {relative}"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path, default=Path("dist"), nargs="?")
@@ -28,6 +40,8 @@ def main() -> None:
         check_members(names)
         assert "tripwire/gate/exact.py" in names, "exact-approval API missing from wheel"
         assert "tripwire/py.typed" in names, "py.typed missing from wheel"
+        (metadata,) = [name for name in names if name.endswith(".dist-info/METADATA")]
+        check_description(archive.read(metadata))
         scenarios = [
             name
             for name in names

@@ -53,6 +53,9 @@ refused to start.
 
 - Include benchmark scenarios, policies, and frozen protocols in the wheel so
   installed benchmark commands work outside a repository checkout.
+- On PyPI, the README's links and images point at the release's tag on
+  GitHub, where before they led nowhere, and the architecture diagram, which
+  PyPI doesn't render, is a link to it.
 - Exercise the installed wheel on Python 3.11 through 3.14 before publishing,
   and run the same CI and dependency audit for tags as for pull requests.
 - Preserve all five leave-one-out policy conditions across both approval
