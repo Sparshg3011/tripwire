@@ -36,6 +36,7 @@ import anyio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from tripwire.intent import write_task
 from tripwire_gym.agent import Agent, AgentStats, ToolCallRecord
 from tripwire_gym.human import Human, find_gate_url
 from tripwire_gym.resources import GYM
@@ -217,6 +218,11 @@ async def run_once(
             # variable of its own from it, so the calls path rides in on
             # the upstream command.
             upstream = ["env", f"TRIPWIRE_GYM_CALLS={calls_path}", *mock_cmd]
+            # the user's task reaches the proxy the way a host hands it
+            # over, so a policy with `unless: anchored` sees what it
+            # would see in production; policies without it ignore it
+            task_path = room / "task.txt"
+            write_task(task_path, scenario.task)
             argv = [
                 "-m",
                 "tripwire",
@@ -227,6 +233,8 @@ async def run_once(
                 shlex.join(upstream),
                 "--audit",
                 str(audit_path),
+                "--task-file",
+                str(task_path),
             ]
             if gated:
                 # port 0: every run gets its own gate, so a matrix can't
