@@ -248,7 +248,7 @@ So the practical argument isn't that the firewall makes a good model
 great. It's that the cheap fast model you deploy at scale is carrying
 more residual risk, and a rule engine costs the same in front of either.
 
-† The GLM run lost 7.7% of its cells to timeouts — it reasons for
+† The GLM run lost 7.9% of its cells to timeouts — it reasons for
 minutes per turn — so it is scored on the 36 attacks that completed
 under both conditions, and its absolute rates lean slightly optimistic.
 [The rest of that caveat](../../EVIDENCE.md#four-models).
