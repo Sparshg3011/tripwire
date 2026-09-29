@@ -30,6 +30,14 @@ def _rate_counts(hits: int, total: int) -> dict[str, Any]:
     }
 
 
+def _condition(data: dict[str, Any]) -> str:
+    """The condition a result reports under. Tripwire runs that took their
+    policy from a recipe arm carry the arm, so two arms of one condition
+    are never pooled into one row."""
+    recipe = (data.get("settings") or {}).get("recipe")
+    return f"{data['condition']}/{recipe}" if recipe else str(data["condition"])
+
+
 def collect(root: str | Path) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for path in sorted(Path(root).rglob("results.json")):
@@ -39,7 +47,7 @@ def collect(root: str | Path) -> list[dict[str, Any]]:
             continue
         if data.get("benchmark") != "agentdojo-family":
             continue
-        key = (data["model"], data["suite"], data["attack"], data["condition"])
+        key = (data["model"], data["suite"], data["attack"], _condition(data))
         grouped[key].extend(data["runs"])
 
     direct_valid: dict[tuple[str, str, str, int], set[str]] = {}
@@ -184,7 +192,7 @@ def paired_effects(root: str | Path) -> list[dict[str, Any]]:
                     item["value"]
                 )
         cells.setdefault(
-            (data["model"], data["suite"], data["attack"], data["condition"]), {}
+            (data["model"], data["suite"], data["attack"], _condition(data)), {}
         ).update(values)
 
     effects = []
@@ -269,7 +277,7 @@ def _paired_cluster_intervals(
             continue
         if data.get("benchmark") != "agentdojo-family":
             continue
-        key = (data["model"], data["suite"], data["attack"], data["condition"])
+        key = (data["model"], data["suite"], data["attack"], _condition(data))
         for run in data["runs"]:
             repetition = int(run["repetition"])
             for item in run["attack_results"]:
