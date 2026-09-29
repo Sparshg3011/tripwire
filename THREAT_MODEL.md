@@ -2,9 +2,8 @@
 
 Tripwire is a deterministic policy firewall between an AI agent and its
 MCP tool servers. This document says exactly what that defends, what it
-doesn't, and what each design decision costs. The residual-risk section
-gets its numbers from the adversarial benchmark; until the full corpus
-runs, entries there are design-time expectations and marked as such.
+doesn't, and what each design decision costs. The residual risks at the
+end are checked against what got through in [EVIDENCE.md](EVIDENCE.md).
 
 ## The attacker
 
@@ -266,7 +265,7 @@ human think-time on gates. Parallel calls could otherwise race past
 budgets that had room for one. The cost is throughput and, during a
 gate, latency for queued calls; the benchmark's benign twins price it.
 
-## Residual risks (design-time expectations, pending benchmark numbers)
+## Residual risks
 
 1. **Multi-step attacks that stay inside policy.** Each call
    individually legal, the harm in the composition. Sequence rules
@@ -279,7 +278,19 @@ gate, latency for queued calls; the benchmark's benign twins price it.
 3. **Policy gaps.** Unknown-tool defaults and `"*"` taint classes are
    strict, but a permissive rule someone wrote in a hurry is enforced
    exactly as written.
+4. **Allowed calls carrying the attacker's content.** A constraint says
+   where a call may act, not what it says. A reply to the right
+   colleague with a body the attacker wrote passes every rule, and so
+   does a value that normalizes to something inside the policy's
+   limits.
 
-These three are expected to be the surviving attack families in the
-benchmark's failure analysis. If the numbers say otherwise, this
-section changes — in whichever direction the data points.
+The first three were written down before the gym's full corpus ran; the
+fourth is what it added. With every gate approved, five attacks got past
+the standard policy, and each is one of these: an access-list write to an
+allowed path, set up over several steps (1), a second refund inside every
+cap (2), and an attacker's reply body and two canonicalization probes
+(4). Each went through a gate the benchmark's operator approved without
+reading, and with every gate refused none got through
+([what got through](EVIDENCE.md#what-got-through)). In the gym, then,
+these risks come down to a person reading the gate, which the benchmark
+can't measure.
