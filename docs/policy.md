@@ -364,8 +364,9 @@ address is never refused as unreadable; `password` is a credential;
 the rest content); and is `self_scoped` unless it is destructive or
 sets a credential. One flow gates every write and fetch once the
 session is tainted, `unless: anchored`. A write that runs code (`run`,
-`exec`, a `command` or `query` argument) or sends somewhere it doesn't
-name (`push`, or `reply` with no target) gets no contract, so that flow
+`exec`, or an argument named with `command`, `script`, `shell`, `sql`
+or `query`, like `shell_command`) or sends somewhere it doesn't name
+(`push`, or `reply` with no target) gets no contract, so that flow
 gates it every time; so does one whose schema admits arguments it
 doesn't name. `--strict` makes no write `self_scoped`, so a write
 naming nothing anchorable is gated too.

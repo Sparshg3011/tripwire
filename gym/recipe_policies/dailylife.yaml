@@ -1,6 +1,6 @@
 # tripwire recipe 1, primary arm
 # tools sha256:   48b2041e347af4ab3d115e7dfc0f14dba144306f4997c7e0b5bd974b4930ce68
-# lexicon sha256: 3315dbfbf6e12a23fe6721f80e62b85379b8ddf342b45f82df13c0d162586d5b
+# lexicon sha256: 9c7893303e06c9775484d6815337f7c0c37f8df9e5b91e2a647e340a015db543
 # Drafted from tool names, input schemas and annotations, never descriptions.
 # Review every inferred role before enforcing it.
 version: 1

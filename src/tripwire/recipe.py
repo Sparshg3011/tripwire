@@ -21,9 +21,10 @@ argument, one with a URL word or format uri, is a fetch, whether or not
 its schema names every argument it takes.
 
   write        destructive when a word is in DESTRUCTIVE, or it has
-               destructiveHint: true. exec when a word is in EXEC or an
-               argument is named in EXEC_ARGS; indirect when exec, or when
-               a word is in INDIRECT and no argument is a target.
+               destructiveHint: true. exec when a word is in EXEC, or a
+               word of an argument's name in EXEC_ARGS (sql_query);
+               indirect when exec, or when a word is in INDIRECT and no
+               argument is a target.
 
 Roles, per write argument, from its words; the first rule that matches:
 
@@ -154,7 +155,9 @@ EXEC = frozenset(
         "spawn",
     }
 )
-EXEC_ARGS = frozenset({"cmd", "command", "script", "shell", "sql", "query"})
+EXEC_ARGS = frozenset(
+    {"cmd", "cmds", "command", "commands", "script", "scripts", "shell", "sql", "query", "queries"}
+)
 INDIRECT = frozenset(
     {"send", "share", "forward", "publish", "post", "invite", "push", "reply", "respond", "answer"}
 )
@@ -438,12 +441,12 @@ def infer(tool: Mapping[str, Any]) -> Reading:
     args = tuple(_role(n, p, verb, destructive is not None) for n, p in props)
     credential = any(arg.credential for arg in args)
     execs = next((w for w in named if w in EXEC), None)
-    exec_arg = next((n.lower() for n, _ in props if n.lower() in EXEC_ARGS), None)
+    exec_arg = next((w for n, _ in props for w in words(n) if w in EXEC_ARGS), None)
     sends = next((w for w in named if w in INDIRECT), None)
     if execs is not None:
         why = f'exec: "{execs}"'
     elif exec_arg is not None:
-        why = f'exec: argument "{exec_arg}"'
+        why = f'exec: "{exec_arg}" in an argument name'
     elif sends is not None and not any(arg.role == "target" for arg in args):
         why = f'indirect: "{sends}" with no target'
     elif not all(_ARG_NAME.fullmatch(n) for n, _ in props):
