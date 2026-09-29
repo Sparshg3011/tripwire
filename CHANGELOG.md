@@ -58,6 +58,10 @@ refused to start.
   PyPI doesn't render, is a link to it.
 - Exercise the installed wheel on Python 3.11 through 3.14 before publishing,
   and run the same CI and dependency audit for tags as for pull requests.
+  A release builds its archives once, smoke-tests that wheel, and publishes
+  those same files through PyPI trusted publishing from a `pypi` environment.
+  Every workflow action is pinned to a commit, and each job gets only the
+  permissions it uses.
 - Preserve all five leave-one-out policy conditions across both approval
   brackets in the ablation runner.
 - Keep `allowed_args` admitting what a removed mechanism read in the

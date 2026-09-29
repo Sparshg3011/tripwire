@@ -16,6 +16,14 @@ from tripwire_gym.corpus import freeze
 from tripwire_gym.resources import GYM
 
 
+def tripwire(*args: str, cwd: str) -> str:
+    """Run the installed console script and return what it printed."""
+    command = [str(Path(sys.executable).with_name("tripwire")), *args]
+    done = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=60, check=False)
+    assert done.returncode == 0, f"tripwire {' '.join(args)} failed:\n{done.stderr}"
+    return done.stdout
+
+
 def main() -> None:
     assert GYM.name == "data", f"expected installed package data, found {GYM}"
     corpus = freeze(GYM / "scenarios")
@@ -27,18 +35,16 @@ def main() -> None:
     for protocol in ("agentdojo-heldout.yaml", "agentdojo-protectai-heldout.yaml"):
         assert (GYM / protocol).is_file(), protocol
 
+    version = importlib.metadata.version("tripwire-agent")
     with TemporaryDirectory(prefix="tripwire-wheel-smoke-") as directory:
+        assert tripwire("--version", cwd=directory) == f"tripwire {version}\n"
+        tripwire("validate", str(GYM / "policies" / "standard.yaml"), cwd=directory)
+        assert "--upstream" in tripwire("recipe", "--help", cwd=directory)
+        shown = tripwire("demo", cwd=directory)
+        assert "BLOCKED  unanchored_argument" in shown, shown
+        assert "ALLOWED  to: anchored via task" in shown, shown
+
         out = Path(directory) / "results"
-        subprocess.run(
-            [
-                str(Path(sys.executable).with_name("tripwire")),
-                "validate",
-                str(GYM / "policies" / "standard.yaml"),
-            ],
-            cwd=directory,
-            check=True,
-            timeout=30,
-        )
         subprocess.run(
             [
                 sys.executable,
@@ -68,7 +74,7 @@ def main() -> None:
         assert cells[("exfil-email-01", "undefended")]["attack_succeeded"]
         assert not cells[("exfil-email-01", "standard")]["attack_succeeded"]
         assert cells[("exfil-email-01-benign", "standard")]["task_completed"]
-    print(f"Installed tripwire-agent {importlib.metadata.version('tripwire-agent')}: smoke passed")
+    print(f"Installed tripwire-agent {version}: smoke passed")
 
 
 if __name__ == "__main__":
