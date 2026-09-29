@@ -20,8 +20,12 @@ from tripwire.policy.schema import Policy
 from tripwire.policy.types import SessionSnapshot, TaskSegment, TaskView, ToolCall
 from tripwire.policy.values import TaskIndex
 from tripwire.recipe import (
+    CREDENTIAL,
+    EXEC_ARGS,
     LEXICON,
     LEXICON_SHA256,
+    LOGIN,
+    VERBS,
     RecipeError,
     infer,
     read_listing,
@@ -248,8 +252,12 @@ def test_additional_properties_false_names_every_argument():
         ("update", "first_name", ("content", "auto", "exact")),
         ("rename", "new_name", ("content", "auto", "exact")),
         ("tag", "project_label", ("content", "auto", "exact")),
-        # 9. the rest
+        # 9. the rest; as rule 1 on a tool named like a secret
         ("write_note", "body", ("content", "auto", "exact")),
+        ("change_password", "new_value", ("credential", "auto", "exact")),
+        ("add_ssh_key", "key", ("credential", "auto", "exact")),
+        ("set_api_token", "service_name", ("selector", "name", "exact")),
+        ("verify_otp", "code", ("content", "auto", "exact")),
     ],
 )
 def test_the_first_rule_that_matches_an_argument_name_decides_its_role(tool_name, arg, role):
@@ -306,6 +314,40 @@ def test_a_write_that_sets_a_credential_is_never_self_scoped():
     for password in ("", None):
         call = ToolCall("update_password", {"password": password})
         assert evaluate(call, SessionSnapshot(tainted=True), policy).code == "vacuous_write"
+
+
+def test_a_write_named_like_a_secret_sets_a_credential_whatever_its_arguments_are_named():
+    listed = [
+        tool("change_password", {"new_value": {}}),
+        tool("add_ssh_key", {"key": {}, "repo_id": {}}),
+        tool("disable_two_factor_auth"),
+        tool("verify_otp", {"code": {}}),
+    ]
+    text = recipe(source(listed))
+    assert '    limits: {per_session: 1}  # credential cue "auth" in the tool name\n' in text
+    policy = load(text)
+    assert [name for name, rule in policy.tools.items() if rule.self_scoped] == ["verify_otp"]
+    assert {rule.limits.per_session for rule in policy.tools.values()} == {1}
+
+    task = "Add the deploy key to repo repo_5521."
+    state = SessionSnapshot(
+        tainted=True, task=TaskView((TaskSegment(1, "test", TaskIndex.build(task), task),))
+    )
+    for call, (code, arg) in (
+        (
+            ToolCall("change_password", {"new_value": "hunter2"}),
+            ("unanchored_argument", "new_value"),
+        ),
+        # the repo anchors; a key the task never gave doesn't
+        (
+            ToolCall("add_ssh_key", {"key": "ssh-ed25519 AAAAC3Nz", "repo_id": "repo_5521"}),
+            ("unanchored_argument", "key"),
+        ),
+        (ToolCall("disable_two_factor_auth"), ("vacuous_write", None)),
+    ):
+        verdict = evaluate(call, state, policy)
+        failed = verdict.anchors.failed
+        assert (verdict.decision, verdict.code, failed and failed.arg) == ("gate", code, arg)
 
 
 def test_names_the_upstream_chose_are_quoted_and_never_commented():
@@ -518,6 +560,35 @@ def test_every_listing_drafts_a_policy_that_loads(tools):
         assert set(policy.tools) == {t["name"] for t in tools}
         guarded = {t["name"] for t in tools if infer(t).kind != "read"}
         assert set(policy.flows[0].tools if policy.flows else ()) == guarded
+
+
+@given(listings)
+@settings(max_examples=150, suppress_health_check=[HealthCheck.too_slow])
+def test_no_drafted_write_that_sets_a_credential_is_self_scoped(tools):
+    policy = load(recipe(source(tools)))
+    for listed in tools:
+        rule = policy.tools[listed["name"]]
+        named = words(listed["name"])
+        verb = next((w for w in named if w in VERBS), None)
+        if verb not in LOGIN and not CREDENTIAL.isdisjoint(named):
+            assert not rule.self_scoped
+        if any(spec.role == "credential" for spec in (rule.args or {}).values()):
+            assert not rule.self_scoped
+
+
+@given(
+    st.lists(st.sampled_from(WORDS), max_size=2),
+    st.sampled_from(sorted(EXEC_ARGS)),
+    st.lists(st.sampled_from(WORDS), max_size=2),
+    st.booleans(),
+)
+def test_an_exec_word_anywhere_in_an_argument_name_leaves_a_write_without_a_contract(
+    before, word, after, camel
+):
+    parts = [*before, word, *after]
+    name = parts[0] + "".join(p.title() for p in parts[1:]) if camel else "_".join(parts)
+    reading = infer(tool("apply", {name: {}, "note": {}}))
+    assert reading.args is None and reading.no_contract.startswith("exec: ")
 
 
 @given(listings, st.randoms(use_true_random=False))

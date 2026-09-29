@@ -42,24 +42,30 @@ Roles, per write argument, from its words; the first rule that matches:
                                       an Invalid target blocks
   8. name(s) with a word in OBJECT and none in PERSON, or one word in
      OBJECT                           selector, type name
-  9. anything else                    content
+  9. anything else                    content; as rule 1 when rule 1
+                                      matches the tool's name
 
 A property with format email or uri, or items with one, is read as that
 type (url for uri), and as a target when the rules make it content. On a
 fetch, arguments with a URL word or format uri are targets of type url,
 and every other argument is content.
 
+Rule 1 reads the tool's own name too, since a write named like a
+secret (change_password, add_ssh_key) may take one under any argument
+name. Such a write sets a credential unless its verb is in LOGIN, and
+so does one with a credential argument.
+
 The policy, per arm:
 
   every tool   untrusted; unknown tools block
   read         allow, nothing else
   fetch        allow, with an args contract
-  write        allow, per_session: 5, or 1 with a rule-1 argument; an
-               args contract unless it is exec or indirect;
-               destructive: true when destructive; self_scoped: true when
-               it has a contract, is not destructive and has no
-               credential argument, which an empty value would otherwise
-               set unchecked (primary and taint)
+  write        allow, per_session: 5, or 1 when rule 1 matches its name
+               or an argument's; an args contract unless it is exec or
+               indirect; destructive: true when destructive; self_scoped:
+               true when it has a contract, is not destructive and sets
+               no credential, since a call naming no credential would
+               otherwise set one unchecked (primary and taint)
   flow         one, over every write and fetch: require_approval once
                the session is tainted, unless: anchored (not in taint)
 
@@ -69,7 +75,7 @@ additionalProperties other than false), or names one a contract can't
 hold.
 
 So an exec or indirect write is never discharged, nor is a call naming
-no target, selector or credential to a write that takes a credential,
+no target, selector or credential to a write that sets a credential,
 and in the strict arm to any write. A comment names the cue behind each
 tool's kind, each argument's role, a missing contract, destructive:
 true and per_session: 1. Comments quote only the tables' words, never a
@@ -174,6 +180,7 @@ CREDENTIAL = frozenset(
         "totp",
         "pin",
         "mfa",
+        "auth",
         "credential",
         "credentials",
     }
@@ -356,7 +363,7 @@ class Argument:
     vtype: VType = "auto"
     match: Literal["exact", "under"] = "exact"
     cue: str = "no cue"
-    # rule 1 matched, whatever role it gave
+    # rule 1 matched it or the tool's name, whatever role it gave
     credential: bool = False
 
 
@@ -364,7 +371,8 @@ class Argument:
 class Reading:
     """One tool as the recipe reads it. args is None when a write or a
     fetch gets no contract, and no_contract says why; destructive is the
-    cue that made a write destructive."""
+    cue that made a write destructive, and credential the one that
+    limits it to one call."""
 
     name: str
     kind: Kind
@@ -372,8 +380,9 @@ class Reading:
     args: tuple[Argument, ...] | None = ()
     destructive: str | None = None
     no_contract: str | None = None
-    # an argument matched rule 1
-    credential: bool = False
+    credential: str | None = None
+    # in the primary and taint arms
+    self_scoped: bool = False
 
 
 def words(name: str) -> list[str]:
@@ -436,10 +445,14 @@ def infer(tool: Mapping[str, Any]) -> Reading:
     destructive = f'"{destroys}"' if destroys is not None else None
     if destructive is None and hinted:
         destructive = "destructiveHint"
+    secret = _secret(named)
+    # for rule 9, and for per_session: 1 when no argument names a secret
+    secret_cue = None if secret is None else f'credential cue "{secret}" in the tool name'
     if props is None:
-        return Reading(name, "write", cue, None, destructive, _unnamed(props))
-    args = tuple(_role(n, p, verb, destructive is not None) for n, p in props)
-    credential = any(arg.credential for arg in args)
+        return Reading(name, "write", cue, None, destructive, _unnamed(props), secret_cue)
+    args = tuple(_role(n, p, verb, destructive is not None, secret_cue) for n, p in props)
+    credential = "a credential argument" if any(a.credential for a in args) else secret_cue
+    sets = (secret is not None and verb not in LOGIN) or any(a.role == "credential" for a in args)
     execs = next((w for w in named if w in EXEC), None)
     exec_arg = next((w for n, _ in props for w in words(n) if w in EXEC_ARGS), None)
     sends = next((w for w in named if w in INDIRECT), None)
@@ -452,7 +465,8 @@ def infer(tool: Mapping[str, Any]) -> Reading:
     elif not all(_ARG_NAME.fullmatch(n) for n, _ in props):
         why = _unnamed(props)
     else:
-        return Reading(name, "write", cue, args, destructive, credential=credential)
+        scoped = destructive is None and not sets
+        return Reading(name, "write", cue, args, destructive, None, credential, scoped)
     return Reading(name, "write", cue, None, destructive, why, credential)
 
 
@@ -494,20 +508,15 @@ def _tool(tool: Reading, arm: Arm) -> Iterator[str]:
         return
     if tool.destructive is not None:
         yield f"    destructive: true  # {tool.destructive}"
-    elif (
-        tool.kind == "write"
-        and tool.args is not None
-        and not any(arg.role == "credential" for arg in tool.args)
-        and arm != "strict"
-    ):
+    elif tool.self_scoped and arm != "strict":
         yield "    self_scoped: true"
     if tool.args is not None:
         yield "    args: {}" if not tool.args else "    args:"
         for arg in tool.args:
             yield f"      {_scalar(arg.name)}: {_spec(arg)}  # {arg.cue}"
     if tool.kind == "write":
-        if tool.credential:
-            yield "    limits: {per_session: 1}  # a credential argument"
+        if tool.credential is not None:
+            yield f"    limits: {{per_session: 1}}  # {tool.credential}"
         else:
             yield "    limits: {per_session: 5}"
 
@@ -573,8 +582,10 @@ def _url_cue(name: str, prop: Mapping[str, Any]) -> str:
     return f'URL cue "{cue}"' if cue is not None else "format uri"
 
 
-def _role(name: str, prop: Mapping[str, Any], verb: str | None, destructive: bool) -> Argument:
-    arg = _by_name(name, verb, destructive)
+def _role(
+    name: str, prop: Mapping[str, Any], verb: str | None, destructive: bool, secret_cue: str | None
+) -> Argument:
+    arg = _by_name(name, verb, destructive, secret_cue)
     pinned = _format(prop)
     if pinned is None or arg.role in ("selector", "credential"):
         return arg
@@ -584,17 +595,13 @@ def _role(name: str, prop: Mapping[str, Any], verb: str | None, destructive: boo
     return Argument(name, arg.role, pinned, cue=f"{arg.cue}, format {shown}")
 
 
-def _by_name(name: str, verb: str | None, destructive: bool) -> Argument:
+def _by_name(name: str, verb: str | None, destructive: bool, secret_cue: str | None) -> Argument:
+    """An argument's role by the first rule that matches; secret_cue is
+    rule 1's cue in the tool's name, for rule 9."""
     w = words(name)
     pairs = list(pairwise(w))
-    secret = next((x for x in w if x in CREDENTIAL), None)
-    if secret is None:
-        secret = next((f"{a} key" for a, b in pairs if a in KEY_KINDS and b == "key"), None)
-    if secret is not None:
-        if verb in LOGIN:
-            cue = f'credential cue "{secret}", on a "{verb}" tool'
-            return Argument(name, "content", cue=cue, credential=True)
-        return Argument(name, "credential", cue=f'credential cue "{secret}"', credential=True)
+    if (own := _secret(w)) is not None:
+        return _credential(name, verb, f'credential cue "{own}"')
     if amount := next((x for x in w if x in AMOUNT), None):
         return Argument(name, "content", cue=f'amount cue "{amount}"')
     if w and w[-1] in ID:
@@ -618,4 +625,20 @@ def _by_name(name: str, verb: str | None, destructive: bool) -> Argument:
             return Argument(name, "selector", "name", cue=f'name of object noun "{thing}"')
         if len(w) == 1:
             return Argument(name, "selector", "name", cue=f'object noun "{thing}"')
+    if secret_cue is not None:
+        return _credential(name, verb, secret_cue)
     return Argument(name, "content")
+
+
+def _secret(w: Sequence[str]) -> str | None:
+    """Rule 1's cue among a name's words."""
+    found = next((x for x in w if x in CREDENTIAL), None)
+    if found is None:
+        found = next((f"{a} key" for a, b in pairwise(w) if a in KEY_KINDS and b == "key"), None)
+    return found
+
+
+def _credential(name: str, verb: str | None, cue: str) -> Argument:
+    if verb in LOGIN:
+        return Argument(name, "content", cue=f'{cue}, on a "{verb}" tool', credential=True)
+    return Argument(name, "credential", cue=cue, credential=True)

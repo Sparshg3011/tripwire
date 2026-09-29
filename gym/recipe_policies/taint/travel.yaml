@@ -1,6 +1,6 @@
 # tripwire recipe 1, taint arm
 # tools sha256:   0160a1e111091da125de2e0cc52830c1d650e5ebf13e90715b60a9c3d2c828d8
-# lexicon sha256: 9c7893303e06c9775484d6815337f7c0c37f8df9e5b91e2a647e340a015db543
+# lexicon sha256: 07de0f8ba932cb66cdb2c21da8d79bedae28b28cb115e839cac67e51ebde7311
 # Drafted from tool names, input schemas and annotations, never descriptions.
 # Review every inferred role before enforcing it.
 version: 1

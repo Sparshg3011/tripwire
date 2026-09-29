@@ -354,22 +354,26 @@ Every tool is `untrusted` and unknown tools block. A tool whose first
 verb word is a read (`get`, `list`, `search`, …) is allowed as it is,
 unless it takes a URL: then it is a fetch, and its URL must anchor.
 Every other tool is a write, and so is one with a destructive word
-after its read verb (`read_and_delete_email`). A write is limited to 5 calls a session,
-or 1 with an argument named like a password, token or secret or a key
-of a named kind (`api_key`, `ssh_key`; a bare `key` is content); gets
-an argument contract whose roles come from its argument names (`to`,
-`email` and `url` are targets; ids, paths, named objects like
+after its read verb (`read_and_delete_email`). A write is limited to 5
+calls a session, or 1 when it or an argument is named like a password,
+token, secret or auth, or a key of a named kind (`api_key`, `ssh_key`);
+gets an argument contract whose roles come from its argument names
+(`to`, `email` and `url` are targets; ids, paths, named objects like
 `repo_name` and postal addresses are selectors, the last so that a long
-address is never refused as unreadable; `password` is a credential;
-the rest content); and is `self_scoped` unless it is destructive or
-sets a credential. One flow gates every write and fetch once the
-session is tainted, `unless: anchored`. A write that runs code (`run`,
-`exec`, or an argument named with `command`, `script`, `shell`, `sql`
-or `query`, like `shell_command`) or sends somewhere it doesn't name
-(`push`, or `reply` with no target) gets no contract, so that flow
-gates it every time; so does one whose schema admits arguments it
-doesn't name. `--strict` makes no write `self_scoped`, so a write
-naming nothing anchorable is gated too.
+address is never refused as unreadable; `password` is a credential,
+and so is any argument that would be content on a write named like
+one, such as `new_value` of `change_password` or `key` of
+`add_ssh_key`; the rest content); and is `self_scoped` unless it is
+destructive or sets a credential: it has a credential argument, or is
+named like one (`disable_two_factor_auth`) and isn't a `login` or
+`verify` tool, which only checks one. One flow gates every write and
+fetch once the session is tainted, `unless: anchored`. A write that
+runs code (`run`, `exec`, or an argument named with `command`,
+`script`, `shell`, `sql` or `query`, like `shell_command`) or sends
+somewhere it doesn't name (`push`, or `reply` with no target) gets no
+contract, so that flow gates it every time; so does one whose schema
+admits arguments it doesn't name. `--strict` makes no write
+`self_scoped`, so a write naming nothing anchorable is gated too.
 
 A comment names the word behind each tool's kind and each argument's
 role, and the header records the recipe version and the sha256 of the

@@ -118,12 +118,13 @@ anchors, never adds them.
 nothing a server writes about its tools can loosen the draft. But a
 name can mislead: a tool named like a read (`check_and_fix`, or
 `write_query`, whose only word in a table is `query`) is left ungated,
-one that runs code or sends somewhere under a name no word table knows
-is an ordinary write, `self_scoped` in the primary arm, and an argument
-named like content is never anchored: server-filesystem's
-`move_file(source, destination)` moves any file after untrusted content
-but a control file or tripwire's own. The draft says in a comment what
-each inference rests on; read them before enforcing it.
+one that runs code, sends somewhere or sets a credential under a name
+no word table knows (`disable_2fa`) is an ordinary write, `self_scoped`
+in the primary arm, and an argument named like content is never
+anchored: server-filesystem's `move_file(source, destination)` moves
+any file after untrusted content but a control file or tripwire's own.
+The draft says in a comment what each inference rests on; read them
+before enforcing it.
 
 **Canonicalization stops where stated.** NFKC, invisible-character
 stripping, trailing-dot hosts, numeric-string parsing — and nothing
