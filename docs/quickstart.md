@@ -102,14 +102,19 @@ tripwire report ~/.tripwire/audit.jsonl
 
 ```
 23 call(s) across 3 session(s)
-  allowed          23
-  blocked          0
-  sent to a human  0
+  allowed outright   19
+  blocked by policy  0
+  required approval  0  (approved 0, refused 0)
   WOULD have been stopped (shadow mode)  4
-  sessions that saw untrusted content  2
+  sessions that saw untrusted content  3
 
 rules that fired:
      4  tools.write_file.action
+
+busiest tools:
+    11  list_directory
+     8  read_file
+     4  write_file
 ```
 
 Four calls would have been stopped. Look at one in detail:
@@ -119,20 +124,22 @@ tripwire trace ~/.tripwire/audit.jsonl
 ```
 
 ```
-session a1b2c3d4 — 4 call(s)
+session a1b2c3d4 — 2 call(s)
 
   turn 0   ok     read_file
-      args   {"path": "/Users/me/work/notes.md"}
+      args   path="/Users/me/work/notes.md"
       rule   tools.read_file.action
+      reason read_file is allowed and no rule objected.
       →      this result tainted the session
 
-  turn 1   GATE   write_file
-      args   {"path": "/Users/me/work/out.txt", "contents": "..."}
+  turn 1   shadow write_file
+      args   content="..."
+      args   path="/Users/me/work/out.txt"
       rule   tools.write_file.action
+      reason write_file requires approval.
       NOTE   shadow mode: this ran anyway
 
-  untrusted content entered at turn 0 via read_file; every later verdict
-  was decided with that in mind.
+  untrusted content entered at turn 0 via read_file; every later verdict was decided with that in mind.
 ```
 
 ## 5. Turn it on

