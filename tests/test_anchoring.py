@@ -468,6 +468,13 @@ def test_a_link_to_an_unvouched_host_escalates():
         "see https:///evil.example/p",
         "see ftp://evil.example/p",
         "see smb://evil.example/share",
+        "see *www.a1b2c3.evil.example* now",
+        "see _evil-mail.com_ now",
+        "~~www.evil.example~~",
+        "| www.evil.example | 3 |",
+        "|evil-mail.com|",
+        "(**evil-mail.com**)",
+        "see *https://evil.example*",
     ],
 )
 def test_links_are_found_however_they_are_written(body):
@@ -486,12 +493,26 @@ def test_links_are_found_however_they_are_written(body):
         "e.g. version 1.2 of the doc",
         "see //corp.example/wiki/minutes",
         "the http: and https: schemes, and my profile:alice",
+        "see *www.corp.example* and _notes.zip_",
+        "**https://corp.example**",
         "// TODO: read C:\\Users\\me\\notes.txt and a//b",
     ],
 )
 def test_content_without_unvouched_links_passes(body):
     task = TASK + " and unzip notes.zip"
     assert send(snap(task), to="alice@corp.example", body=body).decision == "allow"
+
+
+@given(
+    st.sampled_from(["www.a1b2c3.evil.example", "evil-mail.com", "www.corp.example", "notes.zip"]),
+    st.text(alphabet="*_~|([{", max_size=3),
+    st.text(alphabet="*_~|.,;:!)]}", max_size=3),
+)
+def test_markdown_around_a_host_leaves_its_verdict_alone(host, opening, closing):
+    task = snap(TASK + " and unzip notes.zip")
+    plain = send(task, to="alice@corp.example", body=f"see {host} now")
+    marked = send(task, to="alice@corp.example", body=f"see {opening}{host}{closing} now")
+    assert marked.code == plain.code
 
 
 @pytest.mark.parametrize("unit", ["a", "a.", "a+", "ab:/"])

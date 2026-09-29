@@ -38,8 +38,9 @@ checked too:
   links     every link in a leaf needs an anchored host: task (a host
             the task names only as a file name too), known or trusted.
             A link is a URL of any scheme, one with no scheme ("//host"),
-            or a bare www. host or host with a pinned TLD; one that
-            doesn't read as an http(s) URL fails.
+            or a bare www. host or host with a pinned TLD, Markdown's
+            *, _, ~ and | around it left out; one that doesn't read as
+            an http(s) URL fails.
   verbatim  a URL with a path, query or fragment past "/", a target's or
             a link's, must occur as written in the task or in what a
             tool, the listing or an upstream error wrote before the agent
@@ -132,6 +133,9 @@ _LINK = re.compile(
 _AUTHORITY_END = re.compile(r"[/?#]")
 # what a sentence may end a link with, which no one need have written
 _PROSE_END = re.compile(r"[)\]}]?[.,;:!?]?\Z")
+# Markdown's emphasis and table delimiters, which a renderer reads
+# around a link, not in it: "*www.x.com*" links to www.x.com
+_MARKS = "*_~|"
 
 
 def check(
@@ -406,7 +410,7 @@ class _Check:
     def _link(self, arg: str, link: str) -> LeafReport:
         # a bare host reads as http and "//host" as https; any other start
         # but http(s) and two slashes doesn't read as a URL, and fails
-        read = link.rstrip(TRAILING)
+        read = link.rstrip(TRAILING + _MARKS)
         if _LINK.match(read) is None:
             url = "http://" + read
         elif read[:1] in "/\\":
@@ -559,8 +563,9 @@ def _links(text: str) -> Iterator[str]:
     """Every link a reader may follow in text, as written, sentence
     punctuation after it included: from each place a link may start
     (_LINK) to the next, when something follows its slashes, and each
-    run, or start of a run before such a place, whose host part is a www.
-    host or ends in a pinned TLD."""
+    run, or start of a run before such a place, from past the brackets
+    and _MARKS that open it, whose host part is a www. host or ends in a
+    pinned TLD short of the punctuation and _MARKS that close it."""
     # a browser reads the ideographic full stop in a host as a dot
     dotted = text.replace("\u3002", ".")
     for m in _RUN.finditer(dotted):
@@ -570,8 +575,8 @@ def _links(text: str) -> Iterator[str]:
             if run[head:stop].lstrip("/\\").rstrip(TRAILING):
                 yield written[start:stop]
         bare = run[: spans[0][0]] if spans else run
-        lead = len(bare) - len(bare.lstrip("([{"))
-        host = _AUTHORITY_END.split(bare[lead:].rstrip(TRAILING), maxsplit=1)[0]
+        lead = len(bare) - len(bare.lstrip("([{" + _MARKS))
+        host = _AUTHORITY_END.split(bare[lead:].rstrip(TRAILING + _MARKS), maxsplit=1)[0]
         if "@" in host or "." not in host:
             continue
         label = host.rpartition(".")[2].partition(":")[0].casefold()
