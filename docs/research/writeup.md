@@ -93,13 +93,20 @@ tool server's own record of what it was asked to do — not the audit log,
 not the model's account of itself.
 
 Agent: `nvidia/nemotron-3-ultra-550b-a55b`. 760 runs, no errors. With every
-gate approved, the undefended model stopped 61% of the attacks and finished
-95% of the benign work; shadow (evaluates, blocks nothing) 61% and 97%; loose
-74% and 97%; **standard 87% and 95%**; strict 100% and 16%. The
-[full table](../../EVIDENCE.md#five-policy-tiers-one-model) has both approval
-brackets.
+gate approved:
 
-**Read the undefended number first.** It isn't zero. The model refuses most
+| condition | attacks stopped | benign work completed |
+|---|---|---|
+| undefended | 61% | 95% |
+| shadow (evaluates, blocks nothing) | 61% | 97% |
+| loose | 74% | 97% |
+| **standard** | **87%** | **95%** |
+| strict | 100% | 16% |
+
+The [full table](../../EVIDENCE.md#five-policy-tiers-one-model) has both
+approval brackets.
+
+**Read the undefended row first.** It isn't zero. The model refuses most
 of these by itself, and a benchmark that reports "87% of attacks
 stopped" without saying the model already stopped 61% is taking credit
 for the model's work. The number that means something is the marginal
@@ -214,12 +221,16 @@ of your protection you've delegated to someone's attention.
 ## Does it depend on the model?
 
 It shouldn't — the rule engine never sees the model. Four of them,
-three labs: alone, nemotron-3-ultra (550B) stopped 61% of the attacks,
-nemotron-3.5-lightning (30B) 53%, muse-glimmer (30B) 82% and glm-5.2 †
-83%; with standard in front, 87%, 79%, 97% and 97%
-([table](../../EVIDENCE.md#four-models)).
+three labs, attacks stopped:
 
-The model-alone number is the story. It swings from 53% to 83% — how much each
+| model | model alone | with standard | firewall added |
+|---|---|---|---|
+| nemotron-3-ultra (550B) | 61% | 87% | +26 |
+| nemotron-3.5-lightning (30B) | 53% | 79% | +26 |
+| muse-glimmer (30B) | 82% | 97% | +16 |
+| glm-5.2 † | 83% | 97% | +14 |
+
+The first column is the story. It swings from 53% to 83% — how much each
 model refuses unaided is the biggest single term here, bigger than
 anything tripwire does, and a benchmark that omits it is billing the
 model's work to the tool.
