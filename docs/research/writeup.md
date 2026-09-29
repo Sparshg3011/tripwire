@@ -264,7 +264,7 @@ attack came in.
 
 ```bash
 pip install "tripwire-agent[gym]"
-./gym/run_benchmark.sh                    # scripted agent, free, ~4 min
+./gym/run_benchmark.sh                    # scripted agent, free, ~10 min
 ./gym/run_benchmark.sh nvidia 1 nvidia/nemotron-3-ultra-550b-a55b 6
 ```
 

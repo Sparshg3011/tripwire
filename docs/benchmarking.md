@@ -99,7 +99,7 @@ its own.
 ### Running it
 
 ```bash
-./gym/run_benchmark.sh                     # scripted agent, no key, about 3 minutes
+./gym/run_benchmark.sh                     # scripted agent, no key, about 10 minutes
 ./gym/run_benchmark.sh claude 5            # a real model, 5 runs per cell
 ./gym/run_benchmark.sh nvidia 1 nvidia/nemotron-3-ultra-550b-a55b 6
 ```
