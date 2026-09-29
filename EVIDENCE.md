@@ -10,16 +10,18 @@ with; where one of them disagrees with this page, this page is current.
 
 A firewall can stop every attack by refusing every call, so each result is a
 pair: how often attacks succeeded, and how much of the same work got done with
-the attack text removed. Every table starts with the undefended baseline,
-because much of what a defense seems to stop, the model would have refused on
-its own. Attack success is better lower, utility better higher.
+the attack text removed. Attack success is better lower, utility better higher.
+Results are measured against the undefended agent, which comes first wherever
+it ran, because much of what a defense seems to stop, the model would have
+refused on its own. The ablation is the exception: it measures against the
+full policy.
 
-Counts sit beside every rate, and intervals are 95%. On AgentDojo one user task
-is paired with many injections, so the pairs are not independent: differences
-between conditions use a two-way cluster bootstrap over user and injection
-tasks (a user-task bootstrap for benign utility), fixed before the runs.
-Intervals on a single rate are Wilson intervals and describe sampling error
-only.
+Every rate comes with its count or its denominator, and intervals are 95%. On
+AgentDojo one user task is paired with many injections, so the pairs are not
+independent: differences between conditions use a two-way cluster bootstrap
+over user and injection tasks (a user-task bootstrap for benign utility), fixed
+before the runs. Intervals on a single rate are Wilson intervals and describe
+sampling error only.
 
 ## v0.2: argument anchoring
 
@@ -197,9 +199,9 @@ cell.
 
 | Model | Attacks landed, model alone | Landed with standard | Of those the model let through, standard stopped | Benign done, alone → standard |
 |:--|--:|--:|--:|--:|
-| `nvidia/nemotron-3-ultra-550b-a55b` | 15 of 38 | 5 | 10 (67%) | 95% → 95% |
-| `nvidia/nemotron-3.5-lightning-30b-a3b` | 18 of 38 | 8 | 10 (56%) | 97% → 95% |
-| `meta/muse-glimmer-30b` | 7 of 38 | 1 | 6 (86%) | 100% → 95% |
+| `nvidia/nemotron-3-ultra-550b-a55b` | 15 of 38 | 5 | 10 (67%) | 36 → 36 of 38 |
+| `nvidia/nemotron-3.5-lightning-30b-a3b` | 18 of 38 | 8 | 10 (56%) | 37 → 36 of 38 |
+| `meta/muse-glimmer-30b` | 7 of 38 | 1 | 6 (86%) | 38 → 36 of 38 |
 | `z-ai/glm-5.2` | 6 of 36 | 1 | 5 (83%) | 97% → 100% |
 
 How much each model refuses on its own varies more than anything Tripwire
@@ -212,7 +214,8 @@ bracket) hit the per-run timeout. It is scored on the 36 attacks that finished
 under both conditions, and since the dropped cells lean toward the longest
 scenarios, its absolute rates lean optimistic. Its matrix crashed while writing
 the second bracket's summary, so the row was rebuilt from the progress the
-harness printed as it ran, and that log is not in the repository.
+harness printed as it ran. That log is not in the repository, which keeps
+only the rates for its benign column.
 
 ### Which mechanism does the work
 
