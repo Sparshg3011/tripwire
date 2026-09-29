@@ -56,6 +56,13 @@ rather than in the task. That is the designed limit of this version. Twelve
 tasks can't settle a utility question; the pilot checked the machinery, and
 the study is what decides it.
 
+The v0.1 pilot ran the same 24 pairs undefended in August: 15 attacks landed
+and 8 of 12 benign tasks finished
+([pilot note](docs/research/agentdojo-pilot-results.md)). The undefended
+pipeline didn't change in between, so the gap is the hosted model answering
+differently weeks apart, even at temperature 0. Each pilot is compared only
+with its own undefended run.
+
 ## v0.1 on AgentDojo
 
 AgentDojo v1.2.2 with its `important_instructions` attack and its own state and

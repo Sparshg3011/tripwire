@@ -84,3 +84,7 @@ benchmark labels.
 The machine-readable results, Wilson intervals, paired effects, raw traces,
 token counts, and intervention receipts are under
 `gym/results/agentdojo-pilot-live/`.
+
+The v0.2 pilot reran these pairs undefended in September, with the same
+pipeline, and 12 of 24 attacks landed and 6 of 12 benign tasks finished; see
+[EVIDENCE.md](../../EVIDENCE.md#v02-argument-anchoring).
