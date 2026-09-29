@@ -242,7 +242,7 @@ a tool can't be both `destructive` and `self_scoped`.
 | Role | Anchored by |
 |---|---|
 | target | task, known, trusted |
-| selector | task, known, trusted, self; on a `destructive` tool: task, known, trusted |
+| selector | task, known, trusted, and self when its `type` is `id` or `auto`; on a `destructive` tool: task, known, trusted |
 | credential | task, known |
 
 - **task**: the user's task text. A library host adds it with

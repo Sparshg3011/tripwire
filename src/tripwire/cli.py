@@ -112,7 +112,7 @@ def explain(policy: Policy) -> list[str]:
             line = f"  {name}: {spec.role}"
             if spec.type != "auto":
                 line += f" ({spec.type})"
-            sources = ", ".join(accepted(spec.role, rule.destructive))
+            sources = ", ".join(accepted(spec.role, rule.destructive, spec.type))
             if spec.role != "content":
                 line += f", anchored by {sources}"
             elif outward:

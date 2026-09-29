@@ -361,6 +361,18 @@ def test_a_self_id_anchors_a_selector_but_not_a_destructive_one():
     assert delete.anchors.failed.accepted == ("task", "known", "trusted")
 
 
+@pytest.mark.parametrize("vtype", ["path", "name", "email"])
+def test_a_self_id_is_no_source_for_a_selector_of_another_type(vtype):
+    # a minted key is always an id, so a denial names only what could anchor
+    selector = {"role": "selector", "type": vtype}
+    policy = load({"open": {"action": "allow", "args": {"doc": selector}}})
+    v = evaluate(ToolCall("open", {"doc": "evt_48213"}), snap("", created()), policy)
+    assert (v.code, v.anchors.failed.accepted) == (
+        "unanchored_argument",
+        ("task", "known", "trusted"),
+    )
+
+
 def test_a_destructive_selector_still_anchors_to_a_trusted_field():
     policy = load(EVENTS)
     state = snap("", vouched({"event_id": "evt_48213"}))

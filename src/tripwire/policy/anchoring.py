@@ -6,8 +6,8 @@ whose every authority leaf is anchored: its normalized key comes from a
 source its role accepts.
 
   target      task, known, trusted
-  selector    task, known, trusted, self; on a destructive tool task,
-              known, trusted
+  selector    task, known, trusted, and self when typed id or auto; on
+              a destructive tool task, known, trusted
   credential  task, known
 
   task     a task segment's index anchors the key (values.TaskIndex; a
@@ -100,6 +100,7 @@ from tripwire.policy.values import (
     Key,
     Outcome,
     Unanchorable,
+    VType,
     detect_type,
     forbidden_path,
     is_under,
@@ -154,10 +155,11 @@ def check(
     return _Check(call, rule, snapshot, policy).run()
 
 
-def accepted(role: Role, destructive: bool = False) -> tuple[Via, ...]:
-    """The sources that anchor a value of this role on a tool, destructive
-    or not; for content, those that anchor a link in it."""
-    if role == "content" or (destructive and role == "selector"):
+def accepted(role: Role, destructive: bool = False, vtype: VType = "auto") -> tuple[Via, ...]:
+    """The sources that anchor a value of this role and type on a tool,
+    destructive or not; for content, those that anchor a link in it. A
+    self key is always an id, so it anchors no selector of another type."""
+    if role == "content" or (role == "selector" and (destructive or vtype not in ("auto", "id"))):
         return _VOUCHED
     return _ACCEPTED[role]
 
@@ -246,7 +248,7 @@ class _Check:
         for name, spec in self.contract.items():
             if spec.role == "content" or name not in self.args:
                 continue
-            sources = accepted(spec.role, self.rule.destructive)
+            sources = accepted(spec.role, self.rule.destructive, spec.type)
             for arg, value, outcome in _read(name, self.args[name], spec, self.protected):
                 authority += 1
                 leaf = self._leaf(arg, name, spec, spec.role, sources, value, outcome)

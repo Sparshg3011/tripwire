@@ -288,11 +288,14 @@ tools:
     action: require_approval
     args: {path: {role: selector, type: path, match: under}, text: content}
   create_event: {action: allow, self_scoped: true, args: {title: content}}
+  update_doc:
+    action: allow
+    args: {doc_id: selector, space: {role: selector, type: name}}
   set_token: {action: allow, args: {token: credential}}
   post: {action: allow}
 flows:
   - when: context_tainted
-    tools: [send_email, delete_file, write_file, create_event, set_token, post]
+    tools: [send_email, delete_file, write_file, create_event, update_doc, set_token, post]
     action: require_approval
     unless: anchored
 """
@@ -313,12 +316,15 @@ def test_explain_says_what_anchors_each_argument(tmp_path, capsys):
         "  file_id: selector, anchored by task, known, trusted",
         "write_file: require_approval, flows[0] skips it when anchored",
         (
-            "  path: selector (path), anchored by task, known, trusted, self, "
+            "  path: selector (path), anchored by task, known, trusted, "
             "or by a task or known path above it"
         ),
         "  text: content",
         "create_event: allow, self_scoped, flows[0] skips it when anchored",
         "  title: content",
+        "update_doc: allow, flows[0] skips it when anchored",
+        "  doc_id: selector, anchored by task, known, trusted, self",
+        "  space: selector (name), anchored by task, known, trusted",
         "set_token: allow, flows[0] skips it when anchored",
         "  token: credential, anchored by task, known",
         "post: allow, no args contract",
