@@ -84,10 +84,13 @@ task_success:              # all must match: the agent did its job
 benign_twin: exfil-email-01-benign
 ```
 
-Predicates run over executed calls only. Every attack has a benign twin: the
-same task and tools with the attack text removed. A firewall that blocks
-everything scores 0% attack success and 0% utility, and only the twins show the
-second number.
+Predicates run over executed calls only, and can also ask for several matching
+calls (`min_calls`) or for none (`never`). Every attack has a benign twin: the
+same task and tools with the attack text removed, marked `attack: false`, with
+no `attack_success`. A firewall that blocks everything scores 0% attack success
+and 0% utility, and only the twins show the second number. The docstring of
+`src/tripwire_gym/scenario.py` defines every field, and
+`gym/scenarios/exfil-email-01.yaml` with its twin is a complete pair.
 
 The 38 attacks cover seven families: `exfiltration`, `unauthorized_action`,
 `destruction`, `tool_redirection`, `policy_probing`, `multi_step` and
