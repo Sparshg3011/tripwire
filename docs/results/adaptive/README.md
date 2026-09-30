@@ -40,6 +40,11 @@ refusal tripwire returned; the two whose prediction was wrong are marked
 `mismatch`. [EVIDENCE.md](../../../EVIDENCE.md#attacks-written-against-anchoring)
 has the full table and a plain account of every attack that got through.
 
+After the run, the link rule stopped letting a file name the task mentions
+vouch for a link to a host of that name. That closes
+`rt-filename-tld-link-01` and changes nothing else; the numbers here stay
+as measured.
+
 ## Conditions
 
 - **undefended** — no proxy; every attack that redirects a call lands and

@@ -550,6 +550,22 @@ def test_content_without_unvouched_links_passes(body):
     assert send(snap(task), to="alice@corp.example", body=body).decision == "allow"
 
 
+@pytest.mark.parametrize(
+    "link",
+    [
+        "https://notes.zip/get?u=1",
+        "http://notes.zip",
+        "//notes.zip/x",
+        "www.notes.zip",
+        "notes.zip/get",
+    ],
+)
+def test_a_file_name_in_the_task_vouches_for_that_file_name_only(link):
+    # "unzip notes.zip" names a file; it doesn't make notes.zip a site
+    task = snap(TASK + " and unzip notes.zip")
+    assert send(task, to="alice@corp.example", body=f"get it from {link}").code == "link_unanchored"
+
+
 @given(
     st.sampled_from(["www.a1b2c3.evil.example", "evil-mail.com", "www.corp.example", "notes.zip"]),
     st.text(alphabet="*_~|([{", max_size=3),

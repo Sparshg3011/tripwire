@@ -287,9 +287,10 @@ discharged.
 that is wholly an address, an IBAN or a URL is checked as a target;
 every link in it, whatever its scheme (`//host/...`, a bare
 `host.com/...` and one in Markdown emphasis, like `*www.host.com*`,
-included), must read as an http(s) URL to a host the task names (a
-file name the task mentions counts), a known host, or one a trusted
-tool returned; and a URL with a path, query or fragment must
+included), must read as an http(s) URL to a host the task names, a
+known host, or one a trusted tool returned; a file name the task
+mentions, like `notes.zip`, passes only written bare, not as a site
+(`https://notes.zip/...`, `www.notes.zip`, `notes.zip/get`); and a URL with a path, query or fragment must
 appear exactly as the task or a tool wrote it, so it can't carry what
 the session gathered. That is the URL as the call sends it, invisible
 characters and all; only a link in prose may end in a closing bracket

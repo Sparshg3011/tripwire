@@ -86,11 +86,9 @@ typed into the task, negated or not; content with no link or target in
 it sent to an anchored recipient, whether the attacker wrote it or the
 agent gathered it; a self-scoped write carrying injected content; a
 URL copied whole from injected text to a host that anchors, with the
-attacker's path and query, which forges a request to that host; a link
-to a host the task mentions only as a file name, where the extension is
-also a top-level domain; a write under a known path to a file that runs
-code but isn't on the control list, such as a build, test or CI
-configuration; a URL a tool assembles from separate values the agent
+attacker's path and query, which forges a request to that host; a write
+under a known path to a file that runs code but isn't on the control
+list, such as a build, test or CI configuration; a URL a tool assembles from separate values the agent
 sent it, which the tool then wrote first; a trusted tool whose store
 other people can write to; and anything the proxy never sees, such as
 another server's results or text the agent only restates in chat, since

@@ -56,6 +56,10 @@ refused to start.
 
 ### Fixed
 
+- A file name the task mentions no longer vouches for a link to a host of
+  that name: `unzip backup.zip` in the task let `https://backup.zip/...`
+  through the content link rule. The bare file name still passes.
+
 - Require mcp 1.19 or newer. Earlier versions can't take the result the proxy
   hands back: every call it allowed came back as a validation error, and every
   refusal lost its structured denial. The old floor, 1.10, let pip keep them.
