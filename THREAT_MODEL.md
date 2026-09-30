@@ -80,16 +80,26 @@ under `known`, first seen in a trusted tool's field, or minted by the
 session's own create call. It never lowers a constraint, limit,
 sequence, other flow or `require_approval`. What it doesn't stop:
 swapping one anchored value for another (a task-named recipient given
-the wrong document, a payee named in the task paid twice under the
-limit); an attacker's address or host the user typed into the task,
-negated or not; content with no link or target in it sent to an
-anchored recipient; a self-scoped write carrying injected content; a
-URL a tool assembles from separate values the agent sent it, which the
-tool then wrote first; a trusted tool whose store other people can
-write to; and anything the proxy never sees, such as another server's
-results or text the agent only restates in chat, since arguments sent
-before untrusted content are recorded as nothing. Task text and
-provenance live in memory like taint,
+the wrong document, a payee named in the task paid twice or paid the
+wrong amount under the limit); an attacker's address or host the user
+typed into the task, negated or not; content with no link or target in
+it sent to an anchored recipient, whether the attacker wrote it or the
+agent gathered it; a self-scoped write carrying injected content; a
+URL copied whole from injected text to a host that anchors, with the
+attacker's path and query, which forges a request to that host; a link
+to a host the task mentions only as a file name, where the extension is
+also a top-level domain; a write under a known path to a file that runs
+code but isn't on the control list, such as a build, test or CI
+configuration; a URL a tool assembles from separate values the agent
+sent it, which the tool then wrote first; a trusted tool whose store
+other people can write to; and anything the proxy never sees, such as
+another server's results or text the agent only restates in chat, since
+arguments sent before untrusted content are recorded as nothing. It
+also costs utility on purpose: a value seen first in untrusted content
+never anchors through a trusted tool or a create call, so an attacker
+who names the right address, or an id a tool will assign in sequence,
+before the session meets it sends the honest call to the gate. Task
+text and provenance live in memory like taint,
 with no ledger across sessions, so a value laundered through a store in
 one session starts fresh in the next. A denial tells the agent which of
 its own values failed and where the session first saw it, nothing it

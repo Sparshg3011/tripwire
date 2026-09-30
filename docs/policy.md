@@ -264,9 +264,13 @@ a tool can't be both `destructive` and `self_scoped`.
   listing, or in anything the agent sent after untrusted content. So a
   value the agent wrote and then read back from a trusted tool never
   anchors, and a trusted tool repeating a value it was asked about
-  vouches for nothing.
+  vouches for nothing. A field counts only where the agent is shown it:
+  in `structuredContent` with no text block beside it, or in a text
+  block that parses as JSON. Beside a prose text block,
+  `structuredContent` vouches for nothing.
 - **self**: the one fresh id this session's own create-like call
-  (`create`, `new`, `add`, `copy`, `make`, `upload`) returned. The word
+  (`create`, `new`, `add`, `copy`, `make`, `upload`) returned, read the
+  same way as a trusted field, and not seen anywhere before. The word
   must come before any read verb in the tool's name, so `add_contact`
   mints and `get_new_request` doesn't.
 
@@ -291,7 +295,11 @@ the session gathered. That is the URL as the call sends it, invisible
 characters and all; only a link in prose may end in a closing bracket
 and a punctuation mark that nobody wrote. A tool counts only where it
 wrote the URL before the agent did: one repeating what it was sent, in
-its result or its error, vouches for nothing.
+its result or its error, vouches for nothing. Any tool counts, an
+untrusted one included, so the rule keeps what the session gathered
+out of a URL, not what an attacker wrote into one: a URL copied whole
+from injected text to a host that anchors passes, path and query
+included.
 
 A call with no authority value at all escalates on a `destructive` tool
 and on any tool that isn't `self_scoped`. Null and `""` are no value, so
