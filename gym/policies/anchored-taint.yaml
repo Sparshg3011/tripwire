@@ -55,7 +55,7 @@ tools:
     action: allow
     constraints:
       body: { max_length: 10000 }
-    limits: { per_session: 5 }
+    limits: { per_session: 3 }
     args:
       to: target
       cc: { role: target, type: email }
@@ -73,6 +73,8 @@ tools:
 
   write_file:
     action: allow
+    constraints:
+      path: { regex: "^/workspace/.*" }
     args:
       path: { role: selector, type: path, match: under }
       contents: content
@@ -98,7 +100,9 @@ tools:
     action: allow
     args:
       name: content
-      email: content # stored, not a recipient; a contact is not a send
+      # read_directory serves this back as trusted, so it decides who
+      # later mail reaches
+      email: target
     self_scoped: true
 
   create_ticket:

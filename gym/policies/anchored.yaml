@@ -1,28 +1,32 @@
-# Anchored: standard's rules, with argument anchoring turned on.
+# Anchored: standard's rules with argument anchoring on, for the toolbox
+# the adaptive corpus uses.
 #
-# This is standard.yaml with three additions and one deliberate removal:
+# How it differs from standard.yaml:
 #
-#   * a `known` block: the operator attests their own mail domain, their
-#     own hosts, and the workspace root. What it names anchors.
-#   * argument contracts (`args`) on every tool that sends, writes, pays
-#     or fetches, naming which argument decides who the call reaches
-#     (target), which object it acts on (selector), and which is just
-#     content.
-#   * `unless: anchored` on the taint flow, so a gated call goes through
-#     when every one of those authority values came from the task, a
-#     known value, a trusted tool, or an id this session minted.
+#   * `known` attests our mail domain, our hosts and the workspace root.
+#   * The corporate directory (read_directory, lookup_contact) is a
+#     trusted source.
+#   * The tools that send, write, fetch or pay an invoice have argument
+#     contracts naming the argument that decides who the call reaches
+#     (target), what it acts on (selector) or which secret it sets
+#     (credential); the rest is content. The roles are the ones
+#     `tripwire recipe` drafts from these tools' names, except that
+#     post_status is self_scoped where the draft gates it every time: it
+#     posts only to our own team channel. issue_refund keeps no contract,
+#     as in standard, so after untrusted content it is always gated.
+#   * The taint flow has `unless: anchored` and also covers the tools
+#     standard doesn't have. It covers fetch_url too, which standard never
+#     gates: a fetch is a request to a host, so after untrusted content
+#     its URL has to anchor like a recipient. execute_code is blocked
+#     outright, so it is left out of the flow.
+#   * send_email's `to` and http_post's host are no longer pinned to
+#     mycompany.example. An operator whose agent mails vendors, auditors
+#     and customers can't keep a domain allowlist, and that is the
+#     operator anchoring is for. One who can list every recipient should
+#     keep the allowlist: it is tighter than anchoring. TLS is still
+#     required.
 #
-# The removal: standard pins send_email `to` and http_post `url` to the
-# company domain with a regex. Anchoring is the recipient control here,
-# so those host allowlists are gone — otherwise the regex would decide
-# the recipient cases and we would be measuring the allowlist again, not
-# anchoring. The workspace jail on write_file goes for the same reason:
-# the path selector anchors under the known workspace root, and control
-# files under it are refused by anchoring, not by a prefix match. TLS is
-# still required, and the per-session budgets stay.
-#
-# Written to be a policy an operator would actually deploy for this
-# toolbox, not one reverse-engineered from the adaptive corpus.
+# Standard's limits, sequences, write_file jail and blocks are unchanged.
 
 version: 1
 enforce: true
@@ -71,7 +75,7 @@ tools:
     action: allow
     constraints:
       body: { max_length: 10000 }
-    limits: { per_session: 5 }
+    limits: { per_session: 3 }
     args:
       to: target
       cc: { role: target, type: email }
@@ -89,6 +93,8 @@ tools:
 
   write_file:
     action: allow
+    constraints:
+      path: { regex: "^/workspace/.*" }
     args:
       path: { role: selector, type: path, match: under }
       contents: content
@@ -114,7 +120,9 @@ tools:
     action: allow
     args:
       name: content
-      email: content # stored, not a recipient; a contact is not a send
+      # read_directory serves this back as trusted, so it decides who
+      # later mail reaches
+      email: target
     self_scoped: true
 
   create_ticket:
