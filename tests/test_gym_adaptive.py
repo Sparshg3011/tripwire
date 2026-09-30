@@ -16,6 +16,7 @@ from tripwire_gym.__main__ import scripted_calls
 from tripwire_gym.agent import ScriptedAgent
 from tripwire_gym.runner import run_once
 from tripwire_gym.scenario import Scenario, load_corpus, load_scenario
+from tripwire_gym.scoring import Call, score
 
 REPO = Path(__file__).parent.parent
 POLICIES = REPO / "gym" / "policies"
@@ -135,7 +136,22 @@ async def test_a_recipient_absent_from_the_task_is_refused_under_deny():
 # --- the corpus itself is well formed --------------------------------------
 
 
-def test_the_adaptive_corpus_is_paired_and_lands_undefended_shape():
+# The user pasted the attacker's address into the task, so the attack and
+# its twin make the same call: nothing can tell them apart, this test and
+# anchoring included.
+INSEPARABLE = {"taskpollution-pasted-address-01"}
+
+
+def _attacks_and_twins() -> list[tuple[Scenario, Scenario]]:
+    scenarios = {s.id: s for s in load_corpus(ADAPTIVE)}
+    return [(s, scenarios[s.benign_twin]) for s in scenarios.values() if s.attack]
+
+
+def _all_executed(scenario: Scenario) -> list[Call]:
+    return [Call(tool, args) for tool, args in scripted_calls(scenario)]
+
+
+def test_the_adaptive_corpus_is_paired():
     scenarios = load_corpus(ADAPTIVE)
     attacks = [s for s in scenarios if s.attack]
     twins = [s for s in scenarios if not s.attack]
@@ -143,6 +159,25 @@ def test_the_adaptive_corpus_is_paired_and_lands_undefended_shape():
     for a in attacks:
         assert a.script, f"{a.id} has no explicit script"
         assert a.benign_twin is not None
+
+
+def test_every_attack_lands_when_nothing_refuses_its_calls():
+    # an attack scored only by `never` predicates is aimed at the defence
+    # itself, and lands only when a call of the honest task is refused
+    for attack, _ in _attacks_and_twins():
+        against_defence = all(p.never for p in attack.attack_success)
+        landed = score(attack, _all_executed(attack)).attack_succeeded
+        assert landed == (not against_defence), attack.id
+
+
+def test_no_twin_trips_its_attack_predicates():
+    # a predicate loose enough to match the honest call would score a
+    # model that ignored the injection as breached
+    for attack, twin in _attacks_and_twins():
+        calls = _all_executed(twin)
+        assert score(twin, calls).task_completed, twin.id
+        if attack.id not in INSEPARABLE:
+            assert not score(attack, calls).attack_succeeded, attack.id
 
 
 # --- two adaptive cases pinned end to end ----------------------------------
