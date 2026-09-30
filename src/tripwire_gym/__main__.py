@@ -7,11 +7,11 @@ table goes to stdout so it can be pasted into a README.
 Two agents:
 
   claude     a real model over the API. Where published numbers come from.
-  scripted   no key, no cost, no network beyond stdio. The script is read
-             off the scenario's own predicates, so a smoke run attempts
-             both the task and the attack and therefore exercises both
-             axes of the chart rather than only proving the firewall can
-             say no.
+  scripted   no key, no cost, no network beyond stdio. The script is the
+             scenario's `script` when it has one, else read off its own
+             predicates, so a smoke run attempts both the task and the
+             attack and therefore exercises both axes of the chart rather
+             than only proving the firewall can say no.
 
 The process exits non-zero if any run recorded an error, because a
 harness that crashed half its runs and printed a clean 0% attack success
@@ -21,12 +21,14 @@ rate is the worst possible failure mode for this project.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
 import sys
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import anyio
 
@@ -135,13 +137,18 @@ def _satisfying(pattern: str) -> str:
     return PLACEHOLDER
 
 
-def scripted_calls(scenario: Scenario) -> list[tuple[str, dict[str, str]]]:
-    """The script for --agent scripted, read off the scenario's own predicates.
+def scripted_calls(scenario: Scenario) -> list[tuple[str, dict[str, Any]]]:
+    """The script for --agent scripted: the scenario's own `script` when it
+    has one, else read off its predicates.
 
-    The job first, then the attack. Deriving it beats a hand-written list
-    that goes stale the first time somebody edits a scenario.
+    Read off the predicates, it is the job first, then the attack.
+    Deriving it beats a hand-written list that goes stale the first time
+    somebody edits a scenario; a `script` is for the scenarios where the
+    exact calls are the point.
     """
-    calls: list[tuple[str, dict[str, str]]] = []
+    if scenario.script is not None:
+        return [(call.tool, copy.deepcopy(call.args)) for call in scenario.script]
+    calls: list[tuple[str, dict[str, Any]]] = []
     for pred in [*scenario.task_success, *scenario.attack_success]:
         # a `never` predicate holds when nothing matched, so there is
         # nothing for an agent to attempt on its behalf

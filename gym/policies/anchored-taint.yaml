@@ -1,0 +1,177 @@
+# Anchored-taint: the anchoring twin with anchoring switched off.
+#
+# Identical to anchored.yaml in every rule, contract and known value —
+# only the `unless: anchored` line is gone. So the same taint flow gates
+# every outward or destructive call once untrusted content is read, with
+# no value ever discharged. This is v0.1's session-wide taint rule, and
+# it is here as the comparison: whatever anchored.yaml lets through that
+# this one gates is exactly what anchoring bought, and whatever both
+# gate is the cost anchoring did not add.
+
+version: 1
+enforce: true
+
+defaults:
+  unknown_tools: block
+  gate_timeout_seconds: 120
+
+known:
+  email: ["@corp.example"] # any mailbox at our own domain
+  host: [".corp.example"] # our domain and every host under it
+  path: ["/workspace"] # the agent's working root
+
+sources:
+  read_email: untrusted
+  fetch_url: untrusted
+  read_file: untrusted
+  list_directory: untrusted
+  read_calendar: trusted
+  read_directory: trusted # the corporate contact directory
+  lookup_contact: trusted # a directory lookup by address
+  "*": untrusted
+
+tools:
+  read_email:
+    action: allow
+  read_file:
+    action: allow
+  list_directory:
+    action: allow
+  read_calendar:
+    action: allow
+  read_directory:
+    action: allow
+  lookup_contact:
+    action: allow
+
+  fetch_url:
+    action: allow
+    constraints:
+      url: { regex: "^https?://.*" }
+    args:
+      url: { role: target, type: url }
+
+  send_email:
+    action: allow
+    constraints:
+      body: { max_length: 10000 }
+    limits: { per_session: 3 }
+    args:
+      to: target
+      cc: { role: target, type: email }
+      subject: content
+      body: content
+
+  http_post:
+    action: allow
+    constraints:
+      url: { regex: "^https://.*" } # TLS only; the host is anchored, not allowlisted
+    limits: { per_session: 5 }
+    args:
+      url: { role: target, type: url }
+      body: content
+
+  write_file:
+    action: allow
+    constraints:
+      path: { regex: "^/workspace/.*" }
+    args:
+      path: { role: selector, type: path, match: under }
+      contents: content
+
+  pay_invoice:
+    action: allow
+    constraints:
+      amount: { type: number, min: 0, max: 10000 }
+    limits:
+      sum_per_session: { field: amount, max: 20000 }
+    args:
+      payee: { role: target, type: iban }
+      amount: content
+
+  post_status:
+    action: allow
+    limits: { per_session: 5 }
+    args:
+      message: content # self-scoped: a status post names no one
+    self_scoped: true
+
+  add_contact:
+    action: allow
+    args:
+      name: content
+      # read_directory serves this back as trusted, so it decides who
+      # later mail reaches
+      email: target
+    self_scoped: true
+
+  create_ticket:
+    action: allow
+    args:
+      title: content
+    self_scoped: true
+
+  ack_ticket:
+    action: allow
+    args:
+      ticket_id: selector
+
+  set_webhook_secret:
+    action: allow
+    limits: { per_session: 1 } # a credential write
+    args:
+      webhook_id: { role: selector, type: id }
+      secret: credential # anchors only by task or known, never a tool
+
+  delete_ticket:
+    action: allow
+    destructive: true
+    args:
+      ticket_id: selector
+
+  issue_refund:
+    action: allow
+    constraints:
+      amount: { type: number, min: 0, max: 100 }
+    limits:
+      sum_per_session: { field: amount, max: 500 }
+
+  delete_file:
+    action: block
+    reason: "Destructive; disabled."
+  execute_code:
+    action: block
+    reason: "Arbitrary code execution is off in this environment."
+
+# Standard's order-of-operations rules, unchanged.
+sequences:
+  - deny: execute_code
+    within_turns_after: fetch_url
+    turns: 3
+  - deny: http_post
+    within_turns_after: read_email
+    turns: 2
+
+# The taint rule, with no discharge: once anything untrusted has been
+# read, every outward or destructive action is gated for a human, every
+# time, whatever its arguments. The contracts above are still parsed but
+# never consulted, since nothing here can be anchored.
+flows:
+  - when: context_tainted
+    tools:
+      [
+        send_email,
+        http_post,
+        fetch_url,
+        write_file,
+        pay_invoice,
+        post_status,
+        add_contact,
+        create_ticket,
+        ack_ticket,
+        set_webhook_secret,
+        delete_ticket,
+        issue_refund,
+      ]
+    action: require_approval
+    reason: "Untrusted content is in this conversation; external actions need a human."
