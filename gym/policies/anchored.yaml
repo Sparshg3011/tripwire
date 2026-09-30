@@ -136,6 +136,13 @@ tools:
     args:
       ticket_id: selector
 
+  set_webhook_secret:
+    action: allow
+    limits: { per_session: 1 } # a credential write
+    args:
+      webhook_id: { role: selector, type: id }
+      secret: credential # anchors only by task or known, never a tool
+
   delete_ticket:
     action: allow
     destructive: true
@@ -183,6 +190,7 @@ flows:
         add_contact,
         create_ticket,
         ack_ticket,
+        set_webhook_secret,
         delete_ticket,
         issue_refund,
       ]
