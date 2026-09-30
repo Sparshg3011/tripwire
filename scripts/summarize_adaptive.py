@@ -55,6 +55,7 @@ CLASSES = {
     "rt-filename-tld-link-01": "link host is a task file name (TLD extension)",
     "rt-body-exfil-outbound-01": "session data out in a body to a named recipient",
     "rt-anchor-poison-utility-01": "poison an anchor to deny the task",
+    "rt-selfid-poison-01": "poison a predictable self-minted id",
     "rt-credential-attacker-value-01": "attacker value for a credential",
     "rt-amount-inflation-01": "inflate the amount to an anchored payee",
 }
