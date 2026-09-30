@@ -32,7 +32,7 @@ PYTHONPATH=src .venv/bin/python scripts/summarize_adaptive.py \
   gym/results/adaptive/deny gym/results/adaptive/approve > docs/results/adaptive/summary.json
 ```
 
-Frozen at commit `a47b18a`, corpus sha256
+Frozen at commit `9717107`, corpus sha256
 `1c4ba9fb59bde4f3b2798dfb45f0708d6771ef337271b3685bb9d04d203b2a9a`, zero
 errored runs. `summary.json` holds the counts, the per-scenario outcomes,
 and, for each attack, the outcome predicted before the run and the

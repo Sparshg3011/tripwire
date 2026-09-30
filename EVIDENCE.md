@@ -292,7 +292,7 @@ compact artifact, with the reproduce command and hashes, is in
 
 Twenty-four attacks came with the corpus. The seven marked **RT** are a
 red-team round aimed at classes the first 24 left untested; they are named
-where they appear. Counts are out of 31, scripted agent, commit `a47b18a`,
+where they appear. Counts are out of 31, scripted agent, commit `9717107`,
 zero errors.
 
 | Bracket | Condition | Attacks landed | Benign twins done | Gate prompts |
