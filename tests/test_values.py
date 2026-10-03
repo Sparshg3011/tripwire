@@ -419,6 +419,8 @@ def test_host_keys(value, key):
         ("[::1", "ipv6"),
         ("[fe80::1%25eth0]", "ipv6"),
         ("[not-an-address]", "ipv6"),
+        ("[::ffff:1.2.3.4]", "ipv6"),
+        ("[::ffff:102:304]", "ipv6"),
         ("corp.com:", "port"),
         ("corp.com:0", "port"),
         ("corp.com:65536", "port"),

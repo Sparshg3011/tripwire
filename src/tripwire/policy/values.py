@@ -389,7 +389,10 @@ def _ipv6(host: str) -> str | Invalid:
         address = ipaddress.IPv6Address(inner)
     except ValueError:
         return Invalid("ipv6")
-    if address.compressed != inner:
+    # An IPv4 address mapped into IPv6 reaches the IPv4 host, and Python
+    # prints one dotted or not depending on its release, so the canonical
+    # spelling below would accept it on some and not others.
+    if address.ipv4_mapped is not None or address.compressed != inner:
         return Invalid("ipv6")
     return host
 
