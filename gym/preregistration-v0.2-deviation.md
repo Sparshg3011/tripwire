@@ -19,10 +19,15 @@ When it went, the primary model had finished:
 
 | arm | benign tasks | attacked pairs |
 |---|---|---|
-| AgentDyn `direct` | 60 / 60 | 151 / 560 |
-| AgentDyn `tripwire-deny/taint` | 60 / 60 | 136 / 560 |
-| AgentDyn `tripwire-deny/primary` | 60 / 60 | 136 / 560 |
-| AgentDojo `tripwire-deny/primary` | 85 / 85 | 312 / 844 |
+| AgentDyn `direct` | 60 / 60 | 120 / 560 |
+| AgentDyn `tripwire-deny/taint` | 60 / 60 | 105 / 560 |
+| AgentDyn `tripwire-deny/primary` | 60 / 60 | 105 / 560 |
+| AgentDojo `tripwire-deny/primary` | 85 / 85 | 273 / 844 |
+
+Each cell also holds one attacked trace with no score, a task cut off
+when the cell stopped; it is not counted. (The first version of this
+note counted trace files, which also include each suite's runs of the
+injection goals alone; the table above counts scored pairs.)
 
 The attacked pairs ran in suite order, user task by user task, so the
 finished ones are the earlier user tasks of each suite, not a random
