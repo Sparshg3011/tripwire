@@ -15,6 +15,7 @@ from agentdojo.functions_runtime import EmptyEnv, make_function
 from tripwire.policy import load_policy
 from tripwire.policy.schema import Policy
 from tripwire_benchmarks.agentdojo import (
+    AdapterError,
     OpenAICompatibleLLM,
     _enforcement_receipt,
     _openai_messages,
@@ -82,6 +83,35 @@ def test_guarded_runtime_scores_only_calls_that_reached_the_function():
     assert "tripwire_blocked" in send_error
     assert [call.function for call in runtime.executed_calls] == ["read_email"]
     assert [event.executed for event in runtime.events] == [True, False]
+
+
+def test_a_result_tripwire_failed_to_record_fails_the_case(monkeypatch):
+    runtime_type = make_guarded_runtime(policy(), "deny")
+    runtime = runtime_type([make_function(read_email), make_function(send_email)])
+    real = runtime.interceptor.handle
+
+    async def ran_then_failed(name, arguments):
+        await real(name, arguments)
+        raise AttributeError("'CallToolResult' object has no attribute 'isError'")
+
+    monkeypatch.setattr(runtime.interceptor, "handle", ran_then_failed)
+    with pytest.raises(AdapterError, match="after read_email ran"):
+        runtime.run_function(EmptyEnv(), "read_email", {})
+
+
+def test_an_interceptor_that_fails_before_the_call_refuses_it(monkeypatch):
+    runtime_type = make_guarded_runtime(policy(), "deny")
+    runtime = runtime_type([make_function(read_email), make_function(send_email)])
+
+    async def failed(name, arguments):
+        raise RuntimeError("no verdict")
+
+    monkeypatch.setattr(runtime.interceptor, "handle", failed)
+    result, error = runtime.run_function(EmptyEnv(), "send_email", {"to": "a@example.com"})
+
+    assert result == ""
+    assert "the interceptor failed" in error
+    assert runtime.executed_calls == []
 
 
 def test_approve_and_deny_are_explicit_gate_bounds():
