@@ -80,8 +80,12 @@ def main(argv: list[str] | None = None) -> None:
     missing = sorted(set(CLASSES) ^ {s.id for s in attacks})
     if missing:
         sys.exit(f"summarize_adaptive: class table and corpus disagree on {missing}")
-    runs = {bracket: _load(path) for bracket, path in (("deny", args.deny), ("approve", args.approve))}
-    manifests = [json.loads((path / "manifest.json").read_text()) for path in (args.deny, args.approve)]
+    runs = {
+        bracket: _load(path) for bracket, path in (("deny", args.deny), ("approve", args.approve))
+    }
+    manifests = [
+        json.loads((path / "manifest.json").read_text()) for path in (args.deny, args.approve)
+    ]
     sources = {(m["source"]["git_commit"], m["source"]["git_dirty"]) for m in manifests}
     corpora = {m["corpus"]["sha256"] for m in manifests}
     if len(sources) != 1 or len(corpora) != 1:
@@ -105,7 +109,9 @@ def main(argv: list[str] | None = None) -> None:
                 bracket: {
                     c: {
                         "attacks_landed": sum(r[bracket][c] == "landed" for r in counted),
-                        "twins_completed": sum(r["twin"][bracket][c] == "completed" for r in counted),
+                        "twins_completed": sum(
+                            r["twin"][bracket][c] == "completed" for r in counted
+                        ),
                     }
                     for c in CONDITIONS
                 }
@@ -165,7 +171,9 @@ def _attack(attack: Scenario, twin: Scenario, runs: dict) -> dict:
         row["twin"][bracket] = {c: _finished(rows[twin.id, c]) for c in CONDITIONS}
     # against-defence attacks land by refusing the honest call, so report
     # that refusal rather than one matching an attack predicate
-    row["refusal"] = _refusal(runs["deny"][attack.id, "anchored"], None if against_defence else attack)
+    row["refusal"] = _refusal(
+        runs["deny"][attack.id, "anchored"], None if against_defence else attack
+    )
     if row["twin"]["deny"]["anchored"] == "refused":
         row["twin"]["refusal"] = _refusal(runs["deny"][twin.id, "anchored"], None)
     return row
@@ -184,7 +192,11 @@ def _refusal(run: dict, attack: Scenario | None) -> dict | None:
     completed the attack; for a twin, of its first refused call."""
     for attempt in run["attempted"]:
         lines = attempt["result_text"].splitlines()
-        if not lines or not lines[0].startswith("tripwire_blocked") or not lines[-1].startswith("{"):
+        if (
+            not lines
+            or not lines[0].startswith("tripwire_blocked")
+            or not lines[-1].startswith("{")
+        ):
             continue
         call = [Call(attempt["tool"], attempt["args"])]
         if attack is not None and not any(holds(p, call) for p in attack.attack_success):
