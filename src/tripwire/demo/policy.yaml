@@ -1,0 +1,12 @@
+version: 1
+sources: {"*": untrusted}   # everything a tool returns is untrusted
+tools:
+  read_inbox: {action: allow}
+  send_email:
+    action: allow
+    args: {to: target, subject: content, body: content}
+flows:
+  - when: context_tainted   # once untrusted text is in the session,
+    tools: [send_email]     # a send is blocked
+    action: block
+    unless: anchored        # unless its target came from the task

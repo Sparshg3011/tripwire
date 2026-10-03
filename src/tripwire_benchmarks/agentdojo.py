@@ -1,10 +1,12 @@
-"""Run AgentDojo-family benchmarks through Tripwire's policy engine.
+"""Run AgentDojo-family benchmarks through Tripwire.
 
-AgentDojo and AgentDyn execute Python tools rather than MCP tools. The
-in-repository gym remains the end-to-end MCP test; this adapter reuses the
-same canonicalizer, evaluator, session accounting, and taint tracker at
-AgentDojo's tool-execution boundary. Results are scored by AgentDojo's own
-stateful environments and task checkers.
+AgentDojo and AgentDyn execute Python tools rather than MCP tools. Each
+task gets the proxy's own Interceptor, with the suite's functions as its
+upstream (InProcessUpstream), so a call is judged, gated, logged and
+remembered as `tripwire serve` handles the same call and result. The
+Python result and error reach AgentDojo exactly as
+FunctionsRuntime.run_function returned them, and results are scored by
+AgentDojo's own stateful environments and task checkers.
 """
 
 from __future__ import annotations
@@ -22,22 +24,32 @@ import sys
 import time
 import types
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import anyio
+from mcp import types as mcp_types
+from pydantic_core import to_jsonable_python
+
+from tripwire.gate import ApprovalRequest
+from tripwire.intent import TaskRejected
 from tripwire.policy import load_policy
-from tripwire.policy.canonical import canonicalize
-from tripwire.policy.evaluator import evaluate
 from tripwire.policy.schema import Policy
-from tripwire.policy.types import ToolCall
+from tripwire.proxy.denial import refused
+from tripwire.proxy.interceptor import Interceptor
 from tripwire.session import SessionState
+from tripwire.tx import AuditLog
+from tripwire_benchmarks import recipe_policies
+from tripwire_benchmarks.pacing import SharedPacer
+from tripwire_benchmarks.reviewer import PROMPT_SHA256, ActionReviewer
+from tripwire_gym.resources import GYM
 
 NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-BLOCKED = "tripwire_blocked"
 PROTECTAI_MODEL_NAME = "protectai/deberta-v3-base-prompt-injection-v2"
+TASK_SOURCE = "agentdojo"
 
 
 class AdapterError(Exception):
@@ -53,9 +65,144 @@ class EnforcementEvent:
     reason: str
     executed: bool
     tainted: bool
+    review: dict[str, Any] | None = None
+    # why an argument contract or anchoring decided it
+    code: str | None = None
 
 
-def make_guarded_runtime(policy: Policy, gate: str):
+class StaticGate:
+    """An approval gate with one answer for every request: the two bounds
+    of a run, a human who approves everything and one who approves
+    nothing."""
+
+    def __init__(self, approve: bool):
+        self.approve = approve
+
+    async def request(self, req: ApprovalRequest) -> bool:
+        return self.approve
+
+
+class ReviewGate:
+    """The experimental reviewer as an approval gate. It sees the task,
+    the call and what earlier calls returned, and its answer is kept for
+    the call's receipt."""
+
+    def __init__(self, reviewer: ActionReviewer, runtime: Any):
+        self.reviewer = reviewer
+        self.runtime = runtime
+        self.answer: dict[str, Any] | None = None
+
+    async def request(self, req: ApprovalRequest) -> bool:
+        try:
+            answer = self.reviewer.review(
+                task=self.runtime.trusted_task,
+                tool=req.tool,
+                args=copy.deepcopy(dict(req.args)),
+                observations=copy.deepcopy(self.runtime.observations),
+            )
+        except Exception as exc:  # noqa: BLE001 - never forward after a reviewer fault
+            self.answer = {
+                "approved": False,
+                "status": "reviewer_error",
+                "reason": type(exc).__name__,
+            }
+            return False
+        self.answer = asdict(answer)
+        return answer.approved is True
+
+
+class InProcessUpstream:
+    """A runtime's functions as an Interceptor's upstream.
+
+    A call runs FunctionsRuntime.run_function in `env`, the environment
+    of the call being handled, and `outcome` keeps what it returned, or
+    the exception it raised, for AgentDojo; None until a call reaches it.
+    The interceptor observes the result as a tool would return it: the
+    text the agent is shown (tool_result_to_str), and the result as JSON,
+    wrapped as {"result": ...} when it isn't an object, both as
+    structuredContent and as the text block MCP carries it in. An error
+    is its text alone.
+    """
+
+    def __init__(self, runtime: Any):
+        self.runtime = runtime
+        self.tools = [
+            mcp_types.Tool(
+                name=function.name,
+                description=function.description,
+                inputSchema=function.parameters.model_json_schema(),
+            )
+            for function in runtime.functions.values()
+        ]
+        self.env: Any = None
+        self.raise_on_error = False
+        self.outcome: tuple[Any, str | None] | Exception | None = None
+        self.forwarded: dict[str, Any] = {}
+
+    async def call(self, name: str, arguments: dict[str, Any]) -> mcp_types.CallToolResult:
+        from agentdojo.functions_runtime import FunctionsRuntime
+
+        self.forwarded = dict(arguments)
+        try:
+            result, error = FunctionsRuntime.run_function(
+                self.runtime, self.env, name, arguments, self.raise_on_error
+            )
+        except Exception as exc:
+            self.outcome = exc
+            raise
+        self.outcome = (result, error)
+        return _tool_result(result, error)
+
+
+def _tool_result(result: Any, error: str | None) -> mcp_types.CallToolResult:
+    from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
+
+    if error is not None:
+        return mcp_types.CallToolResult(
+            isError=True, content=[mcp_types.TextContent(type="text", text=error)]
+        )
+    shown = mcp_types.TextContent(type="text", text=tool_result_to_str(result))
+    try:
+        value = to_jsonable_python(result)
+        structured = value if isinstance(value, dict) else {"result": value}
+        carried = json.dumps(structured, ensure_ascii=False)
+    except (TypeError, ValueError):
+        return mcp_types.CallToolResult(content=[shown])
+    return mcp_types.CallToolResult(
+        content=[shown, mcp_types.TextContent(type="text", text=carried)],
+        structuredContent=structured,
+    )
+
+
+class CaseLog:
+    """One case's audit log. Every record the interceptor appends is kept
+    for the case's receipt, and written as a hash chain to `path` when
+    there is one."""
+
+    def __init__(self, path: Path | None = None, session_id: str = ""):
+        self.path = path
+        self.records: list[dict[str, Any]] = []
+        self._log = AuditLog(path, session_id=session_id) if path is not None else None
+
+    def append(self, kind: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self._log is None:
+            record = {"kind": kind, "data": dict(data or {})}
+        else:
+            record = self._log.append(kind, data)
+        self.records.append(record)
+        return record
+
+    def close(self) -> str | None:
+        """Close the file; its sha256, or None when there is no file."""
+        if self._log is None or self.path is None:
+            return None
+        self._log.close()
+        return hashlib.sha256(self.path.read_bytes()).hexdigest()
+
+
+def make_guarded_runtime(
+    policy: Policy, gate: str, reviewer_factory: Callable[[], ActionReviewer] | None = None
+):
     """Create the runtime class AgentDojo instantiates for each task."""
     try:
         from agentdojo.functions_runtime import FunctionCall, FunctionsRuntime
@@ -64,20 +211,47 @@ def make_guarded_runtime(policy: Policy, gate: str):
             "AgentDojo is not installed; install tripwire-agent[publication]"
         ) from exc
 
-    if gate not in {"approve", "deny"}:
-        raise ValueError("gate must be approve or deny")
+    if gate not in {"approve", "deny", "review"}:
+        raise ValueError("gate must be approve, deny, or review")
+    if (gate == "review") != (reviewer_factory is not None):
+        raise ValueError("a reviewer factory is required only for the review condition")
 
     class GuardedRuntime(FunctionsRuntime):
         last_instance = None
 
-        def __init__(self, functions=()):
+        def __init__(self, functions=(), *, audit_path: Path | None = None, session_id: str = ""):
             super().__init__(functions)
             self.session = SessionState(policy)
             self.events: list[EnforcementEvent] = []
             self.executed_calls: list[FunctionCall] = []
             self.task_id = ""
             self.task_kind = "unknown"
+            self.trusted_task = ""
+            self.observations: list[dict[str, Any]] = []
+            self.reviewer = reviewer_factory() if reviewer_factory is not None else None
+            if self.reviewer is None:
+                self.gate: StaticGate | ReviewGate = StaticGate(gate == "approve")
+            else:
+                self.gate = ReviewGate(self.reviewer, self)
+            self.upstream = InProcessUpstream(self)
+            self.log = CaseLog(audit_path, session_id)
+            self.interceptor = Interceptor(
+                policy, self.log, self.upstream, self.session, gate=self.gate
+            )
+            anyio.run(self.interceptor.observe_listing, self.upstream.tools)
             type(self).last_instance = self
+
+        def add_task(self, text: str) -> int | None:
+            """The task's text as the session's task; None when it is
+            refused, which the log records."""
+            try:
+                return anyio.run(self.interceptor.add_task, text, TASK_SOURCE)
+            except TaskRejected:
+                return None
+
+        def close(self) -> str | None:
+            """Close the case's audit log; its sha256 when it has a file."""
+            return self.log.close()
 
         def run_function(
             self,
@@ -86,39 +260,49 @@ def make_guarded_runtime(policy: Policy, gate: str):
             kwargs: Mapping[str, Any],
             raise_on_error: bool = False,
         ):
-            original = dict(kwargs)
+            self.upstream.env = env
+            self.upstream.raise_on_error = raise_on_error
+            self.upstream.outcome = None
+            if isinstance(self.gate, ReviewGate):
+                self.gate.answer = None
+            first = len(self.log.records)
             try:
-                snapshot = self.session.snapshot()
-                checked = canonicalize(function, original, policy)
-                verdict = evaluate(ToolCall(function, checked), snapshot, policy)
-            except Exception as exc:  # fail closed at the adapter boundary
-                message = f"{BLOCKED}: policy evaluation failed: {type(exc).__name__}: {exc}"
-                if raise_on_error:
-                    raise AdapterError(message) from exc
-                return "", message
+                answer = anyio.run(self.interceptor.handle, function, dict(kwargs))
+            except Exception as exc:  # noqa: BLE001 - fail closed at the adapter boundary
+                reason = f"the interceptor failed: {type(exc).__name__}: {exc}"
+                answer = refused(reason, "adapter_error")
 
-            allowed = verdict.shadow or verdict.decision == "allow"
-            if verdict.decision == "gate" and not verdict.shadow:
-                allowed = gate == "approve"
-
-            event = EnforcementEvent(
-                tool=function,
-                args=dict(checked),
-                decision=verdict.decision,
-                rule=verdict.rule_id,
-                reason=verdict.reason,
-                executed=allowed,
-                tainted=snapshot.tainted,
+            decision = next(
+                (r["data"] for r in self.log.records[first:] if r["kind"] == "decision"), {}
             )
-            self.events.append(event)
-            if not allowed:
-                message = f"{BLOCKED}: {verdict.reason} (rule: {verdict.rule_id})"
+            outcome = self.upstream.outcome
+            self.events.append(
+                EnforcementEvent(
+                    tool=function,
+                    args=decision.get("args", dict(kwargs)),
+                    decision=decision.get("decision", "block"),
+                    rule=decision.get("rule", "adapter_error"),
+                    reason=decision.get("reason", ""),
+                    executed=outcome is not None,
+                    tainted=decision.get("tainted", True),
+                    review=self.gate.answer if isinstance(self.gate, ReviewGate) else None,
+                    code=decision.get("code"),
+                )
+            )
+            if outcome is None:
+                refusal = "\n".join(
+                    block.text
+                    for block in answer.content
+                    if isinstance(block, mcp_types.TextContent)
+                )
                 if raise_on_error:
-                    raise AdapterError(message)
-                return "", message
+                    raise AdapterError(refusal)
+                return "", refusal
+            if isinstance(outcome, Exception):
+                raise outcome
 
-            forwarded = original if verdict.shadow else dict(checked)
-            result, error = super().run_function(env, function, forwarded, raise_on_error)
+            result, error = outcome
+            forwarded = self.upstream.forwarded
             # AgentDojo's trace-based scorers see attempted calls by default.
             # Keeping a separate executed trace lets the protected suite score
             # effects that actually happened, matching the MCP gym.
@@ -126,8 +310,18 @@ def make_guarded_runtime(policy: Policy, gate: str):
                 self.executed_calls.append(
                     FunctionCall(function=function, args=dict(forwarded), id=None)
                 )
-            self.session.record(function, checked)
-            self.session.observe_result(function, is_error=error is not None)
+            if self.reviewer is not None:
+                from agentdojo.agent_pipeline.tool_execution import tool_result_to_str
+
+                self.observations.append(
+                    {
+                        "tool": function,
+                        "args": copy.deepcopy(forwarded),
+                        "result": tool_result_to_str(result),
+                        "error": error,
+                        "trust": policy.source_class(function),
+                    }
+                )
             return result, error
 
     GuardedRuntime.__name__ = f"TripwireRuntime_{gate}"
@@ -180,6 +374,7 @@ def _read_enforcement_receipts(
     events = [event for receipt in receipts for event in receipt.get("events", [])]
     gated_cases = {event["case_id"] for event in events if event.get("decision") == "gate"}
     blocked_cases = {event["case_id"] for event in events if not event.get("executed", False)}
+    reviews = [event["review"] for event in events if event.get("review") is not None]
     return {
         "tasks": len(receipts),
         "tool_calls": len(events),
@@ -188,24 +383,34 @@ def _read_enforcement_receipts(
         "gated_cases": len(gated_cases),
         "blocked_cases": len(blocked_cases),
         "events": events,
+        "review_requests": len(reviews),
+        "review_approvals": sum(review.get("approved") is True for review in reviews),
+        "review_limits": sum(
+            review.get("status") in {"review_limit", "input_limit"} for review in reviews
+        ),
     }
 
 
-def protect_suite(suite, policy: Policy, gate: str):
+def protect_suite(
+    suite, policy: Policy, gate: str, reviewer_factory: Callable[[], ActionReviewer] | None = None
+):
     """Shallow-copy a suite and replace only its task execution method.
 
     The copy remains an AgentDojo TaskSuite for attacks that inspect it.
     Its original environments, attacks, utilities, and security checkers
-    remain authoritative.
+    remain authoritative. Each task gets its own runtime and Interceptor,
+    whose session takes the task's prompt as its task text before the
+    pipeline runs, and whose audit log is written beside the task's trace.
     """
     try:
         from agentdojo.agent_pipeline.errors import AbortAgentError
         from agentdojo.base_tasks import BaseUserTask
+        from agentdojo.logging import Logger
         from agentdojo.task_suite.task_suite import model_output_from_messages
     except ImportError as exc:  # pragma: no cover
         raise AdapterError("AgentDojo is not installed") from exc
 
-    runtime_type = make_guarded_runtime(policy, gate)
+    runtime_type = make_guarded_runtime(policy, gate, reviewer_factory)
     protected = copy.copy(suite)
 
     def run_task_with_pipeline(
@@ -234,23 +439,38 @@ def protect_suite(suite, policy: Policy, gate: str):
             if isinstance(user_task, BaseUserTask)
             else user_task.GOAL
         )
-        runtime = runtime_type(self.tools)
+        logger = Logger.get()
+        audit_path, case = _case_log(logger)
+        runtime = runtime_type(self.tools, audit_path=audit_path, session_id=case)
         runtime.task_id = user_task.ID
         runtime.task_kind = "user" if isinstance(user_task, BaseUserTask) else "injection_check"
+        runtime.trusted_task = prompt
+        runtime.add_task(prompt)
         model_output = None
         messages = []
-        for _ in range(3):
-            try:
-                _, _, task_environment, messages, _ = agent_pipeline.query(
-                    prompt, runtime, task_environment
-                )
-            except AbortAgentError as exc:
-                task_environment = exc.task_environment
-                messages = exc.messages
-            if messages:
-                model_output = model_output_from_messages(messages)
-            if model_output is not None:
-                break
+        try:
+            for _ in range(3):
+                try:
+                    _, _, task_environment, messages, _ = agent_pipeline.query(
+                        prompt, runtime, task_environment
+                    )
+                except AbortAgentError as exc:
+                    task_environment = exc.task_environment
+                    messages = exc.messages
+                if messages:
+                    model_output = model_output_from_messages(messages)
+                if model_output is not None:
+                    break
+        finally:
+            # a pipeline that raised still ran calls, and they get a receipt
+            digest = runtime.close()
+            if hasattr(logger, "set_contextarg"):
+                receipt = _enforcement_receipt([runtime])
+                receipt["task_id"] = runtime.task_id
+                receipt["task_kind"] = runtime.task_kind
+                if audit_path is not None:
+                    receipt["audit"] = {"file": audit_path.name, "sha256": digest}
+                logger.set_contextarg("tripwire_enforcement", receipt)
         if model_output is None:
             warnings.warn(f"Model output was None for task {user_task.ID}")
             model_output = []
@@ -262,14 +482,6 @@ def protect_suite(suite, policy: Policy, gate: str):
         utility = self._check_task_result(
             user_task, model_output, pre_environment, task_environment, trace
         )
-        from agentdojo.logging import Logger
-
-        logger = Logger.get()
-        if hasattr(logger, "set_contextarg"):
-            receipt = _enforcement_receipt([runtime])
-            receipt["task_id"] = runtime.task_id
-            receipt["task_kind"] = runtime.task_kind
-            logger.set_contextarg("tripwire_enforcement", receipt)
         if injection_task is None:
             return utility, True
         attack_succeeded = self._check_task_result(
@@ -280,6 +492,30 @@ def protect_suite(suite, policy: Policy, gate: str):
     protected.run_task_with_pipeline = types.MethodType(run_task_with_pipeline, protected)
     protected.tripwire_runtime_type = runtime_type
     return protected
+
+
+def _case_log(logger: Any) -> tuple[Path | None, str]:
+    """Where a case's audit log goes, and the case's name. The log goes
+    beside the case's AgentDojo trace, named like it, when the logger
+    writes one; a case that runs again starts its log again."""
+    context = getattr(logger, "context", None)
+    if not isinstance(context, dict):
+        return None, ""
+    suite = context.get("suite_name")
+    user = context.get("user_task_id")
+    injection = context.get("injection_task_id") or "none"
+    case = f"{suite}/{user}/{injection}"
+    dirpath = getattr(logger, "dirpath", None)
+    attack = context.get("attack_type")
+    pipeline = context.get("pipeline_name")
+    if dirpath is None or attack is None or pipeline is None:
+        return None, case
+    # the directory TraceLogger.save() writes the case's trace to
+    directory = Path(dirpath, str(pipeline).replace("/", "_"), str(suite), str(user), str(attack))
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{injection}.tripwire.jsonl"
+    path.unlink(missing_ok=True)
+    return path, case
 
 
 def _content_text(blocks: Any) -> str:
@@ -426,6 +662,12 @@ def _read_trace_usage(*trace_dirs: Path) -> dict[str, int | float]:
     return total
 
 
+def _pacer(args: argparse.Namespace) -> SharedPacer | None:
+    if args.pace_file is None:
+        return None
+    return SharedPacer(args.pace_file, args.per_minute)
+
+
 def _retry_delay(
     *,
     attempt: int,
@@ -487,6 +729,7 @@ class OpenAICompatibleLLM:
         rate_limit_retries: int = 20,
         retry_base_seconds: float = 10.0,
         retry_cap_seconds: float = 60.0,
+        pacer: SharedPacer | None = None,
     ):
         try:
             from agentdojo.agent_pipeline.base_pipeline_element import BasePipelineElement
@@ -525,6 +768,7 @@ class OpenAICompatibleLLM:
         self.rate_limit_retries = rate_limit_retries
         self.retry_base_seconds = retry_base_seconds
         self.retry_cap_seconds = retry_cap_seconds
+        self.pacer = pacer
         self._last_request_started: float | None = None
 
     def query(self, query, runtime, env, messages=(), extra_args=None):
@@ -545,11 +789,11 @@ class OpenAICompatibleLLM:
         request: dict[str, Any] = {
             "model": self.model,
             "messages": _openai_messages(messages),
-            "tools": tools,
-            "tool_choice": "auto",
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
+        if tools:
+            request.update(tools=tools, tool_choice="auto")
         if self.seed is not None:
             request["seed"] = self.seed
         if self.disable_thinking:
@@ -557,7 +801,9 @@ class OpenAICompatibleLLM:
         from openai import APIConnectionError, InternalServerError, RateLimitError
 
         for attempt in range(self.rate_limit_retries + 1):
-            if self._last_request_started is not None:
+            if self.pacer is not None:
+                self.pacer.wait()
+            elif self._last_request_started is not None:
                 interval_wait = self.min_call_interval - (
                     time.monotonic() - self._last_request_started
                 )
@@ -600,7 +846,12 @@ class OpenAICompatibleLLM:
                     f"{self.rate_limit_retries} after {delay:.1f}s",
                     stacklevel=2,
                 )
-                time.sleep(delay)
+                if is_rate_limit and self.pacer is not None:
+                    # the limit is the account's: hold every process, and
+                    # let the next wait() serve this one's delay too
+                    self.pacer.back_off(delay)
+                else:
+                    time.sleep(delay)
                 continue
             elapsed = time.perf_counter() - started
             break
@@ -737,6 +988,59 @@ def _pipeline_name(model: str, defense: str | None) -> str:
     return f"local-{safe_model}-{defense or 'none'}"
 
 
+def make_reviewer_factory(llm: OpenAICompatibleLLM) -> Callable[[], ActionReviewer]:
+    """Use a separate context and no tool access; include its usage in traces."""
+    from agentdojo.types import text_content_block_from_string
+
+    def complete(messages: list[dict[str, str]]) -> str:
+        converted = [
+            {
+                "role": message["role"],
+                "content": [text_content_block_from_string(message["content"])],
+            }
+            for message in messages
+        ]
+        _, _, _, output, _ = llm.query("", types.SimpleNamespace(functions={}), None, converted)
+        if not output or output[-1].get("tool_calls"):
+            raise ValueError("reviewer did not produce a text-only decision")
+        return _content_text(output[-1].get("content"))
+
+    return lambda: ActionReviewer(complete)
+
+
+def _guard_review_contract(args, destination: Path) -> None:
+    """Never reuse a review trace under a changed model, prompt, code, or policy."""
+    from tripwire_benchmarks import reviewer
+
+    if args.condition != "tripwire-review":
+        return
+    source = _source_state()
+    if source.get("git_dirty"):
+        raise AdapterError("commit the development implementation before starting a review run")
+    policy_path = _policy_path(args)
+    settings = {
+        key: value for key, value in vars(args).items() if key not in {"out", "force_rerun"}
+    }
+    contract = {
+        "settings": settings,
+        "source": source,
+        "adapter_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "reviewer_sha256": hashlib.sha256(Path(reviewer.__file__).read_bytes()).hexdigest(),
+        "prompt_sha256": reviewer.PROMPT_SHA256,
+        "policy_sha256": hashlib.sha256(policy_path.read_bytes()).hexdigest(),
+        "agentdojo_version": importlib.metadata.version("agentdojo"),
+        "openai_version": importlib.metadata.version("openai"),
+    }
+    path = destination / "review-contract.json"
+    if path.exists():
+        if json.loads(path.read_text(encoding="utf-8")) != contract:
+            raise AdapterError("review contract changed; choose a new output directory")
+        return
+    if any(destination.rglob("traces/**/*.json")):
+        raise AdapterError("existing traces have no review contract; choose a new output directory")
+    path.write_text(json.dumps(contract, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
 def _source_state() -> dict[str, Any]:
     """Record the exact local source state without failing outside a Git checkout."""
     root = Path(__file__).resolve().parents[2]
@@ -793,16 +1097,34 @@ def run_once(args, repetition: int) -> dict[str, Any]:
         rate_limit_retries=args.rate_limit_retries,
         retry_base_seconds=args.retry_base_seconds,
         retry_cap_seconds=args.retry_cap_seconds,
+        pacer=_pacer(args),
     )
     prompt_defense = None
     protected = suite
     if args.condition.startswith("tripwire-"):
-        policy_path = Path(args.policy or f"gym/external_policies/{args.suite}.yaml")
+        policy_path = _policy_path(args)
         if not policy_path.exists():
             raise AdapterError(f"no Tripwire policy for suite {args.suite}: {policy_path}")
         policy = load_policy(policy_path)
         gate = args.condition.removeprefix("tripwire-")
-        protected = protect_suite(suite, policy, gate)
+        reviewer_factory = None
+        if gate == "review":
+            review_llm = OpenAICompatibleLLM(
+                model=args.reviewer_model or args.model,
+                base_url=args.base_url,
+                api_key=os.environ[args.api_key_var],
+                temperature=0,
+                max_tokens=384,
+                disable_thinking=args.disable_thinking,
+                timeout=args.timeout,
+                min_call_interval=args.min_call_interval,
+                rate_limit_retries=args.rate_limit_retries,
+                retry_base_seconds=args.retry_base_seconds,
+                retry_cap_seconds=args.retry_cap_seconds,
+                pacer=_pacer(args),
+            )
+            reviewer_factory = make_reviewer_factory(review_llm)
+        protected = protect_suite(suite, policy, gate, reviewer_factory)
     elif args.condition != "direct":
         prompt_defense = args.condition
 
@@ -851,6 +1173,20 @@ def run_once(args, repetition: int) -> dict[str, Any]:
     }
     trace_usage = _read_trace_usage(benign_trace_dir, attacked_trace_dir)
     trace_errors = _read_trace_errors(benign_trace_dir, attacked_trace_dir)
+    review_errors = []
+    for group in enforcement.values():
+        for event in group["events"]:
+            review = event.get("review")
+            if review and review.get("status") in {
+                "provider_error",
+                "invalid_response",
+                "reviewer_error",
+                "missing_task",
+            }:
+                review_errors.append(
+                    {"user_task": event["task_id"], "error": f"reviewer: {review['status']}"}
+                )
+    trace_errors.extend(review_errors)
     return {
         "repetition": repetition,
         "benign_utility": _mean(benign_values),
@@ -874,6 +1210,10 @@ def run_once(args, repetition: int) -> dict[str, Any]:
         "rate_limit_wait_seconds": trace_usage["rate_limit_wait_seconds"],
         "transient_error_wait_seconds": trace_usage["transient_error_wait_seconds"],
         "enforcement": enforcement,
+        "review_errors": len(review_errors),
+        "review_requests": sum(group["review_requests"] for group in enforcement.values()),
+        "review_approvals": sum(group["review_approvals"] for group in enforcement.values()),
+        "review_limits": sum(group["review_limits"] for group in enforcement.values()),
     }
 
 
@@ -893,10 +1233,20 @@ def parse_args(argv: list[str] | None = None):
             "transformers_pi_detector",
             "tripwire-approve",
             "tripwire-deny",
+            "tripwire-review",
         ],
         required=True,
     )
-    parser.add_argument("--policy")
+    policies = parser.add_mutually_exclusive_group()
+    policies.add_argument("--policy", help="a policy file (default: the suite's v0.1 policy)")
+    policies.add_argument(
+        "--recipe",
+        choices=list(recipe_policies.ARMS),
+        help="the suite's policy from gym/recipe_policies, in this arm",
+    )
+    parser.add_argument(
+        "--reviewer-model", help="experimental tripwire-review model; defaults to actor"
+    )
     parser.add_argument("--attack", default="important_instructions")
     parser.add_argument("--user-task", action="append", default=[])
     parser.add_argument("--injection-task", action="append", default=[])
@@ -907,6 +1257,11 @@ def parse_args(argv: list[str] | None = None):
     parser.add_argument("--timeout", type=float, default=300.0)
     parser.add_argument("--min-call-interval", type=float, default=2.0)
     parser.add_argument("--rate-limit-retries", type=int, default=20)
+    parser.add_argument(
+        "--pace-file",
+        help="share one request budget with every run using this file; needs --per-minute",
+    )
+    parser.add_argument("--per-minute", type=float, help="requests a minute across --pace-file")
     parser.add_argument("--retry-base-seconds", type=float, default=10.0)
     parser.add_argument("--retry-cap-seconds", type=float, default=60.0)
     parser.add_argument("--api-seed", action="store_true")
@@ -917,7 +1272,24 @@ def parse_args(argv: list[str] | None = None):
     )
     parser.add_argument("--force-rerun", action="store_true")
     parser.add_argument("--out", required=True)
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if (args.pace_file is None) != (args.per_minute is None):
+        parser.error("--pace-file and --per-minute go together")
+    if args.per_minute is not None and not args.per_minute > 0:
+        parser.error("--per-minute must be positive")
+    if args.reviewer_model and args.condition != "tripwire-review":
+        parser.error("--reviewer-model requires --condition tripwire-review")
+    if args.recipe and not args.condition.startswith("tripwire-"):
+        parser.error("--recipe requires a tripwire condition")
+    return args
+
+
+def _policy_path(args) -> Path:
+    if args.policy:
+        return Path(args.policy)
+    if args.recipe:
+        return recipe_policies.policy_path(recipe_policies.ROOT, args.suite, args.recipe)
+    return GYM / "external_policies" / f"{args.suite}.yaml"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -933,11 +1305,13 @@ def main(argv: list[str] | None = None) -> None:
     destination = Path(args.out)
     destination.mkdir(parents=True, exist_ok=True)
     try:
+        _guard_review_contract(args, destination)
         runs = [run_once(args, repetition) for repetition in range(args.repetitions)]
     except (AdapterError, KeyError, ValueError) as exc:
         print(f"tripwire_benchmarks.agentdojo: {exc}", file=sys.stderr)
         raise SystemExit(2) from exc
 
+    policy = _policy_path(args) if args.condition.startswith("tripwire-") else None
     output = {
         "schema_version": 1,
         "created_at": datetime.now(UTC).isoformat(),
@@ -950,35 +1324,33 @@ def main(argv: list[str] | None = None) -> None:
         "provenance": {
             "agentdojo_version": importlib.metadata.version("agentdojo"),
             "source": _source_state(),
-            "policy": (
-                str(Path(args.policy).resolve())
-                if args.policy
-                else str(Path(f"gym/external_policies/{args.suite}.yaml").resolve())
-                if args.condition.startswith("tripwire-")
-                else None
-            ),
+            "policy": None if policy is None else str(policy.resolve()),
             "policy_sha256": (
-                hashlib.sha256(
-                    Path(args.policy or f"gym/external_policies/{args.suite}.yaml").read_bytes()
-                ).hexdigest()
-                if args.condition.startswith("tripwire-")
-                else None
+                None if policy is None else hashlib.sha256(policy.read_bytes()).hexdigest()
             ),
             "modules_loaded": args.module_to_load,
         },
         "settings": {
+            "recipe": args.recipe,
             "temperature": args.temperature,
             "api_seed": args.api_seed,
             "disable_thinking": args.disable_thinking,
             "repetitions": args.repetitions,
             "min_call_interval": args.min_call_interval,
             "rate_limit_retries": args.rate_limit_retries,
+            "shared_per_minute": args.per_minute,
             "retry_base_seconds": args.retry_base_seconds,
             "retry_cap_seconds": args.retry_cap_seconds,
             "protectai_model_name": (
                 PROTECTAI_MODEL_NAME if args.condition == "transformers_pi_detector" else None
             ),
             "protectai_model_revision": args.protectai_model_revision,
+            "reviewer_model": (args.reviewer_model or args.model)
+            if args.condition == "tripwire-review"
+            else None,
+            "reviewer_prompt_sha256": (
+                PROMPT_SHA256 if args.condition == "tripwire-review" else None
+            ),
         },
         "runs": runs,
         "summary": {
@@ -997,6 +1369,10 @@ def main(argv: list[str] | None = None) -> None:
                 run["transient_error_wait_seconds"] for run in runs
             ),
             "trace_errors": sum(len(run["trace_errors"]) for run in runs),
+            "review_errors": sum(run["review_errors"] for run in runs),
+            "review_requests": sum(run["review_requests"] for run in runs),
+            "review_approvals": sum(run["review_approvals"] for run in runs),
+            "review_limits": sum(run["review_limits"] for run in runs),
             "attacked_gate_prompts": sum(
                 run["enforcement"]["attacked"]["gate_prompts"] for run in runs
             ),

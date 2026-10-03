@@ -3,6 +3,12 @@ duplicate call gets the first result back, an unknown outcome gets
 refused, and a tool-reported error stays retryable.
 """
 
+import sqlite3
+import tempfile
+import threading
+from pathlib import Path
+
+import anyio
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -40,6 +46,30 @@ def broken_forward(exc):
 @pytest.fixture
 def db(tmp_path):
     return tmp_path / "ledger.db"
+
+
+def old_ledger(db):
+    """A ledger as written before sessions were recorded, still open."""
+    old = sqlite3.connect(db, isolation_level=None)
+    old.execute("PRAGMA journal_mode=WAL")
+    old.execute(
+        "CREATE TABLE intents (key TEXT PRIMARY KEY, tool TEXT NOT NULL, "
+        "state TEXT NOT NULL, result TEXT)"
+    )
+    return old
+
+
+def unguarded_ledger(db):
+    """A ledger as written before one unresolved row per call was
+    enforced, still open."""
+    old = sqlite3.connect(db, isolation_level=None)
+    old.execute("PRAGMA journal_mode=WAL")
+    old.execute(
+        "CREATE TABLE intents (key TEXT PRIMARY KEY, tool TEXT NOT NULL, "
+        "state TEXT NOT NULL, result TEXT, call_key TEXT, session TEXT)"
+    )
+    old.execute("CREATE INDEX intents_by_call ON intents (call_key)")
+    return old
 
 
 # --- intent_key -------------------------------------------------------------
@@ -106,7 +136,7 @@ async def test_different_args_run_fresh(db):
     ex.close()
 
 
-async def test_sessions_do_not_share_a_ledger_even_in_one_db(db):
+async def test_sessions_do_not_share_replays_even_in_one_db(db):
     a = TxExecutor(db, "s1")
     await a.run("add", {"a": 1}, make_forward(ok()))
 
@@ -120,7 +150,9 @@ async def test_sessions_do_not_share_a_ledger_even_in_one_db(db):
     b.close()
 
 
-async def test_replay_survives_a_restart(db):
+async def test_one_session_replays_across_a_reopen(db):
+    # the proxy never reopens a session, since a restart is a new one, but
+    # a caller that keeps its session id keeps its replays
     first = TxExecutor(db, "s1")
     await first.run("send_email", {"to": "a@b.com"}, make_forward(ok("sent")))
     first.close()
@@ -181,6 +213,157 @@ async def test_the_poison_is_per_key_not_per_executor(db):
     ex.close()
 
 
+async def test_the_poison_outlives_the_session_that_took_it(db):
+    # a proxy that dies mid-call comes back as a new session, and the
+    # retry it receives is the one duplicate that matters most
+    dead = TxExecutor(db, "s1")
+    with pytest.raises(RuntimeError):
+        await dead.run("send_email", {"to": "a@b.com"}, broken_forward(RuntimeError("wire cut")))
+    dead.close()
+
+    restarted = TxExecutor(db, "s2")
+    retry = make_forward(ok())
+    with pytest.raises(DuplicateInFlight, match="started by session s1"):
+        await restarted.run("send_email", {"to": "a@b.com"}, retry)
+    assert retry.calls == 0
+    restarted.close()
+
+
+async def test_an_operator_clearing_the_row_lets_the_retry_run(db):
+    dead = TxExecutor(db, "s1")
+    with pytest.raises(RuntimeError):
+        await dead.run("send_email", {"to": "a@b.com"}, broken_forward(RuntimeError("wire cut")))
+    dead.close()
+
+    ledger = sqlite3.connect(db, isolation_level=None)
+    ledger.execute("DELETE FROM intents WHERE session = 's1' AND state = 'in_flight'")
+    ledger.close()
+
+    restarted = TxExecutor(db, "s2")
+    retry = make_forward(ok())
+    _, replayed = await restarted.run("send_email", {"to": "a@b.com"}, retry)
+    assert retry.calls == 1
+    assert replayed is False
+    restarted.close()
+
+
+async def test_a_ledger_from_before_sessions_were_recorded_still_works(db):
+    old = old_ledger(db)
+    old.execute(
+        "INSERT INTO intents VALUES (?, 'add', 'done', ?)",
+        (intent_key("s1", "add", {"a": 1}), ok("from before").model_dump_json()),
+    )
+    old.close()
+
+    ex = TxExecutor(db, "s1")
+    result, replayed = await ex.run("add", {"a": 1}, make_forward(ok()))
+    assert replayed is True
+    assert result.content[0].text == "from before"
+
+    forward = make_forward(ok())
+    _, replayed = await ex.run("add", {"a": 2}, forward)
+    assert forward.calls == 1
+    assert replayed is False
+    ex.close()
+
+
+async def test_an_unresolved_call_from_before_sessions_were_recorded_holds_up_its_tool(db):
+    # a proxy on the old schema died mid-payment; the upgraded one can't
+    # tell which payment, so it refuses them all rather than guess
+    old = old_ledger(db)
+    old.execute(
+        "INSERT INTO intents VALUES (?, 'send_payment', 'in_flight', NULL)",
+        (intent_key("old", "send_payment", {"to": "bob", "amount": 100}),),
+    )
+    old.close()
+
+    ex = TxExecutor(db, "new")
+    retry = make_forward(ok())
+    for args in ({"to": "bob", "amount": 100}, {"to": "carol", "amount": 5}):
+        with pytest.raises(DuplicateInFlight, match="before sessions were recorded"):
+            await ex.run("send_payment", args, retry)
+    assert retry.calls == 0
+
+    other = make_forward(ok())
+    await ex.run("add", {"a": 1}, other)
+    assert other.calls == 1
+    ex.close()
+
+
+def _open_when_released(db, barrier, session_id, failures):
+    barrier.wait()
+    try:
+        TxExecutor(db, session_id).close()
+    except TxError as e:
+        failures.append(e)
+
+
+def test_proxies_opening_an_old_ledger_together_all_start(tmp_path):
+    # an MCP client starts every server at once, so the first launch after
+    # an upgrade is exactly this; one proxy per thread is enough contention
+    failures = []
+    for trial in range(10):
+        db = tmp_path / f"ledger-{trial}.db"
+        old_ledger(db).close()
+        barrier = threading.Barrier(6)
+        proxies = [
+            threading.Thread(target=_open_when_released, args=(db, barrier, f"s{i}", failures))
+            for i in range(6)
+        ]
+        for proxy in proxies:
+            proxy.start()
+        for proxy in proxies:
+            proxy.join()
+
+    assert failures == []
+
+
+async def test_a_call_two_sessions_left_unresolved_is_named_before_the_ledger_opens(db):
+    # earlier versions let two sessions both start one call, and the rows
+    # they left can't take the index that now stops it
+    payment = {"to": "bob", "amount": 100}
+    old = unguarded_ledger(db)
+    for session in ("first", "second"):
+        old.execute(
+            "INSERT INTO intents VALUES (?, 'send_payment', 'in_flight', NULL, ?, ?)",
+            (
+                intent_key(session, "send_payment", payment),
+                intent_key("", "send_payment", payment),
+                session,
+            ),
+        )
+    old.close()
+
+    with pytest.raises(TxError, match="send_payment") as refused:
+        TxExecutor(db, "new")
+    assert "first" in str(refused.value)
+    assert "second" in str(refused.value)
+    assert "UNIQUE constraint" not in str(refused.value)
+
+    # what docs/production.md says to do: keep one, which still refuses
+    ledger = sqlite3.connect(db, isolation_level=None)
+    ledger.execute("DELETE FROM intents WHERE session = 'second'")
+    ledger.close()
+    ex = TxExecutor(db, "new")
+    retry = make_forward(ok())
+    with pytest.raises(DuplicateInFlight, match="started by session first"):
+        await ex.run("send_payment", payment, retry)
+    assert retry.calls == 0
+    ex.close()
+
+
+def test_an_old_ledger_keeps_only_the_index_it_is_read_by(db):
+    unguarded_ledger(db).close()
+    TxExecutor(db, "new").close()
+
+    ledger = sqlite3.connect(db)
+    indexes = ledger.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL"
+    ).fetchall()
+    ledger.close()
+    assert indexes == [("intents_in_flight",)]
+
+
 # --- two executors, one db --------------------------------------------------
 
 
@@ -197,6 +380,47 @@ async def test_a_second_executor_replays_what_the_first_completed(db):
     assert result.content[0].text == "from a"
     a.close()
     b.close()
+
+
+def _attempt(db, session_id, start, decided, outcomes):
+    ex = TxExecutor(db, session_id)
+
+    async def forward():
+        outcomes.append("forwarded")
+        # stay in flight until the other session has made its choice
+        decided.wait(timeout=10)
+        return ok()
+
+    async def attempt():
+        try:
+            await ex.run("send_payment", {"to": "bob", "amount": 100}, forward)
+        except DuplicateInFlight:
+            outcomes.append("refused")
+            decided.wait(timeout=10)
+
+    start.wait()
+    anyio.run(attempt)
+    ex.close()
+
+
+def test_two_sessions_racing_on_one_call_forward_it_once(tmp_path):
+    # the look for an unresolved row and the insert are two statements,
+    # and two sessions both looking before either inserts is the race
+    for trial in range(5):
+        db = tmp_path / f"ledger-{trial}.db"
+        TxExecutor(db, "setup").close()
+        start, decided = threading.Barrier(2), threading.Barrier(2)
+        outcomes = []
+        sessions = [
+            threading.Thread(target=_attempt, args=(db, sid, start, decided, outcomes))
+            for sid in ("a", "b")
+        ]
+        for session in sessions:
+            session.start()
+        for session in sessions:
+            session.join()
+
+        assert sorted(outcomes) == ["forwarded", "refused"]
 
 
 # --- the file itself --------------------------------------------------------
@@ -244,10 +468,42 @@ json_values = st.recursive(
 )
 
 
-@given(args=st.dictionaries(st.text(max_size=10), json_values, max_size=4))
+arg_dicts = st.dictionaries(st.text(max_size=10), json_values, max_size=4)
+
+
+@given(args=arg_dicts)
 @settings(max_examples=200)
 def test_intent_key_is_total_and_stable(args):
     first = intent_key("s1", "some_tool", args)
     assert intent_key("s1", "some_tool", args) == first
     assert len(first) == 64
     assert set(first) <= set("0123456789abcdef")
+
+
+@given(args=arg_dicts, other=arg_dicts, same=st.booleans())
+@settings(max_examples=50, deadline=None)
+def test_an_unknown_outcome_blocks_exactly_its_own_call_in_any_session(args, other, same):
+    other = args if same else other
+
+    async def retry_after_a_crash(db):
+        dead = TxExecutor(db, "dead")
+        with pytest.raises(RuntimeError):
+            await dead.run("some_tool", args, broken_forward(RuntimeError("wire cut")))
+        dead.close()
+
+        fresh = TxExecutor(db, "fresh")
+        forward = make_forward(ok())
+        blocked = False
+        try:
+            await fresh.run("some_tool", other, forward)
+        except DuplicateInFlight:
+            blocked = True
+        fresh.close()
+        return blocked, forward.calls
+
+    with tempfile.TemporaryDirectory() as d:
+        blocked, calls = anyio.run(retry_after_a_crash, Path(d) / "ledger.db")
+
+    identical = intent_key("s", "some_tool", args) == intent_key("s", "some_tool", other)
+    assert blocked is identical
+    assert calls == (0 if identical else 1)

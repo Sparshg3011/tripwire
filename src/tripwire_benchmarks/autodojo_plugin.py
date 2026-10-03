@@ -20,6 +20,7 @@ from tripwire_benchmarks.agentdojo import (
     OpenAICompatibleLLM,
     protect_suite,
 )
+from tripwire_gym.resources import GYM
 
 DEFENSE_NAME = "tripwire"
 NIM_PREFIX = "nim:"
@@ -41,7 +42,7 @@ def _tripwire_policy_path(suite_name: str) -> Path:
     directory = Path(
         os.environ.get(
             "TRIPWIRE_POLICY_DIR",
-            str(Path(__file__).resolve().parents[2] / "gym" / "external_policies"),
+            str(GYM / "external_policies"),
         )
     )
     return directory / f"{suite_name}.yaml"

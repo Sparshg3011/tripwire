@@ -17,13 +17,13 @@ if [ -z "${NVIDIA_API_KEY:-}" ]; then
 fi
 
 if [ "$PROFILE" = "smoke" ]; then
-  $PY -m tripwire_benchmarks.agentdojo \
+  "$PY" -m tripwire_benchmarks.agentdojo \
     --suite "$SUITE" --model "$MODEL" --condition "$CONDITION" \
     --attack important_instructions --repetitions "$REPETITIONS" \
     --user-task user_task_0 --injection-task injection_task_0 \
     --temperature 0 --disable-thinking --out "$OUT"
 else
-  $PY -m tripwire_benchmarks.agentdojo \
+  "$PY" -m tripwire_benchmarks.agentdojo \
     --suite "$SUITE" --model "$MODEL" --condition "$CONDITION" \
     --attack important_instructions --repetitions "$REPETITIONS" \
     --temperature 0 --disable-thinking --out "$OUT"

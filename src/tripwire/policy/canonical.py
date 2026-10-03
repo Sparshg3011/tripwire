@@ -11,6 +11,12 @@ deliberate: if we checked one form and sent another, the check would be
 theatre. The cost is that we hand the tool a lightly-rewritten string,
 which is why the rewrites below are small, boring, and enumerated.
 
+The rewrites only touch what the policy checks: the tool's constraint
+keys, the field its budget sums, and its authority arguments
+(checked_fields()). Everything else is forwarded exactly as it arrived.
+Rewriting a body or an address no rule reads protects nothing and still
+changes what the tool receives.
+
 Rules for v1 — each one gets attacked in the gym. They are numbered in
 policy-doc order, but note the application order in C1/C2: invisibles go
 first, and that ordering is load-bearing.
@@ -19,7 +25,7 @@ first, and that ordering is load-bearing.
       U+200C, U+200D, U+2060 word joiner, U+FEFF BOM. A zero-width space
       wedged into "corp.com" comes back out.
 
-  C1  Then Unicode NFKC over every string value, anywhere in the args
+  C1  Then Unicode NFKC over every string value in a checked field
       (including inside nested dicts and lists). Folds compatibility
       forms: fullwidth "ａdmin" -> "admin", ligature "ﬁle" -> "file".
 
@@ -34,10 +40,13 @@ first, and that ordering is load-bearing.
       distinct keys into one ({"ａmount": 1, "amount": 2}) and silently
       drop a value, which is a worse bug than the one it would fix.
 
-  C3  (not here — comparison time, inside the evaluator) casefold both
-      sides when a constraint sets case_insensitive.
+  C3  (not here — comparison time, inside the evaluator) a constraint
+      that sets case_insensitive matches under re.IGNORECASE, and since
+      a policy regex must match in ASCII mode as well as under Unicode
+      rules, it admits ASCII case variants only. Neither the pattern nor
+      the value is rewritten for it.
 
-  C4  Strip *all* trailing dots from host-like top-level fields, so
+  C4  Strip *all* trailing dots from host-like checked fields, so
       "corp.com." and "corp.com.." both become "corp.com". "Host-like"
       is a fixed field-name list: url, host, hostname, domain, to,
       recipient, email, address. A DNS name with a trailing dot resolves
@@ -80,8 +89,7 @@ transport hands us) pass through untouched rather than causing a raise.
 JSON in, JSON out — and since MCP args arrive as parsed JSON, that's
 every real call.
 
-The spec above is executable in tests/test_canonical.py. Delete the skip
-line there and make it green.
+The spec above is executable in tests/test_canonical.py.
 """
 
 from __future__ import annotations
@@ -90,9 +98,11 @@ import math
 import re
 import unicodedata
 from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from tripwire.policy.schema import Policy
+if TYPE_CHECKING:
+    # the schema reads `known` values through values.py, which needs _clean
+    from tripwire.policy.schema import Policy
 
 HOST_FIELDS = frozenset(
     {"url", "host", "hostname", "domain", "to", "recipient", "email", "address"}
@@ -118,7 +128,7 @@ def _clean(text: str) -> str:
 
 
 def _walk(value: Any) -> Any:
-    """C1/C2 over every string anywhere in the args.
+    """C1/C2 over every string anywhere in a checked field's value.
 
     Keys are left alone — normalizing them can collide two distinct keys
     into one and silently drop a value, which is worse than the problem
@@ -133,6 +143,31 @@ def _walk(value: Any) -> Any:
     return value
 
 
+def checked_fields(tool: str, policy: Policy) -> frozenset[str]:
+    """The top-level args the policy reads for this tool: its constraint
+    keys, the field its budget sums, and the arguments its contract gives
+    an authority role (target, selector, credential), whose keys anchoring
+    computes from the form forwarded. Only these are canonicalized, and
+    allowed_args admits them without listing them."""
+    rule = policy.tools.get(tool)
+    if rule is None:
+        return frozenset()
+    fields = set(rule.constraints)
+    if rule.limits is not None and rule.limits.sum_per_session is not None:
+        fields.add(rule.limits.sum_per_session.field)
+    fields.update(authority_args(tool, policy))
+    return frozenset(fields)
+
+
+def authority_args(tool: str, policy: Policy) -> tuple[str, ...]:
+    """The top-level args the tool's contract gives an authority role, in
+    contract order."""
+    rule = policy.tools.get(tool)
+    if rule is None or rule.args is None:
+        return ()
+    return tuple(name for name, spec in rule.args.items() if spec.role != "content")
+
+
 def _numeric_fields(tool: str, policy: Policy) -> set[str]:
     rule = policy.tools.get(tool)
     if rule is None:
@@ -141,8 +176,9 @@ def _numeric_fields(tool: str, policy: Policy) -> set[str]:
 
 
 def canonicalize(tool: str, args: Mapping[str, Any], policy: Policy) -> dict[str, Any]:
+    checked = checked_fields(tool, policy)
     try:
-        out = {key: _walk(value) for key, value in args.items()}
+        out = {key: _walk(value) if key in checked else value for key, value in args.items()}
     except Exception:
         # Total by contract: args come off the wire, so anything at all
         # can be in there. A value we can't walk is a value we leave.
@@ -152,7 +188,7 @@ def canonicalize(tool: str, args: Mapping[str, Any], policy: Policy) -> dict[str
     for key, value in list(out.items()):
         # C4: host-like fields lose every trailing dot. Stripping only
         # one would leave "corp.com.." dotted and make this non-idempotent.
-        if key in HOST_FIELDS and isinstance(value, str):
+        if key in HOST_FIELDS and key in checked and isinstance(value, str):
             value = value.rstrip(".")
             out[key] = value
 

@@ -11,10 +11,11 @@ to matter.
 from __future__ import annotations
 
 import io
-import json
 import os
 import select
 import time
+from collections.abc import Collection, Mapping
+from typing import Any
 
 import anyio
 
@@ -23,19 +24,68 @@ try:
 except ImportError:  # windows: there is no controlling terminal to ask
     termios = None  # type: ignore[assignment]
 
-from tripwire.gate.base import ApprovalRequest, GateUnavailable
+from tripwire.gate.base import (
+    ApprovalRequest,
+    GateUnavailable,
+    anchor_notes,
+    clip,
+    more_args,
+    preview_args,
+    printable,
+)
 
-ARGS_PREVIEW = 500  # a 10k email body shouldn't flood the terminal
+ARG_PREVIEW = 500  # per value: a 10k email body shouldn't flood the terminal
+# ...and nor should a few hundred arguments. The tool and the recipient
+# print first, and scrollback loses whatever scrolls out of it.
+ARG_BUDGET = 1000  # characters of preview, all lines together
+ARG_WIDTH = 70  # short args share a line this long, which fits 80 columns after the indent
+# The tool, rule, reason, taint trail and each anchoring note. An unknown
+# tool's name is the caller's to pick, and the rest can repeat it.
+FIELD_PREVIEW = 200
 
-# Args reach this prompt from tool calls the attacker may have authored.
-# Anything that can move the cursor, clear the screen, or recolour text
-# can redraw the question the human thinks they're answering, so nothing
-# outside plain printable text survives to the terminal.
-SAFE = set(range(0x20, 0x7F))
+
+# Args reach this prompt from tool calls the attacker may have authored,
+# so nothing outside plain printable text survives to the terminal.
+def _field(text: str) -> str:
+    return clip(printable(text), FIELD_PREVIEW)
 
 
-def _flatten(text: str) -> str:
-    return "".join(c if ord(c) in SAFE else f"\\x{ord(c):02x}" for c in text)
+def _arg_lines(
+    args: Mapping[str, Any],
+    checked: Collection[str] = frozenset(),
+    notes: Mapping[str, str] | None = None,
+) -> tuple[list[str], str]:
+    """The argument lines that fit, and what was left out ("" if nothing)."""
+    # no printable(): encode_args already escapes everything outside SAFE,
+    # and the notes come as _field() made them
+    lines, _, hidden = preview_args(args, checked, ARG_PREVIEW, ARG_WIDTH, ARG_BUDGET, notes)
+    return lines, more_args(hidden) if hidden else ""
+
+
+def _question(req: ApprovalRequest) -> str:
+    # where each authority argument's values came from, beside them
+    notes = {name: _field(note) for name, note in anchor_notes(req.authority, req.anchors).items()}
+    lines, left_out = _arg_lines(req.args, req.checked, notes)
+    args = "\n          ".join(lines) or "{}"
+    if left_out:
+        # The terminal has no way to show the rest, so the human is
+        # told outright that a yes covers arguments they haven't read.
+        args += f"\n  hidden: {left_out}, not shown here but forwarded if you approve"
+
+    taint = "clean session"
+    if req.tainted:
+        trail = ", ".join(req.tainted_by) if req.tainted_by else "unknown source"
+        taint = f"TAINTED session (untrusted content from: {_field(trail)})"
+
+    return (
+        f"\ntripwire: approval needed (turn {req.turn})\n"
+        f"  tool:   {_field(req.tool)}\n"
+        f"  args:   {args}\n"
+        f"  rule:   {_field(req.rule_id)}\n"
+        f"  reason: {_field(req.reason)}\n"
+        f"  taint:  {taint}\n"
+        f"approve? [y/N] "
+    )
 
 
 class CliGate:
@@ -62,15 +112,6 @@ class CliGate:
         return await anyio.to_thread.run_sync(self._prompt, req, abandon_on_cancel=True)
 
     def _prompt(self, req: ApprovalRequest) -> bool:
-        args = _flatten(json.dumps(dict(req.args), sort_keys=True, default=str))
-        if len(args) > ARGS_PREVIEW:
-            args = f"{args[:ARGS_PREVIEW]}... ({len(args) - ARGS_PREVIEW} more chars)"
-
-        taint = "clean session"
-        if req.tainted:
-            trail = ", ".join(req.tainted_by) if req.tainted_by else "unknown source"
-            taint = f"TAINTED session (untrusted content from: {_flatten(trail)})"
-
         fd = self._tty.fileno()
         # Discard anything already typed. Without this, a keystroke made
         # before the question appeared would answer it — including an
@@ -81,15 +122,7 @@ class CliGate:
         except termios.error:
             pass  # not a real terminal (a pipe in tests); nothing buffered to drop
 
-        self._tty.write(
-            f"\ntripwire: approval needed (turn {req.turn})\n"
-            f"  tool:   {_flatten(req.tool)}\n"
-            f"  args:   {args}\n"
-            f"  rule:   {_flatten(req.rule_id)}\n"
-            f"  reason: {_flatten(req.reason)}\n"
-            f"  taint:  {taint}\n"
-            f"approve? [y/N] "
-        )
+        self._tty.write(_question(req))
 
         line = self._read_line(fd)
         if line is None:

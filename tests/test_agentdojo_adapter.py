@@ -19,6 +19,7 @@ from tripwire_benchmarks.agentdojo import (
     _enforcement_receipt,
     _openai_messages,
     _pipeline_name,
+    _policy_path,
     _read_enforcement_receipts,
     _read_trace_errors,
     _read_trace_usage,
@@ -26,7 +27,9 @@ from tripwire_benchmarks.agentdojo import (
     _source_state,
     make_guarded_runtime,
     make_pipeline,
+    parse_args,
 )
+from tripwire_gym.resources import GYM
 
 ROOT = Path(__file__).parent.parent
 
@@ -317,8 +320,21 @@ def test_transient_provider_failures_are_retried(monkeypatch, failure_kind):
                 raise failure
             return completion
 
+    llm = _fake_llm(Completions())
+    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+
+    llm.query("hello", SimpleNamespace(functions={}), None)
+
+    assert llm.client.chat.completions.calls == 2
+    assert llm.provider_attempts == 2
+    assert llm.model_calls == 1
+    assert llm.transient_error_retry_count == 1
+    assert llm.transient_error_wait_seconds == 1.0
+
+
+def _fake_llm(completions, pacer=None):
     llm = OpenAICompatibleLLM.__new__(OpenAICompatibleLLM)
-    llm.client = SimpleNamespace(chat=SimpleNamespace(completions=Completions()))
+    llm.client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
     llm.model = "nvidia/test"
     llm.temperature = 0.0
     llm.max_tokens = 32
@@ -338,15 +354,53 @@ def test_transient_provider_failures_are_retried(monkeypatch, failure_kind):
     llm.retry_base_seconds = 1.0
     llm.retry_cap_seconds = 1.0
     llm._last_request_started = None
-    monkeypatch.setattr("time.sleep", lambda _seconds: None)
+    llm.pacer = pacer
+    return llm
+
+
+def test_a_shared_budget_holds_every_process_on_a_rate_limit(monkeypatch):
+    import httpx
+    from openai import RateLimitError
+
+    request = httpx.Request("POST", "https://integrate.api.nvidia.com/v1/chat/completions")
+    limited = RateLimitError("slow down", response=httpx.Response(429, request=request), body=None)
+    completion = SimpleNamespace(
+        usage=None,
+        choices=[SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=None))],
+    )
+
+    class Completions:
+        calls = 0
+
+        def create(self, **_request):
+            self.calls += 1
+            if self.calls == 1:
+                raise limited
+            return completion
+
+    class Pacer:
+        def __init__(self):
+            self.waits = 0
+            self.held: list[float] = []
+
+        def wait(self):
+            self.waits += 1
+            return 0.0
+
+        def back_off(self, seconds):
+            self.held.append(seconds)
+
+    slept: list[float] = []
+    monkeypatch.setattr("time.sleep", slept.append)
+    pacer = Pacer()
+    llm = _fake_llm(Completions(), pacer)
 
     llm.query("hello", SimpleNamespace(functions={}), None)
 
-    assert llm.client.chat.completions.calls == 2
-    assert llm.provider_attempts == 2
-    assert llm.model_calls == 1
-    assert llm.transient_error_retry_count == 1
-    assert llm.transient_error_wait_seconds == 1.0
+    assert pacer.waits == 2
+    assert pacer.held == [1.0]
+    assert slept == []
+    assert llm.rate_limit_retry_count == 1
 
 
 def test_rate_limit_delay_is_bounded_and_respects_provider_header():
@@ -397,3 +451,42 @@ def test_agentdojo_source_state_is_recorded():
 
     assert len(state["git_commit"]) == 40
     assert isinstance(state["git_dirty"], bool)
+
+
+@pytest.mark.parametrize(
+    ("chosen", "policy"),
+    [
+        ([], "external_policies/banking.yaml"),
+        (["--recipe", "primary"], "recipe_policies/banking.yaml"),
+        (["--recipe", "strict"], "recipe_policies/strict/banking.yaml"),
+        (["--recipe", "taint"], "recipe_policies/taint/banking.yaml"),
+    ],
+)
+def test_a_run_chooses_the_frozen_policy_or_a_recipe_arm(chosen, policy):
+    args = parse_args(
+        [
+            "--suite",
+            "banking",
+            "--model",
+            "m",
+            "--condition",
+            "tripwire-deny",
+            "--out",
+            "o",
+            *chosen,
+        ]
+    )
+    assert _policy_path(args) == GYM / policy
+    assert load_policy(_policy_path(args)).tools
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--condition", "direct", "--recipe", "primary"],
+        ["--condition", "tripwire-deny", "--recipe", "primary", "--policy", "p.yaml"],
+    ],
+)
+def test_a_recipe_arm_needs_a_tripwire_condition_and_no_policy_file(extra):
+    with pytest.raises(SystemExit):
+        parse_args(["--suite", "banking", "--model", "m", "--out", "o", *extra])

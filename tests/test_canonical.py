@@ -1,6 +1,5 @@
 """Worked examples pinning down canonicalize(), one group per rule in the
 canonical.py docstring. C3 is the evaluator's job and isn't tested here.
-When these are green, the canonicalizer is done.
 """
 
 import copy
@@ -10,74 +9,89 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from tripwire.policy.canonical import canonicalize
+from tripwire.policy.canonical import authority_args, canonicalize, checked_fields
 from tripwire.policy.schema import Policy
 
 ZERO_WIDTHS = ["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]
 
 HOST_FIELDS = ["url", "host", "hostname", "domain", "to", "recipient", "email", "address"]
 
-# a tool the reference policy allows with no constraints at all, so C1/C2/C4
-# can be poked at without C5 joining in
-PLAIN = "execute_code"
+# Canonicalization only touches the fields a policy checks, so this one
+# checks every field the C1/C2/C4 tests poke at, by length only, to keep
+# C5 from joining in.
+PLAIN = "lookup"
+LENGTH_ONLY = Policy.model_validate(
+    {
+        "version": 1,
+        "tools": {
+            PLAIN: {
+                "action": "allow",
+                "constraints": {
+                    field: {"max_length": 100_000}
+                    for field in [*HOST_FIELDS, "body", "message", "note", "payload", "items"]
+                },
+            }
+        },
+    }
+)
 
 
 # --- C1: unicode nfkc -------------------------------------------------------
 
 
-def test_fullwidth_folds_to_ascii(reference_policy):
-    out = canonicalize(PLAIN, {"body": "ａdmin"}, reference_policy)
+def test_fullwidth_folds_to_ascii():
+    out = canonicalize(PLAIN, {"body": "ａdmin"}, LENGTH_ONLY)
     assert out["body"] == "admin"
 
 
-def test_ligature_folds(reference_policy):
-    out = canonicalize(PLAIN, {"body": "ﬁle"}, reference_policy)
+def test_ligature_folds():
+    out = canonicalize(PLAIN, {"body": "ﬁle"}, LENGTH_ONLY)
     assert out["body"] == "file"
 
 
-def test_plain_ascii_untouched(reference_policy):
+def test_plain_ascii_untouched():
     args = {"body": "admin@corp.com", "note": "nothing here needs folding"}
-    assert canonicalize(PLAIN, args, reference_policy) == args
+    assert canonicalize(PLAIN, args, LENGTH_ONLY) == args
 
 
 # --- C2: invisible formatting characters ------------------------------------
 
 
 @pytest.mark.parametrize("ch", ZERO_WIDTHS)
-def test_zero_width_stripped_from_domain(ch, reference_policy):
-    out = canonicalize(PLAIN, {"body": f"cor{ch}p.com"}, reference_policy)
+def test_zero_width_stripped_from_domain(ch):
+    out = canonicalize(PLAIN, {"body": f"cor{ch}p.com"}, LENGTH_ONLY)
     assert out["body"] == "corp.com"
 
 
 @pytest.mark.parametrize("ch", ZERO_WIDTHS)
-def test_zero_width_stripped_at_edges(ch, reference_policy):
-    out = canonicalize(PLAIN, {"body": f"{ch}admin{ch}"}, reference_policy)
+def test_zero_width_stripped_at_edges(ch):
+    out = canonicalize(PLAIN, {"body": f"{ch}admin{ch}"}, LENGTH_ONLY)
     assert out["body"] == "admin"
 
 
-def test_nfkc_and_invisibles_combine(reference_policy):
-    out = canonicalize(PLAIN, {"body": "ａd\u200bm\ufeffin"}, reference_policy)
+def test_nfkc_and_invisibles_combine():
+    out = canonicalize(PLAIN, {"body": "ａd\u200bm\ufeffin"}, LENGTH_ONLY)
     assert out["body"] == "admin"
 
 
 # --- recursion --------------------------------------------------------------
 
 
-def test_nested_dict_values_canonicalized(reference_policy):
+def test_nested_dict_values_canonicalized():
     args = {"payload": {"deeper": {"body": "ﬁle"}}}
-    out = canonicalize(PLAIN, args, reference_policy)
+    out = canonicalize(PLAIN, args, LENGTH_ONLY)
     assert out["payload"]["deeper"]["body"] == "file"
 
 
-def test_list_items_canonicalized(reference_policy):
+def test_list_items_canonicalized():
     args = {"items": ["ａdmin", "cor\u200bp.com", {"body": "ﬁle"}, [" ﬁx"]]}
-    out = canonicalize(PLAIN, args, reference_policy)
+    out = canonicalize(PLAIN, args, LENGTH_ONLY)
     assert out["items"] == ["admin", "corp.com", {"body": "file"}, [" fix"]]
 
 
-def test_non_string_leaves_survive_recursion(reference_policy):
+def test_non_string_leaves_survive_recursion():
     args = {"payload": {"n": 3, "ok": True, "missing": None, "f": 1.5}}
-    out = canonicalize(PLAIN, args, reference_policy)
+    out = canonicalize(PLAIN, args, LENGTH_ONLY)
     assert out["payload"] == {"n": 3, "ok": True, "missing": None, "f": 1.5}
 
 
@@ -85,36 +99,104 @@ def test_non_string_leaves_survive_recursion(reference_policy):
 
 
 @pytest.mark.parametrize("field", HOST_FIELDS)
-def test_trailing_dot_stripped_on_host_field(field, reference_policy):
-    out = canonicalize(PLAIN, {field: "corp.com."}, reference_policy)
+def test_trailing_dot_stripped_on_host_field(field):
+    out = canonicalize(PLAIN, {field: "corp.com."}, LENGTH_ONLY)
     assert out[field] == "corp.com"
 
 
 @pytest.mark.parametrize("field", ["body", "message"])
-def test_trailing_dot_kept_on_non_host_field(field, reference_policy):
-    out = canonicalize(PLAIN, {field: "corp.com."}, reference_policy)
+def test_trailing_dot_kept_on_non_host_field(field):
+    out = canonicalize(PLAIN, {field: "corp.com."}, LENGTH_ONLY)
     assert out[field] == "corp.com."
 
 
-def test_host_field_without_trailing_dot_unchanged(reference_policy):
-    out = canonicalize(PLAIN, {"host": "corp.com"}, reference_policy)
+def test_host_field_without_trailing_dot_unchanged():
+    out = canonicalize(PLAIN, {"host": "corp.com"}, LENGTH_ONLY)
     assert out["host"] == "corp.com"
 
 
-def test_trailing_dot_kept_below_top_level(reference_policy):
+def test_trailing_dot_kept_below_top_level():
     # C4 is scoped to top-level fields; a nested "host" key is just a string
-    out = canonicalize(PLAIN, {"payload": {"host": "corp.com."}}, reference_policy)
+    out = canonicalize(PLAIN, {"payload": {"host": "corp.com."}}, LENGTH_ONLY)
     assert out["payload"]["host"] == "corp.com."
 
 
-def test_zero_width_then_trailing_dot(reference_policy):
-    out = canonicalize(PLAIN, {"host": "cor\u200bp.com."}, reference_policy)
+def test_zero_width_then_trailing_dot():
+    out = canonicalize(PLAIN, {"host": "cor\u200bp.com."}, LENGTH_ONLY)
     assert out["host"] == "corp.com"
 
 
-def test_host_rules_apply_to_unknown_tools_too(reference_policy):
-    out = canonicalize("no_such_tool", {"to": "ａdmin@corp.com."}, reference_policy)
-    assert out["to"] == "admin@corp.com"
+# --- scope: only the fields the policy checks -------------------------------
+
+
+def test_checked_fields_are_the_constraints_and_the_summed_field():
+    policy = Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {
+                "refund": {
+                    "action": "allow",
+                    "constraints": {"amount": {"type": "number"}, "memo": {"max_length": 80}},
+                    "limits": {"sum_per_session": {"field": "total", "max": 500}},
+                }
+            },
+        }
+    )
+    assert checked_fields("refund", policy) == {"amount", "memo", "total"}
+    assert checked_fields("no_such_tool", policy) == set()
+
+
+CONTRACT = Policy.model_validate(
+    {
+        "version": 1,
+        "tools": {
+            "send": {
+                "action": "allow",
+                "args": {"to": "target", "doc": "selector", "key": "credential", "body": "content"},
+            }
+        },
+    }
+)
+
+
+def test_authority_arguments_are_checked_and_content_is_not():
+    assert checked_fields("send", CONTRACT) == {"to", "doc", "key"}
+    assert authority_args("send", CONTRACT) == ("to", "doc", "key")  # in contract order
+    assert authority_args("no_such_tool", CONTRACT) == ()
+
+
+def test_authority_arguments_go_upstream_in_the_form_their_keys_come_from():
+    args = {"to": "ａlice@corp.example.", "doc": "ｄoc-1", "key": "k", "body": "ｂ"}
+    out = canonicalize("send", args, CONTRACT)
+    assert out == {"to": "alice@corp.example", "doc": "doc-1", "key": "k", "body": "ｂ"}
+
+
+def test_unchecked_fields_are_forwarded_verbatim(reference_policy):
+    # send_email checks to and body; nothing reads subject or cc, so
+    # nothing has any business rewriting them
+    args = {"to": "ａlice@mycompany.com.", "subject": "ﬁle ａ.", "cc": "bob@corp.com."}
+    out = canonicalize("send_email", args, reference_policy)
+    assert out == {"to": "alice@mycompany.com", "subject": "ﬁle ａ.", "cc": "bob@corp.com."}
+
+
+def test_unknown_tools_are_forwarded_verbatim(reference_policy):
+    args = {"to": "ａdmin@corp.com.", "body": "ﬁle", "payload": {"host": "corp.com."}}
+    assert canonicalize("no_such_tool", args, reference_policy) == args
+
+
+def test_summed_field_is_checked_even_without_a_constraint():
+    policy = Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {
+                "refund": {
+                    "action": "allow",
+                    "limits": {"sum_per_session": {"field": "amount", "max": 500}},
+                }
+            },
+        }
+    )
+    assert canonicalize("refund", {"amount": "４２"}, policy) == {"amount": "42"}
 
 
 # --- C5: numeric strings on number-constrained fields -----------------------
@@ -286,6 +368,23 @@ REUSES_FIXTURE = [HealthCheck.function_scoped_fixture]
 def test_idempotent(reference_policy, tool, args):
     once = canonicalize(tool, args, reference_policy)
     assert canonicalize(tool, once, reference_policy) == once
+
+
+@given(args=st.dictionaries(keys, values, max_size=5))
+@settings(max_examples=300)
+def test_idempotent_when_every_host_field_is_checked(args):
+    once = canonicalize(PLAIN, args, LENGTH_ONLY)
+    assert canonicalize(PLAIN, once, LENGTH_ONLY) == once
+
+
+@given(tool=tools, args=st.dictionaries(keys, values, max_size=5))
+@settings(max_examples=300, suppress_health_check=REUSES_FIXTURE)
+def test_unchecked_fields_pass_through_untouched(reference_policy, tool, args):
+    checked = checked_fields(tool, reference_policy)
+    out = canonicalize(tool, args, reference_policy)
+    for key, value in args.items():
+        if key not in checked:
+            assert out[key] is value
 
 
 @given(tool=tools, args=st.dictionaries(st.text(max_size=20), junk, max_size=5))

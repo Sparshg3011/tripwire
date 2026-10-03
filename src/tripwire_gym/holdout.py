@@ -10,6 +10,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from tripwire_gym.corpus import freeze, validate_pairs
+from tripwire_gym.resources import GYM
 from tripwire_gym.scenario import Scenario, load_corpus, load_scenario
 
 
@@ -96,7 +97,7 @@ def materialize(
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="create a paired benchmark holdout")
-    parser.add_argument("--scenarios", default="gym/scenarios")
+    parser.add_argument("--scenarios", default=str(GYM / "scenarios"))
     parser.add_argument("--out", required=True)
     parser.add_argument("--evaluation-fraction", type=float, default=0.25)
     parser.add_argument("--salt", required=True, help="private random split salt")

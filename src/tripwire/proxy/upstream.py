@@ -5,9 +5,12 @@ from __future__ import annotations
 import os
 import shlex
 from contextlib import AsyncExitStack
+from typing import Any
 
 from mcp import ClientSession, StdioServerParameters, types
 from mcp.client.stdio import stdio_client
+
+ENV_PREFIX = "TRIPWIRE_"  # no variable named so reaches the upstream
 
 
 class UpstreamError(Exception):
@@ -20,7 +23,8 @@ class Upstream:
     Spawns the server as a subprocess, introspects its tools once at
     startup, and forwards calls. Tool list is a startup snapshot — if
     an upstream mutates its tools mid-session, we keep advertising what
-    we vetted at start.
+    we vetted at start. The child's environment is `env`, or ours, with
+    every TRIPWIRE_ variable taken out.
     """
 
     def __init__(self, command: str, env: dict[str, str] | None = None):
@@ -38,8 +42,16 @@ class Upstream:
         #
         # This is not a widening: without tripwire in the way, that
         # server was already being started with exactly this environment.
+        # Less tripwire's own variables, which it would never have seen:
+        # they say where the audit key and the task file are. That keeps
+        # them out of what the server is handed and hands on, not out of
+        # its reach: running as us, it can read our command line and
+        # environment.
+        given = env if env is not None else os.environ
         self._params = StdioServerParameters(
-            command=argv[0], args=argv[1:], env=dict(env if env is not None else os.environ)
+            command=argv[0],
+            args=argv[1:],
+            env={name: value for name, value in given.items() if not name.startswith(ENV_PREFIX)},
         )
         self._stack = AsyncExitStack()
         self._session: ClientSession | None = None
@@ -55,7 +67,7 @@ class Upstream:
             await self.aclose()
             raise UpstreamError(f"upstream {argv0(self.command)!r} failed to start: {e}") from e
 
-    async def call(self, name: str, arguments: dict) -> types.CallToolResult:
+    async def call(self, name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         assert self._session is not None, "call() before start()"
         return await self._session.call_tool(name, arguments)
 

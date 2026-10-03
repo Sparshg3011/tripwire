@@ -1,0 +1,456 @@
+[
+  {
+    "inputSchema": {
+      "properties": {
+        "attachments": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bcc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "body": {
+          "type": "string"
+        },
+        "cc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recipients": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipients",
+        "subject",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "send_email"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "email_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "email_id"
+      ],
+      "type": "object"
+    },
+    "name": "delete_email"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_unread_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_sent_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_received_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_draft_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "sender": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_emails"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_contacts_by_name"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_contacts_by_email"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_current_day"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_calendar_events"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "day": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "day"
+      ],
+      "type": "object"
+    },
+    "name": "get_day_calendar_events"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "end_time": {
+          "type": "string"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "participants": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "start_time": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "start_time",
+        "end_time"
+      ],
+      "type": "object"
+    },
+    "name": "create_calendar_event"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "event_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id"
+      ],
+      "type": "object"
+    },
+    "name": "cancel_calendar_event"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "new_end_time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "new_start_time": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "new_start_time"
+      ],
+      "type": "object"
+    },
+    "name": "reschedule_calendar_event"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "event_id": {
+          "type": "string"
+        },
+        "participants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "event_id",
+        "participants"
+      ],
+      "type": "object"
+    },
+    "name": "add_calendar_event_participants"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "file_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_id",
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "append_to_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "filename": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename"
+      ],
+      "type": "object"
+    },
+    "name": "search_files_by_filename"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "filename": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "content"
+      ],
+      "type": "object"
+    },
+    "name": "create_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "file_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_id"
+      ],
+      "type": "object"
+    },
+    "name": "delete_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "file_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_id"
+      ],
+      "type": "object"
+    },
+    "name": "get_file_by_id"
+  },
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "list_files"
+  },
+  {
+    "inputSchema": {
+      "$defs": {
+        "SharingPermission": {
+          "enum": [
+            "r",
+            "rw"
+          ],
+          "type": "string"
+        }
+      },
+      "properties": {
+        "email": {
+          "type": "string"
+        },
+        "file_id": {
+          "type": "string"
+        },
+        "permission": {
+          "$ref": "#/$defs/SharingPermission"
+        }
+      },
+      "required": [
+        "file_id",
+        "email",
+        "permission"
+      ],
+      "type": "object"
+    },
+    "name": "share_file"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_files"
+  }
+]

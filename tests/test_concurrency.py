@@ -7,6 +7,8 @@ that produces published numbers, that equality is worth pinning rather
 than assuming.
 """
 
+from dataclasses import asdict
+
 import anyio
 
 from tripwire_gym import load_scenario
@@ -38,14 +40,22 @@ async def matrix(concurrency, seen=None):
     )
 
 
+TIMINGS = ("wall_seconds", "model_seconds")
+
+
+def record(result):
+    """A results.jsonl row without the fields that time the run."""
+    row = asdict(result)
+    for name in TIMINGS:
+        del row[name]
+    return row
+
+
 async def test_parallel_and_sequential_agree():
     one = await matrix(1)
     many = await matrix(4)
 
-    assert [(r.scenario_id, r.condition, r.seed) for r in one] == [
-        (r.scenario_id, r.condition, r.seed) for r in many
-    ]
-    assert [r.outcome for r in one] == [r.outcome for r in many]
+    assert [record(r) for r in one] == [record(r) for r in many]
 
 
 async def test_results_come_back_in_matrix_order():

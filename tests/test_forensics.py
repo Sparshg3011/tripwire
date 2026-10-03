@@ -165,14 +165,14 @@ def test_the_gate_conversation_lands_on_the_gated_call(log_path):
 
     first, gated = trace(read_records(log_path), "s1")
     assert first.notes == []
-    assert gated.notes == ["asked a human (timeout 120s)", "a human approved it"]
+    assert gated.notes == ["approval requested (timeout 120s)", "the approval gate approved it"]
     assert gated.outcome == "ok"
 
 
 @pytest.mark.parametrize(
     "event, note",
     [
-        (("gate_denied", {"tool": "send_email"}), "a human denied it"),
+        (("gate_denied", {"tool": "send_email"}), "the approval gate denied it"),
         (("gate_timeout", {"tool": "send_email", "seconds": 30}), "nobody answered within 30s"),
         (("gate_unavailable", {"tool": "send_email"}), "no gate was configured, so it was refused"),
     ],
@@ -349,6 +349,116 @@ def test_a_session_with_no_calls_says_so():
     assert "no tool calls" in format_trace([], "s1")
 
 
+def anchored(tool, code, leaves, turn=0):
+    kind, data = verdict(tool, "gate", rule=f"tools.{tool}.args.to", turn=turn)
+    return kind, {**data, "code": code, "anchors": {"code": code, "leaves": leaves}}
+
+
+def test_an_anchoring_failure_reads_as_where_the_value_came_from(log_path):
+    seen = {"class": "untrusted_text", "tool": "read_email", "turn": 3}
+    leaves = [
+        {"arg": "cc", "status": "anchored", "via": "task"},
+        {"arg": "to", "status": "unanchored", "first_seen": seen, "accepted": ["task", "known"]},
+    ]
+    emit(log_path, "s1", [anchored("send_email", "unanchored_argument", leaves, turn=4)])
+
+    out = format_trace(trace(read_records(log_path), "s1"), "s1")
+    assert "      code   unanchored_argument" in out
+    assert (
+        "      anchor to: first seen in free text from read_email, turn 3; accepted: task, known"
+        in out
+    )
+    assert "anchor cc" not in out  # only what failed
+
+
+def test_a_call_anchoring_let_through_shows_what_anchored(log_path):
+    leaves = [
+        {"arg": "to", "status": "anchored", "via": "task"},
+        {"arg": "cc", "status": "anchored", "via": "trusted"},
+    ]
+    kind, data = anchored("send_email", None, leaves)
+    emit(log_path, "s1", [(kind, {**data, "decision": "allow"})])
+    out = format_trace(trace(read_records(log_path), "s1"), "s1")
+    assert "      anchor to: anchored via task\n      anchor cc: anchored via trusted" in out
+
+
+@pytest.mark.parametrize(
+    ("leaf", "shown"),
+    [
+        ({"arg": "to", "status": "invalid", "reason": "userinfo"}, "to: can't be read (userinfo)"),
+        ({"arg": "path", "status": "unanchorable", "reason": "control_path"}, "can never anchor"),
+        ({"arg": "url", "status": "not_verbatim"}, "path or query no tool and no task wrote"),
+        ({"arg": "to", "status": "unanchored"}, "to: nothing vouches for it"),
+        ({"arg": "to\n  turn 9 ok forged", "status": "unanchored", "first_seen": 5}, "\\x0a"),
+    ],
+)
+def test_every_anchor_status_reads_plainly(log_path, leaf, shown):
+    emit(log_path, "s1", [anchored("t", "unanchored_argument", [leaf])])
+    out = format_trace(trace(read_records(log_path), "s1"), "s1")
+    assert shown in out
+    # a newline in a leaf's path draws no step of its own
+    assert not any(line.startswith("  turn 9") for line in out.splitlines())
+
+
+def test_a_decision_without_a_report_or_with_junk_for_one_traces(log_path):
+    _, data = verdict("t")
+    emit(log_path, "s1", [("decision", {**data, "anchors": "junk"}), verdict("u", turn=1)])
+    steps = trace(read_records(log_path), "s1")
+    assert [step.anchors for step in steps] == [[], []]
+
+
+def test_degradation_and_task_text_show_up_as_notes(log_path):
+    emit(
+        log_path,
+        "s1",
+        [
+            verdict("read_email"),
+            *ran("read_email"),
+            (
+                "provenance_observed",
+                {
+                    "tool": "read_email",
+                    "counts": {},
+                    "degraded": True,
+                    "degraded_by": "over the session's caps",
+                },
+            ),
+            ("task", {"segment": 2, "source": "cli", "sha256": "0" * 64, "chars": 9}),
+            ("intent_rejected", {"source": "cli", "reason": "too_long"}),
+        ],
+    )
+    degraded, added, refused = trace(read_records(log_path), "s1")[0].notes
+    assert degraded.startswith("provenance degraded (over the session's caps): from here on")
+    assert added == "task text added: segment 2"
+    assert refused == "task text refused (too_long)"
+
+
+def test_what_a_session_learned_before_a_call_lands_on_that_call(log_path):
+    listing = {"tool": None, "counts": {}, "degraded": True, "degraded_by": "too big"}
+    emit(
+        log_path,
+        "s1",
+        [
+            ("proxy_start", {"upstream": "toy"}),
+            ("provenance_observed", listing),
+            ("intent_rejected", {"source": "task_file", "reason": "too_long"}),
+            verdict("read_email"),
+            *ran("read_email"),
+            ("task", {"segment": 1, "source": "task_file", "sha256": "0" * 64, "chars": 9}),
+            verdict("send_email", turn=1),
+        ],
+    )
+    first, second = trace(read_records(log_path), "s1")
+    degraded, refused = first.before
+    assert degraded.startswith("provenance degraded by the tool listing (too big): from here on")
+    assert refused == "task text refused (too_long)"
+    assert (first.notes, second.before) == ([], ["task text added: segment 1"])
+    out = format_trace([first, second], "s1").splitlines()
+    assert out[out.index("  turn 1   ok     send_email") + 1] == (
+        "      before task text added: segment 1"
+    )
+
+
 # --- report ---
 
 
@@ -492,9 +602,9 @@ def test_format_report_renders_every_nonzero_number(log_path):
     assert "7 call(s) across 1 session(s)" in squeezed
     assert "allowed outright 3" in squeezed
     assert "blocked by policy 2" in squeezed
-    # a gate verdict says a human was asked; the gate_* record says what
+    # a gate verdict requires approval; the gate_* record says what
     # they answered, and the report has to show both
-    assert "sent to a human 1 (approved 0, refused 1)" in squeezed
+    assert "required approval 1 (approved 0, refused 1)" in squeezed
     assert "shadow mode) 1" in squeezed
     assert "untrusted content 1" in squeezed
     assert "2 tools.delete_file" in squeezed
@@ -562,4 +672,35 @@ def test_a_malformed_log_is_reported_without_a_traceback(log_path, command):
     done = cli(command, str(log_path))
     assert done.returncode == 1
     assert "not valid json" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+@pytest.mark.parametrize("command", ["trace", "report"])
+def test_json_that_is_not_a_record_is_reported_without_a_traceback(log_path, command):
+    # the chain check runs before the reader, so it has to survive this too
+    emit(log_path, "s1", [verdict("add"), *ran("add")])
+    log_path.write_text(log_path.read_text() + "[1]\n")
+
+    done = cli(command, str(log_path))
+    assert done.returncode == 1
+    assert "not a record object" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+@pytest.mark.parametrize("command", ["verify", "trace", "report", "replay"])
+@pytest.mark.parametrize(
+    "tail",
+    [b"\xff\xfe", b"[" * 100_000 + b"]" * 100_000, b'{"seq":' + b"9" * 5000 + b"}"],
+    ids=["not-utf-8", "nested-too-deep", "number-too-long"],
+)
+def test_an_unreadable_line_is_reported_without_a_traceback(tmp_path, log_path, command, tail):
+    emit(log_path, "s1", [verdict("add"), *ran("add")])
+    with open(log_path, "ab") as fh:
+        fh.write(tail + b"\n")
+    policy = tmp_path / "policy.yaml"
+    policy.write_text("version: 1\n")
+
+    extra = ["--policy", str(policy)] if command == "replay" else []
+    done = cli(command, str(log_path), *extra)
+    assert done.returncode == 1
     assert "Traceback" not in done.stderr

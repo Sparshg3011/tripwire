@@ -9,6 +9,7 @@ from collections import Counter
 from pathlib import Path
 
 from tripwire_gym.manifest import fingerprint
+from tripwire_gym.resources import GYM
 from tripwire_gym.scenario import Scenario, ScenarioError, load_corpus
 
 
@@ -77,7 +78,7 @@ def freeze(directory: str | Path) -> dict:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="validate and fingerprint a Tripwire corpus")
-    parser.add_argument("--scenarios", default="gym/scenarios")
+    parser.add_argument("--scenarios", default=str(GYM / "scenarios"))
     parser.add_argument("--out", help="write the frozen receipt to this JSON file")
     args = parser.parse_args(argv)
     try:

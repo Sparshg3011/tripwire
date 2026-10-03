@@ -36,12 +36,12 @@ import anyio
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from tripwire.intent import write_task
 from tripwire_gym.agent import Agent, AgentStats, ToolCallRecord
 from tripwire_gym.human import Human, find_gate_url
+from tripwire_gym.resources import GYM
 from tripwire_gym.scenario import Scenario
 from tripwire_gym.scoring import Call, Outcome, score
-
-GYM = Path(__file__).resolve().parent.parent.parent / "gym"
 
 # A whole run: proxy start, several model round trips, tool calls. Big
 # reasoning models spend minutes thinking, and a cap that fires costs a
@@ -214,6 +214,15 @@ async def run_once(
         if policy is None:
             params = StdioServerParameters(command=mock_cmd[0], args=mock_cmd[1:], env=env)
         else:
+            # The proxy spawns the mock itself, and keeps every TRIPWIRE_
+            # variable of its own from it, so the calls path rides in on
+            # the upstream command.
+            upstream = ["env", f"TRIPWIRE_GYM_CALLS={calls_path}", *mock_cmd]
+            # the user's task reaches the proxy the way a host hands it
+            # over, so a policy with `unless: anchored` sees what it
+            # would see in production; policies without it ignore it
+            task_path = room / "task.txt"
+            write_task(task_path, scenario.task)
             argv = [
                 "-m",
                 "tripwire",
@@ -221,21 +230,17 @@ async def run_once(
                 "--policy",
                 str(policy),
                 "--upstream",
-                shlex.join(mock_cmd),
+                shlex.join(upstream),
                 "--audit",
                 str(audit_path),
+                "--task-file",
+                str(task_path),
             ]
             if gated:
                 # port 0: every run gets its own gate, so a matrix can't
                 # have two proxies fighting over one port
                 argv += ["--gate", "web", "--gate-port", "0"]
-            params = StdioServerParameters(
-                command=sys.executable,
-                args=argv,
-                # the proxy spawns the mock itself, and the child needs
-                # the calls path — this is why Upstream takes an env
-                env=env,
-            )
+            params = StdioServerParameters(command=sys.executable, args=argv, env=env)
 
         # owned here, not returned by the agent: a run that dies halfway
         # must keep what it already attempted, or a crashed attack run
@@ -248,19 +253,21 @@ async def run_once(
             with anyio.fail_after(timeout):
                 # one small local file, opened once at run start
                 with open(stderr_path, "w+") as errlog:  # noqa: ASYNC230
-                    async with stdio_client(params, errlog=errlog) as (read, write):
-                        async with ClientSession(read, write) as mcp:
-                            await mcp.initialize()
-                            async with anyio.create_task_group() as tg:
-                                approver = None
-                                if gated:
-                                    approver = await _start_human(tg, stderr_path, human)
-                                await agent.run(scenario.task, Session(mcp), attempted)
-                                # the agent is done, so nobody is left to
-                                # ask; without this the group waits forever
-                                tg.cancel_scope.cancel()
-                            if approver is not None:
-                                answered = approver.answered
+                    async with (
+                        stdio_client(params, errlog=errlog) as (read, write),
+                        ClientSession(read, write) as mcp,
+                    ):
+                        await mcp.initialize()
+                        async with anyio.create_task_group() as tg:
+                            approver = None
+                            if gated:
+                                approver = await _start_human(tg, stderr_path, human)
+                            await agent.run(scenario.task, Session(mcp), attempted)
+                            # the agent is done, so nobody is left to
+                            # ask; without this the group waits forever
+                            tg.cancel_scope.cancel()
+                        if approver is not None:
+                            answered = approver.answered
         except Exception as e:  # noqa: BLE001 — a crashed run is a data point
             error = _describe_failure(e)
 

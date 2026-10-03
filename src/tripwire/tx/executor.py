@@ -6,12 +6,25 @@ noise; for a payment it's the incident report. The executor makes a
 duplicate call return the first call's result instead of running the
 tool a second time.
 
-The key: SHA-256 over (session_id, tool, canonical args serialized as
-compact sorted json). Same intent -> same key. Args are the
-*canonicalized* form, so two spellings of one value can't dodge the
-dedup. Keys include the session id, so nothing replays across sessions
-— a fresh session starts with a clean slate even against the same db
-file.
+The key: SHA-256 over (session_id, tool, args serialized as compact
+sorted json). Same intent -> same key. Args are the form the proxy
+forwards, since two spellings that reach the tool are two different
+calls to it. Enforcing, the proxy forwards the arguments the policy
+checks *canonicalized*, so two spellings of a checked value can't dodge
+the dedup, and the rest as they arrived. In shadow mode it forwards
+every argument as it arrived, so that is how all of them are keyed.
+Keys include the session id, so nothing replays across sessions — a
+fresh session gets fresh results even against the same db file.
+
+In the proxy a session is one process, i.e. one agent connection, so a
+restarted proxy is a new session: a call its predecessor completed runs
+again if the agent repeats it. That is deliberate. The ledger has no
+clock, so replay across sessions would hand every later conversation
+the first one's answer, forever. The price: a call that completed just
+before the proxy died, with the answer lost on the way to the agent, is
+not deduplicated against the retry that reaches its successor. The
+audit log shows both. What does cross sessions is an unresolved intent,
+below.
 
 Ledger lifecycle, in SQLite (WAL mode, busy_timeout set):
 
@@ -33,6 +46,18 @@ run(tool, args, forward) -> (result, replayed):
                              effect happened, and neither does anyone
                              else, so the answer is no, every time,
                              until an operator inspects the ledger.
+
+  * 'in_flight' row for the same call from ANOTHER session -> raise
+    DuplicateInFlight too. This is the proxy that died mid-call and came
+    back as a new session, and its retry is the duplicate the ledger
+    exists to stop. It also refuses a second live session that shares
+    the db and happens to be mid-call on the identical thing, even one
+    that arrives at the same instant: the ledger holds one unresolved
+    row per call. Once that one finishes, the call runs.
+
+  * 'in_flight' row written before sessions were recorded -> raise
+    DuplicateInFlight for every call to its tool. Such a row can't say
+    which call it was, so none of them can be told apart from it.
 
   * forward returns isError=True -> the intent row is DELETED and the
     error result returned, (result, False). The tool itself told us it
@@ -71,8 +96,7 @@ Contract: no clock games, no randomness, total over whatever args
 arrive. The only I/O in this module is the SQLite file. Same key in ->
 same row touched, forever.
 
-The spec is executable: tests/test_tx_executor.py. Delete the skip line
-and make it green.
+The spec is executable: tests/test_tx_executor.py.
 """
 
 from __future__ import annotations
@@ -102,9 +126,15 @@ CREATE TABLE IF NOT EXISTS intents (
     key      TEXT PRIMARY KEY,
     tool     TEXT NOT NULL,
     state    TEXT NOT NULL,
-    result   TEXT
+    result   TEXT,
+    call_key TEXT,
+    session  TEXT
 )
 """
+
+# added after the first ledgers were written; a ledger without them keeps
+# working, but its old rows can't be matched to a call from another session
+LATER_COLUMNS = ("call_key", "session")
 
 
 def intent_key(session_id: str, tool: str, args: dict[str, Any]) -> str:
@@ -127,7 +157,40 @@ class TxExecutor:
             # instead of failing the call
             self._db.execute("PRAGMA journal_mode=WAL")
             self._db.execute("PRAGMA busy_timeout=5000")
-            self._db.execute(SCHEMA)
+            # one write transaction, or proxies opening an old ledger
+            # together all see a column missing and all but one fail to
+            # add it
+            with self._db:
+                self._db.execute("BEGIN IMMEDIATE")
+                self._db.execute(SCHEMA)
+                have = {row[1] for row in self._db.execute("PRAGMA table_info(intents)")}
+                for column in LATER_COLUMNS:
+                    if column not in have:
+                        self._db.execute(f"ALTER TABLE intents ADD COLUMN {column} TEXT")
+                # an earlier version let two sessions both start one call,
+                # and the rows they left can't take the index below; which
+                # of them to keep is for an operator to decide
+                twice = self._db.execute(
+                    "SELECT tool, group_concat(session, ', ') FROM intents "
+                    "WHERE state = 'in_flight' AND call_key IS NOT NULL "
+                    "GROUP BY call_key HAVING count(*) > 1"
+                ).fetchone()
+                if twice is not None:
+                    raise TxError(
+                        f"cannot open the ledger at {self.path}: sessions {twice[1]} each started "
+                        f"the same {twice[0]} call and never recorded an outcome; delete all but "
+                        f"one of their rows, which keeps the call refused until it's cleared"
+                    )
+                # one unresolved row per call across every session; the
+                # look in run() and the insert after it are two statements,
+                # and this is what keeps two sessions from both passing
+                self._db.execute(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS intents_in_flight "
+                    "ON intents (call_key) WHERE state = 'in_flight'"
+                )
+                # what the index above replaced; it serves every lookup
+                # this one did
+                self._db.execute("DROP INDEX IF EXISTS intents_by_call")
         except sqlite3.Error as e:
             raise TxError(f"cannot open the ledger at {self.path}: {e}") from e
 
@@ -149,11 +212,42 @@ class TxExecutor:
                 f"inspect {self.path} before retrying"
             )
 
+        # the same call with no session in it: an unknown outcome outlives
+        # the session that lost track of it
+        call = intent_key("", tool, args)
+        stranded = self._one(
+            "SELECT session FROM intents WHERE call_key = ? AND state = 'in_flight'", (call,)
+        )
+        if stranded is not None:
+            raise DuplicateInFlight(
+                f"{tool} with these arguments was started by session {stranded[0]} and never "
+                f"recorded an outcome; inspect {self.path} before retrying"
+            )
+        legacy = self._one(
+            "SELECT 1 FROM intents WHERE call_key IS NULL AND tool = ? AND state = 'in_flight'",
+            (tool,),
+        )
+        if legacy is not None:
+            raise DuplicateInFlight(
+                f"a {tool} call from before sessions were recorded never recorded an outcome, "
+                f"and nothing says which call it was; inspect {self.path} before retrying"
+            )
+
         # intent first, always: a side effect with no prior record is the
         # one thing this class exists to prevent
-        self._write(
-            "INSERT INTO intents (key, tool, state) VALUES (?, ?, 'in_flight')", (key, tool)
-        )
+        try:
+            self._db.execute(
+                "INSERT INTO intents (key, tool, state, call_key, session) "
+                "VALUES (?, ?, 'in_flight', ?, ?)",
+                (key, tool, call, self.session_id),
+            )
+        except sqlite3.IntegrityError as e:
+            raise DuplicateInFlight(
+                f"{tool} with these arguments was started by another session at the same "
+                f"moment; inspect {self.path} before retrying"
+            ) from e
+        except sqlite3.Error as e:
+            raise TxError(f"ledger write failed: {e}") from e
 
         result = await forward()
 

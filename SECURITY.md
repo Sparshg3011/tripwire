@@ -20,11 +20,12 @@ Anything that breaks one of the guarantees in the README:
 
 - A tool call reaching an upstream server without a verdict
 - A verdict that should have been a block or a gate coming back as allow
-- A side effect with no audit record, or a record that can be altered
-  without breaking the chain
+- A side effect with no audit record, or a record in a keyed log that
+  can be altered without the key and without breaking the chain
 - Getting the proxy to fail *open* rather than closed
-- Reaching the approval gate's decision endpoint without the token, or
-  otherwise approving a call the human didn't approve
+- Reaching the approval gate's decision endpoint without the token, approving
+  a call without authorized human/host approval, or spending an exact approval
+  for different arguments, a different session, or more than once
 - Argument spellings that pass a constraint but reach the tool meaning
   something else
 
@@ -45,8 +46,8 @@ These are documented limits, not vulnerabilities — see
 - A malicious upstream server lying about what it did
 - A permissive policy doing what it says (tripwire enforces the policy
   you wrote, not the one you meant)
-- Tail truncation of the audit log, and the final record being
-  unauthenticated until another follows it
+- Tail truncation of the audit log; and for an unkeyed log, a rewrite
+  by anyone who can write the file, including of the final record
 
 If you're unsure which side of that line something falls on, report it
 anyway. A false alarm costs a few minutes; the alternative doesn't.
