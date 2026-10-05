@@ -268,7 +268,14 @@ def make_guarded_runtime(
             first = len(self.log.records)
             try:
                 answer = anyio.run(self.interceptor.handle, function, dict(kwargs))
-            except Exception as exc:  # noqa: BLE001 - fail closed at the adapter boundary
+            except Exception as exc:  # fail closed at the adapter boundary
+                if self.upstream.outcome is not None:
+                    # The tool ran and tripwire never recorded its result, so
+                    # this case was not enforced; scoring it as if it were
+                    # would credit the policy with a run it never saw.
+                    raise AdapterError(
+                        f"the interceptor failed after {function} ran: {type(exc).__name__}: {exc}"
+                    ) from exc
                 reason = f"the interceptor failed: {type(exc).__name__}: {exc}"
                 answer = refused(reason, "adapter_error")
 
