@@ -6,7 +6,7 @@ def check_mcp(version: str) -> None:
     every result, so under it a call would run and its result go
     unrecorded: no taint, no provenance, a policy half enforced."""
     if int(version.split(".")[0]) >= 2:
-        raise ImportError(f"tripwire needs mcp 1.x (>=1.10,<2), and mcp {version} is installed")
+        raise ImportError(f"tripwire needs mcp 1.x, and mcp {version} is installed")
 
 
 check_mcp(importlib.metadata.version("mcp"))
