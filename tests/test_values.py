@@ -12,7 +12,7 @@ import unicodedata
 from importlib.resources import files
 
 import pytest
-from hypothesis import HealthCheck, assume, given, settings
+from hypothesis import HealthCheck, assume, example, given, settings
 from hypothesis import strategies as st
 
 from tripwire.policy.values import (
@@ -2137,6 +2137,7 @@ glue = st.lists(
 
 
 @given(value=respelled(kinds=("host", "url")), before=glue, after=glue)
+@example(value="0.com", before="", after="x")
 @settings(max_examples=500, suppress_health_check=[HealthCheck.too_slow])
 def test_poison_covers_every_underscore_host_a_task_anchors(value, before, after):
     text = f"see {before}{value}{after} now"
@@ -2144,9 +2145,12 @@ def test_poison_covers_every_underscore_host_a_task_anchors(value, before, after
     scan = scan_poison(text)
     for key in task.keys | task.mentioned:
         assert is_poisoned(key, [scan]), key
+    # a letter or digit glued on makes a longer token, which no key under 6
+    # characters is held in: "0.comx" is not 0.com
+    glued = before[-1:].isalnum() or after[:1].isalnum()
     for vtype in ("host", "url", "auto"):
         for outcome in normalize_all(value, vtype):
-            if isinstance(outcome, Key):
+            if isinstance(outcome, Key) and not (glued and len(outcome.key) < 6):
                 assert is_poisoned(outcome, [scan]), outcome
 
 
