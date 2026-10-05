@@ -1026,16 +1026,19 @@ class TaskIndex:
 
 # --- poison: greedy ------------------------------------------------------------
 
-# Every task pattern with its limits removed. The one lookbehind left, on
-# hosts, only stops the pattern restarting inside a run it has already
+# Every task pattern with its limits removed. The lookbehinds left, on
+# hosts, only stop a pattern restarting inside a run it has already
 # rejected, which would be quadratic; a match can always start where the
 # run starts.
 _P_URL = re.compile(r"(?i:https?)://[^\s<>\"'`]+")
 # Trailing dots before a port too: "h.:8443" is the host key "h:8443". The
 # port is read ahead, not consumed, since a task host may start inside it:
-# "a.io:1b.com". An underscore joins a run, as it does a task host; the
-# hosts on either side of one poison by is_poisoned()'s text rule.
+# "a.io:1b.com". An underscore joins a run, as it does a task host.
 _P_HOST = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\.*(?=(:[0-9]+)?)")
+# The same runs split at underscores, so that the hosts on either side of
+# one are sighted too: the text rule doesn't hold a short one that a
+# letter past ASCII touches at its other end ("x_ab.io中文").
+_P_LDH_HOST = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.*(?=(:[0-9]+)?)")
 _P_IPV6 = re.compile(r"\[[0-9A-Fa-f:.]*\](?::[0-9]+)?")
 _P_IBAN = re.compile(r"[A-Za-z]{2}(?:[\s.()-]*[0-9]){2}(?:[\s.()-]*[A-Za-z0-9]){11,30}")
 _P_PHONE = re.compile(r"\+?[0-9](?:[\s.()-]*[0-9])*")
@@ -1197,10 +1200,11 @@ def _sight(source: str, add: Callable[[Outcome], None]) -> None:
         add(_url(m.group()))
         add(_url(m.group().rstrip(TRAILING)))
 
-    for m in _P_HOST.finditer(source):
-        add(_host(m.group()))
-        if m.group(1):
-            add(_host(m.group() + m.group(1)))
+    for pattern in (_P_HOST, _P_LDH_HOST):
+        for m in pattern.finditer(source):
+            add(_host(m.group()))
+            if m.group(1):
+                add(_host(m.group() + m.group(1)))
 
     for m in _P_IPV6.finditer(source):
         add(_host(m.group()))

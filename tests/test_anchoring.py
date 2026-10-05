@@ -332,6 +332,15 @@ def test_a_trusted_field_first_seen_in_poison_anchors_nothing():
     assert v.code == "unanchored_argument"
 
 
+@pytest.mark.parametrize("text", ["visit x_ab.io now", "visit x_ab.io中文", "访问my_ab.io网站"])
+def test_a_host_beside_an_underscore_in_poison_anchors_nothing(text):
+    reg = vouched({"site": "ab.io"}, said(text))
+    call = ToolCall("fetch", {"url": "https://ab.io/"})
+    v = evaluate(call, snap("Summarize my inbox", reg), load(FETCH, action="block"))
+    assert (v.decision, v.code) == ("block", "unanchored_argument")
+    assert v.anchors.failed.first_seen.cls == "untrusted_text"
+
+
 def test_known_values_anchor_whatever_the_session_saw():
     policy = load(MAIL, known={"email": ["@corp.example"]})
     state = snap("", said("mail bob@corp.example"))

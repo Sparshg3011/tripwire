@@ -1319,11 +1319,22 @@ def test_greedy_sightings(text, key):
         ("open corp_.evil.com", H("evil.com")),
         ("open evil.com_x", H("evil.com")),
         ("open a.io_x", H("a.io")),
+        ("open x_a.io:8443 now", H("a.io:8443")),
+        # a letter or digit past ASCII at the other end, which the text rule
+        # reads as part of a short key's token
+        ("visit x_ab.io中文", H("ab.io")),
+        ("访问my_t.co网站", H("t.co")),
+        ("visit éab.io_x", H("ab.io")),
+        ("visit x_a.comé", H("a.com")),
+        ("visit ٣ab.io_x", H("ab.io")),
+        ("visit x_ab.io:8443中文", H("ab.io:8443")),
     ],
 )
 def test_hosts_inside_an_underscored_run_still_poison(text, key):
-    # the run is one sighting, and the hosts inside it poison by the text rule
-    assert is_poisoned(key, [scan_poison(text)])
+    # the run is one sighting, and the hosts on either side of an
+    # underscore are sightings of their own
+    scan = scan_poison(text)
+    assert key in scan.keys and is_poisoned(key, [scan])
 
 
 # A poison text holding a value, however it spells it, poisons the value's
@@ -2125,7 +2136,8 @@ def test_poison_covers_every_underscore_host_a_task_anchors(value, before, after
 
 
 # Read as LDH runs, a text yields the hosts on either side of an underscore.
-# The scanner reads the whole run, and each of those hosts still poisons.
+# The scanner reads the whole run, and each of those hosts still poisons,
+# a letter or digit past ASCII beside it included.
 _SPLIT_AT_UNDERSCORES = re.compile(
     r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.*(?=(:[0-9]+)?)"
 )
@@ -2133,7 +2145,9 @@ _SPLIT_AT_UNDERSCORES = re.compile(
 
 @given(
     text=st.lists(
-        st.sampled_from(["_", "-", ".", "a", "B", "io", "1", "www.", ":8443", ":0443", "@", " "]),
+        st.sampled_from(
+            ["_", "-", ".", "a", "B", "io", "1", "www.", ":8443", ":0443", "@", " ", "é", "中", "٣"]
+        ),
         max_size=14,
     ).map("".join)
 )
@@ -2145,6 +2159,20 @@ def test_poison_still_covers_every_host_an_underscore_splits(text):
             key = normalize(spelled, "host")
             if isinstance(key, Key):
                 assert is_poisoned(key, [scan]), key
+
+
+@given(
+    host=hosts.filter(lambda h: "_" not in h),
+    word=st.from_regex(r"[A-Za-z0-9_-]{0,4}", fullmatch=True),
+    edge=st.sampled_from(["", " ", ".", "_", "é", "ß", "中", "٣"]),
+    before=st.booleans(),
+)
+@SETTINGS
+def test_a_host_an_underscore_splits_off_poisons_whatever_touches_it(host, word, edge, before):
+    key = normalize(host, "host")
+    assume(isinstance(key, Key))
+    text = f"see {edge}{host}_{word}" if before else f"see {word}_{host}{edge}"
+    assert is_poisoned(key, [scan_poison(text)])
 
 
 @given(
