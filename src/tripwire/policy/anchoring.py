@@ -39,8 +39,9 @@ checked too:
   shape     a leaf whose whole value is an email address, an IBAN or an
             http(s) URL is checked as a target
   links     every link in a leaf needs an anchored host: task, known
-            or trusted. A file name the task mentions ("notes.zip")
-            passes only written bare, never as a site around it.
+            or trusted. A file or dotted name the task mentions
+            ("notes.zip", "my_app.settings.dev") passes only written
+            bare, never as a site around it.
             A link is a URL of any scheme, one with no scheme ("//host"),
             or a bare www. host or host with a pinned TLD, Markdown's
             *, _, ~ and | around it left out; one that doesn't read as
@@ -424,9 +425,10 @@ class _Check:
             status: LeafStatus = "unanchorable" if isinstance(outcome, Unanchorable) else "invalid"
             reason = outcome.reason if outcome is not None else "empty"
             return LeafReport(arg, "content", "url", status, _VOUCHED, reason=reason, value=link)
-        # A host the task names only as a file ("unzip notes.zip") vouches
-        # for that file name written bare, and for no scheme, www., //
-        # or path around it: those make it a site the task never named.
+        # A host the task names only as a file or dotted name ("unzip
+        # notes.zip") vouches for that name written bare, and for no
+        # scheme, www., // or path around it: those make it a site the
+        # task never named.
         bare = (
             _LINK.match(read) is None
             and read[:4].lower() != "www."

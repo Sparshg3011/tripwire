@@ -60,9 +60,12 @@ refused to start.
   or `www.daily_news.com`, is read as that host. It was refused as unreadable,
   so a target naming one blocked even before any untrusted content. The
   underscore is kept: `shop_center.com` and `shop-center.com` are two hosts,
-  and a task naming `shop_center.com` anchors it and never `center.com`. An
-  underscore still can't start or end a label or sit in the last one, and a
-  mail domain still can't hold one, since RFC 5321 doesn't allow it.
+  and a task naming `shop_center.com` anchors it and never `center.com`. A
+  task naming `my_app.settings.dev` bare, its underscore left of the last
+  two labels, only mentions it, as it does a file name, since anyone may
+  register `settings.dev`. An underscore still can't start or end a label or
+  sit in the last one, and a mail domain still can't hold one, since RFC
+  5321 doesn't allow it.
 
 - A file name the task mentions no longer vouches for a link to a host of
   that name: `unzip backup.zip` in the task let `https://backup.zip/...`

@@ -916,7 +916,14 @@ def _task_keys(text: str) -> tuple[set[Key], set[Key], str]:
         outcome = _host(token)
         if not isinstance(outcome, Key):
             continue
-        if labels[0] != "www" and labels[-1] in FILE_EXT_TLDS:
+        # Without www., a host with an underscore left of its last two
+        # labels is usually a dotted name (my_app.settings.dev), and is
+        # mentioned only, as a file name is: anyone may register the
+        # domain those two LDH labels form and serve any label under it.
+        # An underscore in the second-to-last label is in a name no
+        # registry issues (shop_center.com).
+        dotted_name = "_" in token and "_" not in labels[-2]
+        if labels[0] != "www" and (labels[-1] in FILE_EXT_TLDS or dotted_name):
             mentioned.add(outcome)
         else:
             keys.add(outcome)
@@ -953,7 +960,8 @@ class TaskIndex:
     labelled ids are matched against the text at query time."""
 
     keys: frozenset[Key] = frozenset()
-    # hosts the task names only as file names: notes.md, report.zip
+    # hosts the task names only as file or dotted names: notes.md,
+    # report.zip, my_app.settings.dev
     mentioned: frozenset[Key] = frozenset()
     # task paths of 2+ components, sorted: prefixes for `match: under`
     under_prefixes: tuple[str, ...] = ()

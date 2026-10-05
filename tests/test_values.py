@@ -1044,6 +1044,15 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Email bob@shop_center.com", H("center.com"), False),
         ("Look in /srv/shop_center.com/x", H("shop_center.com"), False),
         ("See https://shop_center.com@corp.com/", H("shop_center.com"), False),
+        ("Visit x.a_b.com", H("x.a_b.com"), True),
+        # further left, bare, it is a dotted name, under a domain anyone may
+        # register: mentioned, not anchored, unless www. or a scheme
+        ("Set SETTINGS=my_project.settings.dev", H("my_project.settings.dev"), False),
+        ("import data_utils.loaders.io", H("data_utils.loaders.io"), False),
+        ("Visit my_wiki.corp.com", H("my_wiki.corp.com"), False),
+        ("Visit a_b.c.d_e.com", H("a_b.c.d_e.com"), True),
+        ("Visit www.my_wiki.corp.com", H("my_wiki.corp.com"), True),
+        ("Visit https://my_wiki.corp.com/x", H("my_wiki.corp.com"), True),
         # file-extension TLDs are mentioned, not anchored, unless www.
         ("Open notes.md", H("notes.md"), False),
         ("Open notes.zip", H("notes.zip"), False),
@@ -1219,10 +1228,16 @@ def test_hosts_named_as_files_are_mentioned():
 def test_snake_case_names_anchor_no_host():
     task = TaskIndex.build(
         "Rename user_name to full_name in self.user_name, run conftest_utils.py, "
-        "edit __init__.py, _private.py and my_notes.md, and set config.max_retries"
+        "edit __init__.py, _private.py and my_notes.md, set config.max_retries, "
+        "set DJANGO_SETTINGS_MODULE=my_project.settings.dev and import data_utils.loaders.io"
     )
     assert not any(k.vtype == "host" for k in task.keys)
-    assert task.mentioned == {H("conftest_utils.py"), H("my_notes.md")}
+    assert task.mentioned == {
+        H("conftest_utils.py"),
+        H("my_notes.md"),
+        H("my_project.settings.dev"),
+        H("data_utils.loaders.io"),
+    }
 
 
 def test_under_prefixes_are_task_paths_of_two_or_more_components():
@@ -2272,6 +2287,21 @@ def test_hosts_never_anchor_from_inside_an_underscored_token(host, other, before
     assume(isinstance(key, Key))
     token = f"{other}_{host}" if before else f"{host}_{other}"
     assert not anchored(context.format(token), key)
+
+
+# Bare, a host with an underscore only left of its last two labels is a
+# dotted name under a domain anyone may register: mentioned, not anchored.
+@given(
+    name=st.from_regex(r"[a-z0-9]{1,4}(?:[_.][a-z0-9]{1,4})*_[a-z0-9]{1,4}", fullmatch=True),
+    domain=hosts.filter(lambda h: "_" not in h),
+    context=st.sampled_from(["{}", "Visit {} today.", "import {}", "MODULE={}", "*{}*"]),
+)
+@SETTINGS
+def test_a_bare_dotted_name_with_an_underscore_is_only_mentioned(name, domain, context):
+    key = normalize(f"{name}.{domain}", "host")
+    assume(isinstance(key, Key) and not name.startswith("www."))
+    task = TaskIndex.build(context.format(f"{name}.{domain}"))
+    assert task.mentions(key) and not task.anchors(key)
 
 
 # A mark or format character joins the token it sits in, as it renders.
