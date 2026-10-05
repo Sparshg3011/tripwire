@@ -39,8 +39,9 @@ checked too:
   shape     a leaf whose whole value is an email address, an IBAN or an
             http(s) URL is checked as a target
   links     every link in a leaf needs an anchored host: task, known
-            or trusted. A file name the task mentions ("notes.zip")
-            passes only written bare, never as a site around it.
+            or trusted. A file or dotted name the task mentions
+            ("notes.zip", "my_app.settings.dev") passes only written
+            bare, never as a site around it.
             A link is a URL of any scheme, one with no scheme ("//host"),
             or a bare www. host or host with a pinned TLD, Markdown's
             *, _, ~ and | around it left out; one that doesn't read as
@@ -128,12 +129,13 @@ _SCHEME = re.compile(r"(?i:https?)://")
 # Where a link may start: a scheme a browser reads a host after however
 # many slashes or backslashes follow ("https:/x.com", "https:\\x.com"),
 # any other scheme followed by two, or two with no scheme before them,
-# which the page's own fills in ("//x.com"). A scheme starts no later in
-# a run of scheme characters than where the run does, so that finding
-# one takes a single pass.
+# which the page's own fills in ("//x.com"), an underscore before them
+# included: it is no scheme character, and opens emphasis ("_//x.com_").
+# A scheme starts no later in a run of scheme characters than where the
+# run does, so that finding one takes a single pass.
 _LINK = re.compile(
     r"(?i:(?<![a-z0-9+.-])(?:(?:https?|wss?|ftp|file):|[a-z][a-z0-9+.-]++:[/\\]{2}))"
-    r"|(?<![\w:/\\])[/\\]{2}"
+    r"|(?<![^\W_])(?<![:/\\])[/\\]{2}"
 )
 _AUTHORITY_END = re.compile(r"[/?#]")
 # what a sentence may end a link with, which no one need have written
@@ -424,9 +426,10 @@ class _Check:
             status: LeafStatus = "unanchorable" if isinstance(outcome, Unanchorable) else "invalid"
             reason = outcome.reason if outcome is not None else "empty"
             return LeafReport(arg, "content", "url", status, _VOUCHED, reason=reason, value=link)
-        # A host the task names only as a file ("unzip notes.zip") vouches
-        # for that file name written bare, and for no scheme, www., //
-        # or path around it: those make it a site the task never named.
+        # A host the task names only as a file or dotted name ("unzip
+        # notes.zip") vouches for that name written bare, and for no
+        # scheme, www., // or path around it: those make it a site the
+        # task never named.
         bare = (
             _LINK.match(read) is None
             and read[:4].lower() != "www."

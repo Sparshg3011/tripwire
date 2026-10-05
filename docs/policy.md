@@ -283,13 +283,23 @@ take a file name as content: a call with a content value that, read as
 a path, names a control file or one of tripwire's own is never
 discharged.
 
+A host may hold underscores inside any label but the last, as browsers
+and resolvers allow: `shop_center.com` is one host, not
+`shop-center.com`, and a task that names it anchors it and never
+`center.com`. Written bare with its underscores left of the last two
+labels, as in `my_app.settings.dev`, it reads as a dotted name under a
+domain anyone may register (`settings.dev`), so the task mentions it as
+it does a file name; a URL or `www.` makes it a site. A mail domain may
+not hold an underscore (RFC 5321), so `alice@shop_center.com` can't be
+read, and as a target it blocks.
+
 **Content** of a tool with a target argument is checked too. A value
 that is wholly an address, an IBAN or a URL is checked as a target;
 every link in it, whatever its scheme (`//host/...`, a bare
 `host.com/...` and one in Markdown emphasis, like `*www.host.com*`,
 included), must read as an http(s) URL to a host the task names, a
-known host, or one a trusted tool returned; a file name the task
-mentions, like `notes.zip`, passes only written bare, not as a site
+known host, or one a trusted tool returned; a file or dotted name the
+task mentions, like `notes.zip`, passes only written bare, not as a site
 (`https://notes.zip/...`, `www.notes.zip`, `notes.zip/get`); and a URL with a path, query or fragment must
 appear exactly as the task or a tool wrote it, so it can't carry what
 the session gathered. That is the URL as the call sends it, invisible

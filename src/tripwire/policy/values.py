@@ -39,14 +39,18 @@ Normalizers:
 
   email  unwrap `Name <a>` and mailto:, lowercase, strip the domain's
          trailing dots. Invalid outside [a-z0-9._%+-]+@label(.label)*.tld,
-         with `..`, a local part over 64 or a total over 254. Non-ASCII is
-         Unanchorable. Plus tags and Gmail dots are not folded.
+         with `..`, a local part over 64 or a total over 254. A domain
+         label is [a-z0-9-]+: RFC 5321 gives a mail domain no underscore,
+         though a host may have one. Non-ASCII is Unanchorable. Plus tags
+         and Gmail dots are not folded.
   host   host[:port]: lowercase, strip trailing dots, drop one leading
-         www., fold ports 80 and 443. Invalid: a non-LDH label, fewer than 2
-         labels, any IPv4 spelling but dotted decimal, non-canonical
-         bracketed IPv6, a bad port. Non-ASCII is Unanchorable; xn-- labels
-         compare as ASCII. A host named like a control file (claude.md) is
-         Unanchorable.
+         www., fold ports 80 and 443. Labels are LDH, and any but the last
+         may hold underscores where it may hold hyphens; an underscore is
+         kept, so shop_center.com and shop-center.com are two keys.
+         Invalid: any other label, fewer than 2 labels, any IPv4 spelling
+         but dotted decimal, non-canonical bracketed IPv6, a bad port.
+         Non-ASCII is Unanchorable; xn-- labels compare as ASCII. A host
+         named like a control file (claude.md) is Unanchorable.
   url    the key is the host key of its authority, so a URL anchors by
          host[:port]; path, query and fragment are content. Invalid: a
          scheme other than http(s), userinfo, a backslash, whitespace, % in
@@ -306,7 +310,13 @@ _EMAIL = re.compile(r"[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,63}")
 # a display name that could itself read as an address, or split a list,
 # makes the whole value ambiguous, so it doesn't unwrap
 _ANGLE = re.compile(r"([^<>@,;]*)<([^<>]*)>")
-_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+# LDH, plus underscores where a hyphen may go: browsers and resolvers read
+# shop_center.com as written. Not at a label's ends, where one opens or
+# closes Markdown emphasis around a host (_x.com_), which the link scanner
+# reads past, or starts a DNS service label (_dmarc). Not in the last label,
+# which no TLD spells with one and which decides whether a host is an IPv4
+# address.
+_LABEL = re.compile(r"[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?")
 # what a URL parser treats as the last label of an IPv4 address
 _NUMERIC_LABEL = re.compile(r"0x[0-9a-f]*|[0-9]+")
 _DOTTED_QUAD = re.compile(r"(?:0|[1-9][0-9]{0,2})(?:\.(?:0|[1-9][0-9]{0,2})){3}")
@@ -366,7 +376,7 @@ def _hostname(host: str) -> str | Invalid:
         return Invalid("labels")
     if len(host) > 253:
         return Invalid("too_long")
-    if any(_LABEL.fullmatch(label) is None for label in labels):
+    if "_" in labels[-1] or any(_LABEL.fullmatch(label) is None for label in labels):
         return Invalid("label")
     if _NUMERIC_LABEL.fullmatch(labels[-1]):
         # octal, hex and short forms all reach an address; only canonical
@@ -765,9 +775,10 @@ _T_QUOTED = re.compile(r'"[^"]*"(?=@)')
 # no path character before it either, so a masked URL never splits a path
 _T_URL = re.compile(r"(?<![\w.~/\\+-])(?i:https?)://[^\s<>\"'`]+")
 # not after / or ~ either: "src/a.py", "/srv/example.com/x" and
-# "backup~corp.com" are paths
+# "backup~corp.com" are paths. An underscore is part of the token, so
+# "x_corp.com" is one host and never corp.com.
 _T_HOST = re.compile(
-    r"(?<![\w@./\\~-])(?>[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+)(?>(?::[0-9]+)?)(?![\w@\\-]|\.[\w-])"
+    r"(?<![\w@./\\~-])(?>[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+)(?>(?::[0-9]+)?)(?![\w@\\-]|\.[\w-])"
 )
 # unspaced, or the printed form in groups of four
 _T_IBAN = re.compile(
@@ -905,7 +916,14 @@ def _task_keys(text: str) -> tuple[set[Key], set[Key], str]:
         outcome = _host(token)
         if not isinstance(outcome, Key):
             continue
-        if labels[0] != "www" and labels[-1] in FILE_EXT_TLDS:
+        # Without www., a host with an underscore left of its last two
+        # labels is usually a dotted name (my_app.settings.dev), and is
+        # mentioned only, as a file name is: anyone may register the
+        # domain those two LDH labels form and serve any label under it.
+        # An underscore in the second-to-last label is in a name no
+        # registry issues (shop_center.com).
+        dotted_name = "_" in token and "_" not in labels[-2]
+        if labels[0] != "www" and (labels[-1] in FILE_EXT_TLDS or dotted_name):
             mentioned.add(outcome)
         else:
             keys.add(outcome)
@@ -942,7 +960,8 @@ class TaskIndex:
     labelled ids are matched against the text at query time."""
 
     keys: frozenset[Key] = frozenset()
-    # hosts the task names only as file names: notes.md, report.zip
+    # hosts the task names only as file or dotted names: notes.md,
+    # report.zip, my_app.settings.dev
     mentioned: frozenset[Key] = frozenset()
     # task paths of 2+ components, sorted: prefixes for `match: under`
     under_prefixes: tuple[str, ...] = ()
@@ -1015,15 +1034,19 @@ class TaskIndex:
 
 # --- poison: greedy ------------------------------------------------------------
 
-# Every task pattern with its limits removed. The one lookbehind left, on
-# hosts, only stops the pattern restarting inside a run it has already
+# Every task pattern with its limits removed. The lookbehinds left, on
+# hosts, only stop a pattern restarting inside a run it has already
 # rejected, which would be quadratic; a match can always start where the
 # run starts.
 _P_URL = re.compile(r"(?i:https?)://[^\s<>\"'`]+")
 # Trailing dots before a port too: "h.:8443" is the host key "h:8443". The
 # port is read ahead, not consumed, since a task host may start inside it:
-# "a.io:1b.com".
-_P_HOST = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.*(?=(:[0-9]+)?)")
+# "a.io:1b.com". An underscore joins a run, as it does a task host.
+_P_HOST = re.compile(r"(?<![A-Za-z0-9_-])[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+\.*(?=(:[0-9]+)?)")
+# The same runs split at underscores, so that the hosts on either side of
+# one are sighted too: the text rule doesn't hold a short one that a
+# letter past ASCII touches at its other end ("x_ab.io中文").
+_P_LDH_HOST = re.compile(r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.*(?=(:[0-9]+)?)")
 _P_IPV6 = re.compile(r"\[[0-9A-Fa-f:.]*\](?::[0-9]+)?")
 _P_IBAN = re.compile(r"[A-Za-z]{2}(?:[\s.()-]*[0-9]){2}(?:[\s.()-]*[A-Za-z0-9]){11,30}")
 _P_PHONE = re.compile(r"\+?[0-9](?:[\s.()-]*[0-9])*")
@@ -1185,10 +1208,11 @@ def _sight(source: str, add: Callable[[Outcome], None]) -> None:
         add(_url(m.group()))
         add(_url(m.group().rstrip(TRAILING)))
 
-    for m in _P_HOST.finditer(source):
-        add(_host(m.group()))
-        if m.group(1):
-            add(_host(m.group() + m.group(1)))
+    for pattern in (_P_HOST, _P_LDH_HOST):
+        for m in pattern.finditer(source):
+            add(_host(m.group()))
+            if m.group(1):
+                add(_host(m.group() + m.group(1)))
 
     for m in _P_IPV6.finditer(source):
         add(_host(m.group()))
