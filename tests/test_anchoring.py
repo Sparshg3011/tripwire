@@ -584,6 +584,15 @@ def test_a_link_to_an_unvouched_host_escalates():
         "see https://x_corp.example/",
         "see www.x_corp.example",
         "see //my_host.evil.example/p",
+        # an underscore before "//" is no scheme, and opens emphasis
+        "see _//x_evil.example now",
+        "see _//shop_center.evil.example_ now",
+        "see __//evil.example__ now",
+        "see _//evil.example/x?d=secret_ now",
+        "(_//x_evil.example)",
+        "[_//evil.example]",
+        "see _\\\\evil.example\\share_ now",
+        "see x_//evil.example now",
     ],
 )
 def test_links_are_found_however_they_are_written(body):
@@ -605,6 +614,7 @@ def test_links_are_found_however_they_are_written(body):
         "see *www.corp.example* and _notes.zip_",
         "**https://corp.example**",
         "// TODO: read C:\\Users\\me\\notes.txt and a//b",
+        "see _//corp.example_ and __//corp.example__",
     ],
 )
 def test_content_without_unvouched_links_passes(body):
@@ -630,7 +640,15 @@ def test_a_file_name_in_the_task_vouches_for_that_file_name_only(link):
 
 @given(
     st.sampled_from(
-        ["www.a1b2c3.evil.example", "evil-mail.com", "www.corp.example", "notes.zip", "shop_x.com"]
+        [
+            "www.a1b2c3.evil.example",
+            "evil-mail.com",
+            "www.corp.example",
+            "notes.zip",
+            "shop_x.com",
+            "//evil.example",
+            "//corp.example",
+        ]
     ),
     st.text(alphabet="*_~|([{", max_size=3),
     st.text(alphabet="*_~|.,;:!)]}", max_size=3),

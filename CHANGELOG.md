@@ -71,6 +71,10 @@ refused to start.
   that name: `unzip backup.zip` in the task let `https://backup.zip/...`
   through the content link rule. The bare file name still passes.
 
+- A link with no scheme that an underscore opens, like `_//evil.com/x_` or
+  `x_//evil.com`, is checked as a link. It was read as no link at all, so
+  content could carry one to any host, where `*//evil.com*` was refused.
+
 - Require mcp 1.19 or newer. Earlier versions can't take the result the proxy
   hands back: every call it allowed came back as a validation error, and every
   refusal lost its structured denial. The old floor, 1.10, let pip keep them.

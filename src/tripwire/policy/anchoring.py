@@ -129,12 +129,13 @@ _SCHEME = re.compile(r"(?i:https?)://")
 # Where a link may start: a scheme a browser reads a host after however
 # many slashes or backslashes follow ("https:/x.com", "https:\\x.com"),
 # any other scheme followed by two, or two with no scheme before them,
-# which the page's own fills in ("//x.com"). A scheme starts no later in
-# a run of scheme characters than where the run does, so that finding
-# one takes a single pass.
+# which the page's own fills in ("//x.com"), an underscore before them
+# included: it is no scheme character, and opens emphasis ("_//x.com_").
+# A scheme starts no later in a run of scheme characters than where the
+# run does, so that finding one takes a single pass.
 _LINK = re.compile(
     r"(?i:(?<![a-z0-9+.-])(?:(?:https?|wss?|ftp|file):|[a-z][a-z0-9+.-]++:[/\\]{2}))"
-    r"|(?<![\w:/\\])[/\\]{2}"
+    r"|(?<![^\W_])(?<![:/\\])[/\\]{2}"
 )
 _AUTHORITY_END = re.compile(r"[/?#]")
 # what a sentence may end a link with, which no one need have written
