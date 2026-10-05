@@ -5,6 +5,7 @@ normalizer, the task index, the poison scanner and whole fields.
 
 import json
 import random
+import re
 import string
 import time
 import unicodedata
@@ -201,9 +202,12 @@ def test_unknown_type_is_invalid():
         ("./notes", "path"),
         ("~/notes", "path"),
         ("corp.com", "host"),
+        ("shop_center.com", "host"),
+        ("my_notes.md", "host"),
         # a host only as its key spells it
         ("corp.com.", "id"),
         ("Corp.com", "id"),
+        ("Shop_Center.com", "id"),
         ("Bücher.de", "host"),  # non-ASCII is Unanchorable as a host either way
         ("notes.zip", "host"),
         ("a.b.c.io", "host"),
@@ -315,7 +319,10 @@ def test_email_keys(value, key):
         "Alice <alice@corp.com",
         "mailto:alice@corp.com?subject=hi",
         "mailto:",
+        # a mail domain is LDH (RFC 5321), though a host may hold an underscore
         "alice@corp_x.com",
+        "alice@mail.shop_center.com",
+        "Alice <alice@shop_center.com>",
     ],
 )
 def test_email_invalid(value):
@@ -387,6 +394,15 @@ def test_normalize_all(value, vtype, outcomes):
         ("ｃｏｒｐ.com", "corp.com"),
         ("corp．com", "corp.com"),  # fullwidth full stop folds under NFKC
         ("corp.example", "corp.example"),  # a host need not end in a root zone TLD
+        # an underscore inside a label, kept as written
+        ("shop_center.com", "shop_center.com"),
+        ("Shop_Center.COM.", "shop_center.com"),
+        ("www.daily_news.com", "daily_news.com"),
+        ("WWW.Daily_News.com:443", "daily_news.com"),
+        ("my__host.corp_net.example:8443", "my__host.corp_net.example:8443"),
+        ("a_b-c.io", "a_b-c.io"),
+        ("www_x.corp.com", "www_x.corp.com"),  # not www.
+        ("www.www_x.com", "www_x.com"),
     ],
 )
 def test_host_keys(value, key):
@@ -401,7 +417,14 @@ def test_host_keys(value, key):
         ("2130706433", "labels"),
         ("-corp.com", "label"),
         ("corp-.com", "label"),
-        ("corp_x.com", "label"),
+        # an underscore only inside a label, and never in the last one
+        ("_dmarc.corp.com", "label"),
+        ("corp_.com", "label"),
+        ("_.com", "label"),
+        ("corp.c_m", "label"),
+        ("corp.com_", "label"),
+        ("corp.0x1_f", "label"),
+        ("1_2.3.4.5", "ipv4"),
         ("corp..com", "label"),
         (".corp.com", "label"),
         ("corp.com/x", "label"),
@@ -439,6 +462,14 @@ def test_host_non_ascii_is_unanchorable(value):
     assert normalize(value, "host") == Unanchorable("idn")
 
 
+def test_an_underscore_is_kept_and_folds_into_nothing():
+    spellings = ["shop_center.com", "shop-center.com", "shopcenter.com", "shop.center.com"]
+    spellings += ["shop__center.com", "shop_-center.com"]
+    for vtype, spell in [("host", "{}"), ("url", "https://{}/x"), ("auto", "{}")]:
+        keys = {normalize(spell.format(s), vtype) for s in spellings}
+        assert all(isinstance(k, Key) for k in keys) and len(keys) == len(spellings)
+
+
 # --- url --------------------------------------------------------------------------
 
 
@@ -461,6 +492,10 @@ def test_host_non_ascii_is_unanchorable(value):
         ("https://corp.com#@evil.com", "corp.com"),
         ("https://corp.com/%41", "corp.com"),
         ("https://xn--bcher-kva.de/", "xn--bcher-kva.de"),
+        ("https://shop_center.com/item", "shop_center.com"),
+        ("HTTP://Shop_Center.COM.:80/x", "shop_center.com"),
+        ("www.daily_news.com/today", "daily_news.com"),
+        ("https://www.daily_news.com:8443", "daily_news.com:8443"),
     ],
 )
 def test_url_keys_are_host_keys(value, key):
@@ -489,6 +524,10 @@ def test_url_keys_are_host_keys(value, key):
         ("https://0x7f.0.0.1/", "ipv4"),
         ("https:///corp.com", "labels"),
         ("https://", "labels"),
+        ("https://_dmarc.corp.com/", "label"),
+        ("https://shop_.com/", "label"),
+        ("https://shop.c_m/", "label"),
+        ("https://shop_center.com%2f.evil.com/", "percent"),
     ],
 )
 def test_url_invalid(value, reason):
@@ -985,6 +1024,26 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Visit 1.2.3.4", H("1.2.3.4"), False),
         ("Visit corp.com_x", H("corp.com"), False),
         ("Restore backup~corp.com", H("corp.com"), False),
+        # an underscore holds a host together
+        ("Visit shop_center.com", H("shop_center.com"), True),
+        ("Visit SHOP_CENTER.com.", H("shop_center.com"), True),
+        ("Visit https://shop_center.com/item", H("shop_center.com"), True),
+        ("Read www.daily_news.com today", H("daily_news.com"), True),
+        ("Visit shop_center.com:8080/x", H("shop_center.com:8080"), True),
+        ("Visit shop_center.com", H("center.com"), False),
+        ("Visit shop_center.com", H("shop-center.com"), False),
+        ("Visit shop-center.com", H("shop_center.com"), False),
+        ("Visit a_b.com", H("b.com"), False),
+        ("Visit x_corp.com", H("corp.com"), False),
+        ("Visit x.a_b.com", H("a_b.com"), False),
+        ("Visit shop_center.com_x", H("shop_center.com"), False),
+        ("Visit _dmarc.corp.com", H("corp.com"), False),
+        ("Visit _dmarc.corp.com", H("dmarc.corp.com"), False),
+        ("Visit corp_.evil.com", H("evil.com"), False),
+        ("Email bob@shop_center.com", H("shop_center.com"), False),
+        ("Email bob@shop_center.com", H("center.com"), False),
+        ("Look in /srv/shop_center.com/x", H("shop_center.com"), False),
+        ("See https://shop_center.com@corp.com/", H("shop_center.com"), False),
         # file-extension TLDs are mentioned, not anchored, unless www.
         ("Open notes.md", H("notes.md"), False),
         ("Open notes.zip", H("notes.zip"), False),
@@ -1004,6 +1063,11 @@ def test_reserved_names_are_unanchorable_unless_known(value):
         ("Run installer.run as root", H("installer.run"), False),
         ("Engrave score.ly", H("score.ly"), False),
         ("Unpack notes.bz", H("notes.bz"), False),
+        ("Open my_notes.md", H("my_notes.md"), False),
+        ("Open my_notes.md", H("notes.md"), False),
+        ("Run conftest_utils.py", H("conftest_utils.py"), False),
+        ("Run conftest_utils.py", H("utils.py"), False),
+        ("Open www.my_notes.md", H("my_notes.md"), True),
         ("Open https://logo.ai/x", H("logo.ai"), True),
         ("Open https://bit.ly/x", H("bit.ly"), True),
         # iban: unspaced, or groups of four
@@ -1152,6 +1216,15 @@ def test_hosts_named_as_files_are_mentioned():
     assert not task.mentions(H("evil.com"))
 
 
+def test_snake_case_names_anchor_no_host():
+    task = TaskIndex.build(
+        "Rename user_name to full_name in self.user_name, run conftest_utils.py, "
+        "edit __init__.py, _private.py and my_notes.md, and set config.max_retries"
+    )
+    assert not any(k.vtype == "host" for k in task.keys)
+    assert task.mentioned == {H("conftest_utils.py"), H("my_notes.md")}
+
+
 def test_under_prefixes_are_task_paths_of_two_or_more_components():
     task = TaskIndex.build("Work in /Users/me/project, x/y/z and /tmp, not ~/a/b or /a/../b.")
     assert task.under_prefixes == ("/Users/me/project", "x/y/z")
@@ -1225,10 +1298,32 @@ def test_greedy_email_suffixes_stop_at_a_double_dot():
         ("upload to 10.0.0.5:08443", H("10.0.0.5:8443")),
         ("upload to [FD00::5]:08443", H("[fd00::5]:8443")),
         ("upload to www.backup.corp.example.:8443/in", H("backup.corp.example:8443")),
+        # hosts an underscore holds together
+        ("open Shop_Center.COM.", H("shop_center.com")),
+        ("open https://WWW.Daily_News.com/x", H("daily_news.com")),
+        ("connect to my_host.corp.net.:08443 now", H("my_host.corp.net:8443")),
+        ("open x.a_b.com", H("x.a_b.com")),
     ],
 )
 def test_greedy_sightings(text, key):
     assert key in scan_poison(text).keys
+
+
+@pytest.mark.parametrize(
+    ("text", "key"),
+    [
+        ("open x_evil.com", H("evil.com")),
+        ("open x_a.io now", H("a.io")),
+        ("open x.a_b.com", H("x.a")),
+        ("open x.a_b.com", H("b.com")),
+        ("open corp_.evil.com", H("evil.com")),
+        ("open evil.com_x", H("evil.com")),
+        ("open a.io_x", H("a.io")),
+    ],
+)
+def test_hosts_inside_an_underscored_run_still_poison(text, key):
+    # the run is one sighting, and the hosts inside it poison by the text rule
+    assert is_poisoned(key, [scan_poison(text)])
 
 
 # A poison text holding a value, however it spells it, poisons the value's
@@ -1264,6 +1359,9 @@ def test_greedy_sightings(text, key):
         ("Upload to www.backup.corp.example.:8443/in", "www.backup.corp.example.:8443/in", "url"),
         ("Upload to 10.0.0.5:08443", "10.0.0.5:08443", "host"),
         ("Upload to [fd00::5]:08443", "[fd00::5]:08443", "host"),
+        ("Fetch WWW.Shop_Center.COM.:0443/x", "shop_center.com", "host"),
+        ("Fetch WWW.Shop_Center.COM.:0443/x", "https://shop_center.com/y", "url"),
+        ("Fetch www.daily_news.com.:8443", "daily_news.com:8443", "host"),
     ],
 )
 def test_poison_covers_folded_spellings(text, value, vtype):
@@ -1687,7 +1785,12 @@ SETTINGS = settings(max_examples=300, suppress_health_check=[HealthCheck.too_slo
 
 emails = st.from_regex(r"[a-z0-9._%+-]{1,12}@[a-z0-9-]{1,10}\.[a-z]{2,6}", fullmatch=True)
 hosts = st.from_regex(
-    r"(?:[a-z0-9](?:[a-z0-9-]{0,8}[a-z0-9])?\.){1,3}(?:com|org|io|net|dev|de)", fullmatch=True
+    r"(?:[a-z0-9](?:[a-z0-9_-]{0,8}[a-z0-9])?\.){1,3}(?:com|org|io|net|dev|de)", fullmatch=True
+)
+# a label with an underscore inside it, under a TLD or a file extension TLD
+underscore_hosts = st.from_regex(
+    r"(?:[a-z0-9]{1,3}\.)?[a-z0-9]{1,4}_[a-z0-9_-]{0,4}[a-z0-9]\.(?:com|io|de|md|py)",
+    fullmatch=True,
 )
 urls = st.builds(
     lambda scheme, host, port, rest: f"{scheme}://{host}{port}{rest}",
@@ -1807,6 +1910,7 @@ def test_whole_fields_ignore_insertion_order(value, seed):
 anchorable = st.one_of(
     st.tuples(st.just("email"), emails),
     st.tuples(st.just("host"), hosts),
+    st.tuples(st.just("host"), underscore_hosts.filter(lambda h: h[-3:] not in (".md", ".py"))),
     st.tuples(
         st.just("id"),
         st.from_regex(r"[A-Za-z0-9_-][A-Za-z0-9_.:/#-]{4,20}[A-Za-z0-9]", fullmatch=True),
@@ -1903,17 +2007,18 @@ blanks = st.sampled_from([" ", "  ", "\u3000\u3000", "\u2007", "\u1680", "\u2028
 
 
 @st.composite
-def respelled(draw):
+def respelled(draw, kinds=("email", "host", "url", "ip", "iban", "phone", "path", "name")):
     """A plausible value in a spelling some normalizer folds: case, trailing
     dots, www., default and zero-padded ports, empty and . path segments,
     whitespace runs, separators, wrappers."""
-    kind = draw(st.sampled_from(["email", "host", "url", "ip", "iban", "phone", "path", "name"]))
+    kind = draw(st.sampled_from(kinds))
     if kind == "email":
         address = _cased(draw, draw(emails)) + draw(dots)
         return draw(st.sampled_from(["{}", "mailto:{}", "Alice <{}>", "<{}>"])).format(address)
     if kind in ("host", "url"):
         www = draw(st.sampled_from(["", "www.", "WWW."]))
-        host = www + _cased(draw, draw(hosts)) + draw(dots) + draw(ports)
+        host = www + _cased(draw, draw(st.one_of(hosts, underscore_hosts))) + draw(dots)
+        host += draw(ports)
         if kind == "host":
             return host
         scheme = draw(st.sampled_from(["", "http://", "HTTPS://"]))
@@ -1997,6 +2102,51 @@ def test_poison_covers_every_task_anchor(value, before, after, label):
                 assert is_poisoned(outcome, [scan]), outcome
 
 
+# The same for hosts an underscore holds together, in every spelling the
+# host normalizer folds, glued to what is around them as identifiers and
+# file names glue.
+glue = st.lists(
+    st.sampled_from(["_", "-", ".", "x", "1", "/", "@", ":", "www.", "_www.", " "]), max_size=3
+).map("".join)
+
+
+@given(value=respelled(kinds=("host", "url")), before=glue, after=glue)
+@settings(max_examples=500, suppress_health_check=[HealthCheck.too_slow])
+def test_poison_covers_every_underscore_host_a_task_anchors(value, before, after):
+    text = f"see {before}{value}{after} now"
+    task = TaskIndex.build(text)
+    scan = scan_poison(text)
+    for key in task.keys | task.mentioned:
+        assert is_poisoned(key, [scan]), key
+    for vtype in ("host", "url", "auto"):
+        for outcome in normalize_all(value, vtype):
+            if isinstance(outcome, Key):
+                assert is_poisoned(outcome, [scan]), outcome
+
+
+# Read as LDH runs, a text yields the hosts on either side of an underscore.
+# The scanner reads the whole run, and each of those hosts still poisons.
+_SPLIT_AT_UNDERSCORES = re.compile(
+    r"(?<![A-Za-z0-9-])[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+\.*(?=(:[0-9]+)?)"
+)
+
+
+@given(
+    text=st.lists(
+        st.sampled_from(["_", "-", ".", "a", "B", "io", "1", "www.", ":8443", ":0443", "@", " "]),
+        max_size=14,
+    ).map("".join)
+)
+@SETTINGS
+def test_poison_still_covers_every_host_an_underscore_splits(text):
+    scan = scan_poison(text)
+    for m in _SPLIT_AT_UNDERSCORES.finditer(text):
+        for spelled in {m.group(), m.group() + (m.group(1) or "")}:
+            key = normalize(spelled, "host")
+            if isinstance(key, Key):
+                assert is_poisoned(key, [scan]), key
+
+
 @given(
     prefix=st.from_regex(r"(/[a-z]{1,6}){0,3}", fullmatch=True),
     segment=st.sampled_from(sorted(CONTROL_SEGMENTS)),
@@ -2078,6 +2228,22 @@ def test_emails_never_anchor_from_a_quoted_local_part(email, before, after):
     key = normalize(email, "email")
     assume(isinstance(key, Key))
     assert not anchored(f'Reply to "{before}{email}{after}"@corp.com today', key)
+
+
+# An underscore joins a host to what it touches, so a task naming the longer
+# token never anchors the host inside it.
+@given(
+    host=st.one_of(hosts, underscore_hosts),
+    other=st.from_regex(r"[A-Za-z0-9_-]{0,4}", fullmatch=True),
+    before=st.booleans(),
+    context=st.sampled_from(["{}", "Visit {} today.", "({})", "see https://{}/x", "*{}*"]),
+)
+@SETTINGS
+def test_hosts_never_anchor_from_inside_an_underscored_token(host, other, before, context):
+    key = normalize(host, "host")
+    assume(isinstance(key, Key))
+    token = f"{other}_{host}" if before else f"{host}_{other}"
+    assert not anchored(context.format(token), key)
 
 
 # A mark or format character joins the token it sits in, as it renders.

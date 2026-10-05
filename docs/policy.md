@@ -283,6 +283,12 @@ take a file name as content: a call with a content value that, read as
 a path, names a control file or one of tripwire's own is never
 discharged.
 
+A host may hold underscores inside any label but the last, as browsers
+and resolvers allow: `shop_center.com` is one host, not
+`shop-center.com`, and a task that names it anchors it and never
+`center.com`. A mail domain may not (RFC 5321), so
+`alice@shop_center.com` can't be read, and as a target it blocks.
+
 **Content** of a tool with a target argument is checked too. A value
 that is wholly an address, an IBAN or a URL is checked as a target;
 every link in it, whatever its scheme (`//host/...`, a bare

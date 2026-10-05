@@ -56,6 +56,14 @@ refused to start.
 
 ### Fixed
 
+- A host with an underscore inside a label, like `https://shop_center.com/item`
+  or `www.daily_news.com`, is read as that host. It was refused as unreadable,
+  so a target naming one blocked even before any untrusted content. The
+  underscore is kept: `shop_center.com` and `shop-center.com` are two hosts,
+  and a task naming `shop_center.com` anchors it and never `center.com`. An
+  underscore still can't start or end a label or sit in the last one, and a
+  mail domain still can't hold one, since RFC 5321 doesn't allow it.
+
 - A file name the task mentions no longer vouches for a link to a host of
   that name: `unzip backup.zip` in the task let `https://backup.zip/...`
   through the content link rule. The bare file name still passes.

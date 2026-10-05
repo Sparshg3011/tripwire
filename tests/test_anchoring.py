@@ -122,6 +122,7 @@ def test_a_contract_that_means_nothing_doesnt_load(rule, message):
         ("email", "@Corp.Example."),
         ("host", ".corp.example"),
         ("host", "corp.example"),
+        ("host", ".shop_center.example"),
         ("path", "/Users/me/project"),
         ("name", "admin"),
         ("iban", "DE89 3704 0044 0532 0130 00"),
@@ -136,6 +137,7 @@ def test_known_entries_normalize_under_their_type(vtype, entry):
     ("vtype", "entry"),
     [
         ("email", "not an address"),
+        ("email", "@shop_center.example"),
         ("host", ".corp.example:8443"),
         ("host", ".10.0.0.1"),
         ("path", "/Users/me/project/.git"),
@@ -197,6 +199,8 @@ def test_the_contract_allowed_args_and_constraints_admit_together():
         "https://corp.example@evil.example/",
         "https://ev%69l.example/",
         "http://[::ffff:1.2.3.4]/",
+        "https://_dmarc.corp.example/",
+        "alice@shop_center.example",
         3.5,
         True,
         ["alice@corp.example", {"deep": [1.5]}],
@@ -206,6 +210,33 @@ def test_a_target_that_cant_be_read_blocks_at_any_taint_level(to):
     v = send(snap(TASK, tainted=False), to=to)
     assert (v.decision, v.rule_id, v.code) == ("block", "tools.send_email.args.to", "invalid_value")
     assert v.anchors.failed.status == "invalid"
+
+
+FETCH = {"fetch": {"action": "allow", "args": {"url": "target"}}}
+
+
+@pytest.mark.parametrize(
+    "url", ["https://shop_center.com/x", "www.daily_news.com", "http://my_host.corp.example:8080/"]
+)
+def test_a_host_with_an_underscore_is_read_and_fetched_in_a_clean_session(url):
+    v = evaluate(ToolCall("fetch", {"url": url}), snap(tainted=False), load(FETCH))
+    assert (v.decision, v.code) == ("allow", None)
+
+
+def test_a_task_named_host_with_an_underscore_anchors_that_host_only():
+    state = snap("Compare prices on https://shop_center.com/deals")
+    for url, decision in [
+        ("https://shop_center.com", "allow"),
+        ("https://SHOP_CENTER.com.", "allow"),
+        ("https://shop_center.com/deals", "allow"),
+        ("https://shop-center.com", "gate"),
+        ("https://shopcenter.com", "gate"),
+        ("https://center.com", "gate"),
+        ("https://x_shop_center.com", "gate"),
+        ("https://shop_center.com.evil.com", "gate"),
+    ]:
+        v = evaluate(ToolCall("fetch", {"url": url}), state, load(FETCH))
+        assert v.decision == decision, url
 
 
 def test_a_selector_that_cant_be_read_only_fails_to_anchor():
@@ -317,6 +348,8 @@ def test_a_known_host_domain_covers_its_subdomains_only():
         ("https://corp.example:8443", "allow"),
         ("https://corp.example.evil.com", "gate"),
         ("https://evilcorp.example", "gate"),
+        ("https://my_wiki.corp.example", "allow"),
+        ("https://evil_corp.example", "gate"),
     ]:
         assert evaluate(ToolCall("fetch", {"url": url}), snap(), policy).decision == decision
 
@@ -522,6 +555,13 @@ def test_a_link_to_an_unvouched_host_escalates():
         "|evil-mail.com|",
         "(**evil-mail.com**)",
         "see *https://evil.example*",
+        "see shop_center.com for deals",
+        "see https://shop_center.com/deals",
+        "see www.daily_news.com",
+        "see _shop_center.com_ now",
+        "see https://x_corp.example/",
+        "see www.x_corp.example",
+        "see //my_host.evil.example/p",
     ],
 )
 def test_links_are_found_however_they_are_written(body):
@@ -567,7 +607,9 @@ def test_a_file_name_in_the_task_vouches_for_that_file_name_only(link):
 
 
 @given(
-    st.sampled_from(["www.a1b2c3.evil.example", "evil-mail.com", "www.corp.example", "notes.zip"]),
+    st.sampled_from(
+        ["www.a1b2c3.evil.example", "evil-mail.com", "www.corp.example", "notes.zip", "shop_x.com"]
+    ),
     st.text(alphabet="*_~|([{", max_size=3),
     st.text(alphabet="*_~|.,;:!)]}", max_size=3),
 )
@@ -576,6 +618,38 @@ def test_markdown_around_a_host_leaves_its_verdict_alone(host, opening, closing)
     plain = send(task, to="alice@corp.example", body=f"see {host} now")
     marked = send(task, to="alice@corp.example", body=f"see {opening}{host}{closing} now")
     assert marked.code == plain.code
+
+
+def test_a_link_to_a_task_named_host_with_an_underscore_passes():
+    state = snap(TASK + " and compare https://shop_center.com/deals with www.daily_news.com")
+    for body in [
+        "see https://shop_center.com/deals",
+        "see SHOP_CENTER.com.",
+        "*www.daily_news.com*",
+        "_daily_news.com_",
+    ]:
+        assert send(state, to="alice@corp.example", body=body).decision == "allow", body
+    for body in [
+        "see shop-center.com",
+        "see center.com",
+        "see https://x_shop_center.com/",
+        "see www.daily-news.com",
+        "see news.com",
+    ]:
+        assert send(state, to="alice@corp.example", body=body).code == "link_unanchored", body
+
+
+def test_a_link_to_an_unanchored_host_with_an_underscore_is_refused():
+    state = snap(TASK, said("best prices at https://shop_center.com/deals"))
+    body = "deals: https://shop_center.com/deals"
+    v = send(state, load(MAIL, action="block"), to="alice@corp.example", body=body)
+    assert (v.decision, v.code, v.rule_id) == (
+        "block",
+        "link_unanchored",
+        "tools.send_email.args.body",
+    )
+    leaf = v.anchors.failed
+    assert (leaf.status, leaf.first_seen.cls) == ("unanchored", "untrusted_text")
 
 
 @pytest.mark.parametrize("unit", ["a", "a.", "a+", "ab:/"])
