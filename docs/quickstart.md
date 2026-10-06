@@ -8,8 +8,10 @@ config line.
 ## 1. Install
 
 ```bash
-pip install tripwire-agent
+pip install git+https://github.com/Sparshg3011/tripwire
 ```
+
+tripwire isn't on PyPI yet; this installs it from GitHub.
 
 ## 2. Write a policy
 

@@ -68,11 +68,11 @@ expect from a policy engine:
 ## Try it
 
 ```bash
-pip install tripwire-agent
+pip install git+https://github.com/Sparshg3011/tripwire
 tripwire demo
 ```
 
-`tripwire demo` runs the session in the recording above, offline, through the
+It isn't on PyPI yet, so this installs from GitHub. `tripwire demo` runs the session in the recording above, offline, through the
 real proxy and policy engine.
 
 To put it in front of a server of your own, draft a policy from the server's
