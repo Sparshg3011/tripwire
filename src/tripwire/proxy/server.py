@@ -7,15 +7,18 @@ through the interceptor instead of the tool.
 
 from __future__ import annotations
 
+import os
 import secrets
 import sys
 from pathlib import Path
+from typing import Any
 
 from mcp import types
 from mcp.server.lowlevel import Server
 from mcp.server.stdio import stdio_server
 
 from tripwire.gate import ApprovalGate, CliGate, WebGate
+from tripwire.intent import TaskFile
 from tripwire.policy import load_policy
 from tripwire.proxy.interceptor import Interceptor
 from tripwire.proxy.upstream import Upstream
@@ -27,7 +30,9 @@ from tripwire.tx.executor import TxExecutor
 def build_server(interceptor: Interceptor) -> Server:
     server = Server("tripwire")
 
-    @server.list_tools()
+    # The SDK leaves its handler decorators unannotated, which strict mypy
+    # can only be told to accept; the handlers they register are typed.
+    @server.list_tools()  # type: ignore[no-untyped-call, untyped-decorator]
     async def list_tools() -> list[types.Tool]:
         return interceptor.upstream.tools
 
@@ -36,8 +41,8 @@ def build_server(interceptor: Interceptor) -> Server:
     # judgement. Saying no is the policy engine's job.
     # the interceptor halts the process itself if the audit log fails, so
     # there is nothing to catch here
-    @server.call_tool(validate_input=False)
-    async def call_tool(name: str, arguments: dict) -> types.CallToolResult:
+    @server.call_tool(validate_input=False)  # type: ignore[untyped-decorator]
+    async def call_tool(name: str, arguments: dict[str, Any]) -> types.CallToolResult:
         return await interceptor.handle(name, arguments)
 
     return server
@@ -50,16 +55,21 @@ async def serve(
     gate_mode: str = "none",
     gate_port: int = 8642,
     tx_db: str | Path | None = None,
+    audit_key: bytes | None = None,
+    task_file: str | Path | None = None,
 ) -> None:
     # Everything here raises on problems, and that's the point: bad
-    # policy / dead upstream / unwritable log / unreachable gate =
-    # refuse to start.
+    # policy / dead upstream / unwritable log / unusable ledger /
+    # unreachable gate = refuse to start.
     policy = load_policy(policy_path)
     # 64 bits, not 32: sessions from one log get traced by id, and two
     # runs colliding would splice two unrelated incidents into one
     # convincing-looking causal chain
     session_id = secrets.token_hex(8)
-    audit = AuditLog(audit_path, session_id=session_id)
+    audit = AuditLog(audit_path, session_id=session_id, key=audit_key)
+    # before the upstream, so a ledger that won't open leaves nothing
+    # running to stop and no proxy_start in the log
+    tx = TxExecutor(tx_db, session_id) if tx_db else None
 
     gate: ApprovalGate | None = None
     if gate_mode == "cli":
@@ -70,6 +80,8 @@ async def serve(
         print(f"tripwire: approvals at {gate.url}", file=sys.stderr, flush=True)
 
     print(f"tripwire: session {session_id}", file=sys.stderr, flush=True)
+    if task_file is not None:
+        print(f"tripwire: task text from {task_file}", file=sys.stderr, flush=True)
 
     upstream = Upstream(upstream_cmd)
     await upstream.start()
@@ -84,9 +96,22 @@ async def serve(
         },
     )
 
-    session = SessionState(policy)
-    tx = TxExecutor(tx_db, session_id) if tx_db else None
-    server = build_server(Interceptor(policy, audit, upstream, session, gate=gate, tx=tx))
+    # what no argument may anchor to, however it is spelled
+    protected = [
+        os.path.realpath(path) for path in (policy_path, audit_path, tx_db, task_file) if path
+    ]
+    session = SessionState(policy, protected_paths=protected)
+    interceptor = Interceptor(
+        policy,
+        audit,
+        upstream,
+        session,
+        gate=gate,
+        tx=tx,
+        task_file=TaskFile(task_file) if task_file is not None else None,
+    )
+    await interceptor.observe_listing(upstream.tools)
+    server = build_server(interceptor)
     try:
         async with stdio_server() as (read, write):
             await server.run(read, write, server.create_initialization_options())

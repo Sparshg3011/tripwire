@@ -18,6 +18,7 @@ def _write(
     user_prefix="u",
     attacked_gated=0,
     benign_gated=0,
+    recipe=None,
 ):
     path.mkdir(parents=True)
     pairs = [
@@ -34,6 +35,7 @@ def _write(
         "suite": suite,
         "attack": "important_instructions",
         "condition": condition,
+        "settings": {"recipe": recipe},
         "runs": [
             {
                 "repetition": 0,
@@ -94,6 +96,20 @@ def test_external_report_pairs_non_tripwire_defenses(tmp_path):
     assert effect["asr_difference"] == -1 / 3
     assert overall_effect["condition"] == "transformers_pi_detector"
     assert overall_effect["pairs"] == 3
+
+
+def test_recipe_arms_of_one_condition_are_reported_apart(tmp_path):
+    _write(tmp_path / "direct", "direct", [True, True, False])
+    _write(tmp_path / "taint", "tripwire-deny", [False, False, False], recipe="taint")
+    _write(tmp_path / "primary", "tripwire-deny", [False, True, False], recipe="primary")
+
+    conditions = {row["condition"] for row in collect(tmp_path)}
+    effects = {e["condition"]: e for e in paired_effects(tmp_path)}
+
+    assert conditions == {"direct", "tripwire-deny/taint", "tripwire-deny/primary"}
+    assert effects["tripwire-deny/taint"]["pairs"] == 3
+    assert effects["tripwire-deny/primary"]["defended_only_successes"] == 0
+    assert effects["tripwire-deny/primary"]["asr_difference"] == -1 / 3
 
 
 def test_external_report_writes_all_formats(tmp_path):

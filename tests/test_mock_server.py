@@ -39,10 +39,12 @@ def params(calls_path=None, cwd=None):
 @asynccontextmanager
 async def connected(server_params):
     with anyio.fail_after(30):
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-                yield session
+        async with (
+            stdio_client(server_params) as (read, write),
+            ClientSession(read, write) as session,
+        ):
+            await session.initialize()
+            yield session
 
 
 def recorded(calls_path):
@@ -169,7 +171,7 @@ def test_a_malformed_scenario_exits_with_a_message_not_a_traceback(tmp_path):
 
 # --- behind the real proxy ---
 #
-# The proxy spawns its upstream with a scrubbed environment, so
+# The proxy keeps every TRIPWIRE_ variable from its upstream, so
 # TRIPWIRE_GYM_CALLS can't just be exported here — it has to ride in on
 # the upstream command itself.
 

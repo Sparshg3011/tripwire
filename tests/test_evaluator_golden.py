@@ -1,12 +1,22 @@
-"""Worked examples pinning down evaluator behavior, all against
-examples/policy.yaml. This file is the contract: when these are green,
-the evaluator is done.
+"""Worked examples pinning down evaluator behavior, mostly against
+examples/policy.yaml. This file is the contract.
 """
 
+import re
+
+import pytest
+
 from tripwire.policy.evaluator import evaluate
+from tripwire.policy.schema import Policy
 from tripwire.policy.types import SessionSnapshot, ToolCall
 
 FRESH = SessionSnapshot()
+
+NON_FINITE = [float("nan"), float("inf"), float("-inf")]
+
+
+def refunds(**rule):
+    return Policy.model_validate({"version": 1, "tools": {"refund": {"action": "allow", **rule}}})
 
 
 # --- stage 1: tool lookup ---------------------------------------------------
@@ -38,6 +48,53 @@ def test_plain_allow(reference_policy):
     assert v.rule_id == "tools.issue_refund.action"
 
 
+def unlisted(default, **rules):
+    return Policy.model_validate({"version": 1, "defaults": {"unknown_tools": default}, **rules})
+
+
+SHELL_AFTER_FETCH = [{"deny": "run_shell", "within_turns_after": "fetch_url", "turns": 3}]
+
+
+@pytest.mark.parametrize("default", ["allow", "require_approval"])
+def test_sequences_still_apply_to_unlisted_tools(default):
+    # neither tool has an entry, and neither needs one for the rule to mean something
+    state = SessionSnapshot(turn=3, history=((2, "fetch_url"),))
+    v = evaluate(ToolCall("run_shell"), state, unlisted(default, sequences=SHELL_AFTER_FETCH))
+    assert v.decision == "block"
+    assert v.rule_id == "sequences[0]"
+
+
+@pytest.mark.parametrize(
+    ("default", "action", "decision"),
+    [
+        ("allow", "require_approval", "gate"),
+        ("allow", "block", "block"),
+        ("require_approval", "block", "block"),
+    ],
+)
+def test_flows_still_escalate_unlisted_tools(default, action, decision):
+    flows = [{"when": "context_tainted", "tools": ["http_post"], "action": action}]
+    policy = unlisted(default, flows=flows)
+    v = evaluate(ToolCall("http_post"), SessionSnapshot(tainted=True), policy)
+    assert v.decision == decision
+    assert v.rule_id == "flows[0]"
+
+
+def test_unlisted_tool_keeps_the_default_when_nothing_objects():
+    flows = [{"when": "context_tainted", "tools": ["http_post"], "action": "require_approval"}]
+    policy = unlisted("require_approval", flows=flows, sequences=SHELL_AFTER_FETCH)
+    v = evaluate(ToolCall("http_post"), SessionSnapshot(tainted=True), policy)
+    assert v.decision == "gate"
+    assert v.rule_id == "defaults.unknown_tools"
+
+
+def test_blocked_unlisted_tool_still_short_circuits():
+    state = SessionSnapshot(turn=3, history=((2, "fetch_url"),))
+    v = evaluate(ToolCall("run_shell"), state, unlisted("block", sequences=SHELL_AFTER_FETCH))
+    assert v.decision == "block"
+    assert v.rule_id == "defaults.unknown_tools"
+
+
 # --- stage 2: constraints ---------------------------------------------------
 
 
@@ -55,11 +112,73 @@ def test_missing_constrained_arg_fails_closed(reference_policy):
     assert v.rule_id == "tools.send_email.constraints.to"
 
 
+def allowlisted_email():
+    # the README's send_email allowlist, with the arguments pinned down too
+    return Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {
+                "send_email": {
+                    "action": "allow",
+                    "allowed_args": ["subject", "body"],
+                    "constraints": {"to": {"regex": "^[^@]+@mycompany\\.example$"}},
+                }
+            },
+        }
+    )
+
+
+def test_argument_outside_allowed_args_blocks():
+    args = {"to": "alice@mycompany.example", "body": "hi", "bcc": "x@evil.example"}
+    v = evaluate(ToolCall("send_email", args), FRESH, allowlisted_email())
+    assert v.decision == "block"
+    assert v.rule_id == "tools.send_email.allowed_args"
+    assert "bcc" in v.reason
+
+
+def test_allowed_and_constrained_arguments_pass():
+    args = {"to": "alice@mycompany.example", "subject": "lunch", "body": "hi"}
+    v = evaluate(ToolCall("send_email", args), FRESH, allowlisted_email())
+    assert v.decision == "allow"
+
+
+def test_extra_arguments_pass_without_allowed_args(reference_policy):
+    # opt-in: a rule that doesn't list its arguments doesn't restrict them
+    args = {"to": "alice@mycompany.com", "body": "hi", "bcc": "x@evil.example"}
+    v = evaluate(ToolCall("send_email", args), FRESH, reference_policy)
+    assert v.decision == "gate"
+    assert v.rule_id == "tools.send_email.action"
+
+
 def test_max_length_blocks(reference_policy):
     call = ToolCall("send_email", {"to": "a@mycompany.com", "body": "x" * 10_001})
     v = evaluate(call, FRESH, reference_policy)
     assert v.decision == "block"
     assert v.rule_id == "tools.send_email.constraints.body"
+
+
+def test_max_length_is_checked_before_the_regex(monkeypatch):
+    # the length bound is what keeps a megabyte away from a pattern that
+    # backtracks, so an over-long value must never reach the regex
+    policy = Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {
+                "search": {
+                    "action": "allow",
+                    "constraints": {"q": {"regex": "a+", "max_length": 64}},
+                }
+            },
+        }
+    )
+    matched = []
+    fullmatch = re.fullmatch
+    monkeypatch.setattr(re, "fullmatch", lambda p, s, f=0: matched.append(s) or fullmatch(p, s, f))
+
+    v = evaluate(ToolCall("search", {"q": "a" * 65}), FRESH, policy)
+    assert v.decision == "block"
+    assert v.rule_id == "tools.search.constraints.q"
+    assert matched == []
 
 
 def test_numeric_bounds(reference_policy):
@@ -80,6 +199,16 @@ def test_bool_is_not_a_number(reference_policy):
     # True == 1 in python; a policy that says "number" should not accept it.
     v = evaluate(ToolCall("issue_refund", {"amount": True}), FRESH, reference_policy)
     assert v.decision == "block"
+
+
+@pytest.mark.parametrize("amount", NON_FINITE)
+@pytest.mark.parametrize("constraint", [{"type": "number"}, {"min": 0}, {"max": 100}])
+def test_non_finite_value_fails_number_constraints(constraint, amount):
+    # every comparison with NaN is False, so a bare bounds check waves it through
+    policy = refunds(constraints={"amount": constraint})
+    v = evaluate(ToolCall("refund", {"amount": amount}), FRESH, policy)
+    assert v.decision == "block"
+    assert v.rule_id == "tools.refund.constraints.amount"
 
 
 # --- stage 3: limits (count the current call!) ------------------------------
@@ -110,6 +239,35 @@ def test_sum_limit_one_over_blocks(reference_policy):
     assert v.rule_id == "tools.issue_refund.limits.sum_per_session"
 
 
+BUDGET_ONLY = {"limits": {"sum_per_session": {"field": "amount", "max": 500}}}
+
+
+@pytest.mark.parametrize("amount", [*NON_FINITE, 10**400], ids=["nan", "inf", "-inf", "10**400"])
+def test_budget_refuses_values_it_cannot_add(amount):
+    v = evaluate(ToolCall("refund", {"amount": amount}), FRESH, refunds(**BUDGET_ONLY))
+    assert v.decision == "block"
+    assert v.rule_id == "tools.refund.limits.sum_per_session"
+
+
+def test_a_nan_running_total_fails_the_budget():
+    state = SessionSnapshot(tool_sums={"refund": {"amount": float("nan")}})
+    v = evaluate(ToolCall("refund", {"amount": 1}), state, refunds(**BUDGET_ONLY))
+    assert v.decision == "block"
+    assert v.rule_id == "tools.refund.limits.sum_per_session"
+
+
+def test_allowed_args_need_not_list_the_budgeted_field():
+    # the budget reads amount the way a constraint would; refusing it as
+    # unlisted would leave no call that both rules let through
+    policy = refunds(allowed_args=["memo"], **BUDGET_ONLY)
+    call = ToolCall("refund", {"amount": 10, "memo": "x"})
+    assert evaluate(call, FRESH, policy).decision == "allow"
+
+    v = evaluate(ToolCall("refund", {"amount": 10, "memo": "x", "to": "x"}), FRESH, policy)
+    assert v.decision == "block"
+    assert v.rule_id == "tools.refund.allowed_args"
+
+
 # --- stage 4: sequences -----------------------------------------------------
 
 
@@ -127,6 +285,35 @@ def test_sequence_window_boundary(reference_policy):
 
     past = SessionSnapshot(turn=6, history=((2, "fetch_url"),))
     assert evaluate(ToolCall("execute_code"), past, reference_policy).decision == "allow"
+
+
+def test_numeric_window_can_be_padded(reference_policy):
+    # every executed call is a turn, so three harmless ones age the fetch
+    # out of a three-turn window. This is what `turns: session` is for.
+    history = ((2, "fetch_url"), (3, "read_calendar"), (4, "read_calendar"), (5, "read_calendar"))
+    padded = SessionSnapshot(turn=6, history=history)
+    assert evaluate(ToolCall("execute_code"), padded, reference_policy).decision == "allow"
+
+
+def test_session_long_sequence_cannot_be_padded():
+    policy = Policy.model_validate(
+        {
+            "version": 1,
+            "tools": {"execute_code": {"action": "allow"}},
+            "sequences": [
+                {"deny": "execute_code", "within_turns_after": "fetch_url", "turns": "session"}
+            ],
+        }
+    )
+    padding = tuple((turn, "read_calendar") for turn in range(3, 500))
+    state = SessionSnapshot(turn=500, history=((2, "fetch_url"), *padding))
+    v = evaluate(ToolCall("execute_code"), state, policy)
+    assert v.decision == "block"
+    assert v.rule_id == "sequences[0]"
+    assert "rest of the session" in v.reason
+
+    before = SessionSnapshot(turn=500, history=padding)
+    assert evaluate(ToolCall("execute_code"), before, policy).decision == "allow"
 
 
 # --- stage 5: flows ---------------------------------------------------------
@@ -168,12 +355,53 @@ def test_shadow_mode_same_decision_shadow_flag_set(reference_policy):
     assert enforced.shadow is False
 
 
+# --- totality ---------------------------------------------------------------
+
+
+def test_an_unexpected_error_is_a_block_not_a_raise(reference_policy):
+    # a snapshot is typed, not checked; a count that isn't a number trips
+    # stage 3, and an evaluator that trips has still answered: no
+    call = ToolCall("send_email", {"to": "a@mycompany.com", "body": "hi"})
+    broken = SessionSnapshot(tool_counts={"send_email": None})
+
+    v = evaluate(call, broken, reference_policy)
+    assert v.decision == "block"
+    assert v.rule_id == "evaluator_error"
+    assert "TypeError" in v.reason
+    assert v.shadow is False
+
+    shadowed = evaluate(call, broken, reference_policy.model_copy(update={"enforce": False}))
+    assert shadowed.decision == "block"
+    assert shadowed.shadow is True
+
+
+def test_a_malformed_policy_is_a_block_not_a_raise():
+    v = evaluate(ToolCall("send_email"), FRESH, None)
+    assert v.decision == "block"
+    assert v.rule_id == "evaluator_error"
+    assert v.shadow is False
+
+
+class Unprintable(Exception):
+    def __repr__(self):
+        raise RuntimeError("no repr either")
+
+
+class Unreadable(dict):
+    def __contains__(self, key):
+        raise Unprintable()
+
+
+def test_an_error_that_cannot_be_shown_is_still_a_block(reference_policy):
+    v = evaluate(ToolCall("send_email", Unreadable(to="a@mycompany.com")), FRESH, reference_policy)
+    assert v.decision == "block"
+    assert v.rule_id == "evaluator_error"
+
+
 # --- case-insensitive constraints -------------------------------------------
 
 
 def test_case_insensitive_regex():
-    from tripwire.policy.schema import Policy
-
     policy = Policy.model_validate(
         {
             "version": 1,
@@ -195,3 +423,100 @@ def test_case_insensitive_regex():
         evaluate(ToolCall("send_email", {"to": "other@corp.com"}), FRESH, policy).decision
         == "block"
     )
+
+
+def matching(regex, **options):
+    constraint = {"regex": regex, **options}
+    return Policy.model_validate(
+        {"version": 1, "tools": {"lookup": {"action": "allow", "constraints": {"q": constraint}}}}
+    )
+
+
+def insensitive(regex):
+    return matching(regex, case_insensitive=True)
+
+
+@pytest.mark.parametrize(
+    ("regex", "value", "decision"),
+    [
+        (r"\D+", "123", "block"),
+        (r"\D+", "ABC", "allow"),
+        (r"\d+\Z", "123", "allow"),
+        (r"\Aadmin", "ADMIN", "allow"),
+    ],
+)
+def test_case_insensitive_leaves_escapes_alone(regex, value, decision):
+    # casefolding the pattern source would read these as \d, \z and \a
+    v = evaluate(ToolCall("lookup", {"q": value}), FRESH, insensitive(regex))
+    assert v.decision == decision
+
+
+@pytest.mark.parametrize("spoof", ["adm\u0131n", "adm\u0130n", "\u017fam", "\u212aim"])
+def test_case_insensitive_does_not_fold_other_scripts_into_ascii(spoof):
+    # Unicode case rules count dotless ı, dotted İ, long ſ and the Kelvin
+    # sign as cases of i, s and k, but "admın" names someone other than admin
+    v = evaluate(ToolCall("lookup", {"q": spoof}), FRESH, insensitive("[a-z]+"))
+    assert v.decision == "block"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "JAVASCRIPT:alert(1)//\u0131",
+        "https://EVIL.EXAMPLE/x?q=\u0131",
+        "https://EVIL.EXAMPLE/x?q=\u0130",
+    ],
+)
+def test_other_scripts_in_a_value_do_not_turn_case_folding_off(value):
+    # a blocklist written in lower case needs the whole value folded, and a
+    # dotless i anywhere in it used to make the match case-sensitive
+    policy = insensitive(r"(?!javascript:)(?!https?://evil\.example)[^ ]+")
+    assert evaluate(ToolCall("lookup", {"q": value}), FRESH, policy).decision == "block"
+
+
+@pytest.mark.parametrize("value", ["Ayd\u0131n@MyCompany.com", "\u0130lker@MyCompany.com"])
+def test_case_insensitive_matches_mixed_case_around_other_scripts(value):
+    call = ToolCall("lookup", {"q": value})
+    assert evaluate(call, FRESH, insensitive(r"[^@]+@mycompany\.com")).decision == "allow"
+    assert evaluate(call, FRESH, matching(r"[^@]+@mycompany\.com")).decision == "block"
+
+
+@pytest.mark.parametrize("case_insensitive", [False, True])
+def test_an_inline_ignore_case_folds_only_ascii(case_insensitive):
+    policy = matching(r"(?i)[^@]+@corp\.link", case_insensitive=case_insensitive)
+    assert evaluate(ToolCall("lookup", {"q": "BOB@CORP.LINK"}), FRESH, policy).decision == "allow"
+    spoof = ToolCall("lookup", {"q": "bob@corp.l\u0131nk"})
+    assert evaluate(spoof, FRESH, policy).decision == "block"
+
+
+def test_digits_are_ascii_digits():
+    # int() reads "١٢٣" as 123, and NFKC leaves it as it is
+    policy = matching(r"\d+")
+    assert evaluate(ToolCall("lookup", {"q": "123"}), FRESH, policy).decision == "allow"
+    arabic_indic = ToolCall("lookup", {"q": "\u0661\u0662\u0663"})
+    assert evaluate(arabic_indic, FRESH, policy).decision == "block"
+
+
+@pytest.mark.parametrize(
+    ("regex", "value"),
+    [
+        (r"[^@\s]+@corp\.com", "bob\u2028Bcc:eve@corp.com"),
+        (r"\S+", "bob\x85eve"),
+        (r"\S+", "bob\x1ceve"),
+        (r"\D+", "\u0661\u0662"),
+        (r"\W+", "\u00e9"),
+    ],
+)
+def test_a_negated_class_refuses_what_unicode_puts_in_the_class(regex, value):
+    # ASCII mode alone reads U+2028, U+0085 and U+001C as not whitespace,
+    # and str.splitlines() breaks a line at every one of them
+    assert evaluate(ToolCall("lookup", {"q": value}), FRESH, matching(regex)).decision == "block"
+
+
+def test_ignoring_case_a_lookahead_refuses_unicode_case_aliases_too():
+    # where a pattern refuses, the reading that folds more is the strict
+    # one: Unicode rules make ı a case of i, and "javascrıpt:".upper() is
+    # "JAVASCRIPT:"
+    policy = insensitive(r"(?!javascript:)[^ ]+")
+    call = ToolCall("lookup", {"q": "javascr\u0131pt:alert(1)"})
+    assert evaluate(call, FRESH, policy).decision == "block"

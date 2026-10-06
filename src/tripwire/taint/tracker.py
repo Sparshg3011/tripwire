@@ -5,10 +5,16 @@ from an untrusted source and the session stays tainted until it ends.
 There is no way to wash it off — no declassification, no per-message
 scoping, no "that was only the subject line".
 
-That is not laziness, it is the one property worth having: the tracker
-can over-block, but it can never under-block. A model that read an
-attacker's text at turn 2 is still carrying it at turn 40, because the
-instruction it absorbed doesn't expire when the message scrolls away.
+That is not laziness, it is the one property worth having: within a
+session the tracker can over-block, but it can never under-block. A
+model that read an attacker's text at turn 2 is still carrying it at
+turn 40, because the instruction it absorbed doesn't expire when the
+message scrolls away.
+
+The session is where that stops. Taint lives in this process's memory
+and nowhere else, so a restarted proxy starts a new, clean session,
+even if the agent that reconnects still has the attacker's text in its
+context.
 
 The cost is real and we refuse to hide it: after one fetch_url, every
 flow-guarded tool needs a human for the rest of the session. The gym
@@ -27,7 +33,12 @@ Rules:
     The error text came from upstream too, and "fetch failed: <attacker
     controlled url echoed back>" is a perfectly good injection vector.
 
-  * Only results taint. Making a call doesn't; nothing has come back yet.
+  * An upstream failure with no result taints whatever the tool's class:
+    the agent is handed the exception's text instead, and nothing
+    vouches for what an upstream put in that.
+
+  * Only results and failures taint. Making a call doesn't; nothing has
+    come back yet.
 
   * Blocked calls never reach here at all — the interceptor only reports
     results it actually received.
@@ -35,8 +46,8 @@ Rules:
   * Sticky: once tainted, tainted. observe_result() must never be able
     to turn it back off.
 
-  * tainted_by accumulates every untrusted tool whose result we saw, not
-    just the first one, deduplicated, in the order the results arrived.
+  * tainted_by accumulates every tool whose result or failure tainted,
+    not just the first one, deduplicated, in the order they arrived.
     Results, not calls: this object is fed outcomes, and it has no way
     to know what order the calls went out in. `tripwire trace` reads
     this to answer "what made this session dirty, and what kept it
@@ -47,8 +58,7 @@ Contract: no I/O, no clock, no randomness. Total — observe_result takes
 whatever tool name arrives off the wire, including ones no policy has
 ever heard of, and must not raise.
 
-The spec is executable in tests/test_taint.py. Delete the skip line
-there and make it green.
+The spec is executable in tests/test_taint.py.
 """
 
 from __future__ import annotations
@@ -81,6 +91,14 @@ class TaintTracker:
         """
         if self.policy.source_class(tool) != "untrusted":
             return
+        self._taint(tool)
+
+    def observe_failure(self, tool: str) -> None:
+        """Report that calling `tool` failed upstream and the agent was
+        handed the error's text. Taints, whatever the tool's class."""
+        self._taint(tool)
+
+    def _taint(self, tool: str) -> None:
         self._tainted = True
         if tool not in self._by:
             self._by.append(tool)

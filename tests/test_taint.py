@@ -50,6 +50,14 @@ def test_trusted_result_does_not_taint(reference_policy):
     assert t.tainted_by == ()
 
 
+def test_an_upstream_failure_taints_whatever_the_tool(reference_policy):
+    # the agent is handed the exception's text, which the upstream wrote
+    t = TaintTracker(reference_policy)
+    t.observe_failure("read_calendar")
+    assert t.tainted is True
+    assert t.tainted_by == ("read_calendar",)
+
+
 def test_unlisted_tool_falls_back_to_the_wildcard(reference_policy):
     # nothing in sources for this one; "*" is untrusted, so it taints
     t = TaintTracker(reference_policy)

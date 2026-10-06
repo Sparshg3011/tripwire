@@ -1,0 +1,14 @@
+# Experimental revision: protect effects independently of source enumeration.
+# Do not substitute this policy into the frozen original benchmark.
+version: 1
+defaults:
+  unknown_tools: allow
+sources:
+  "*": untrusted
+tools:
+  add_user_to_channel: {action: require_approval, limits: {per_session: 3}}
+  invite_user_to_slack: {action: require_approval, limits: {per_session: 2}}
+  post_webpage: {action: require_approval, limits: {per_session: 2}}
+  remove_user_from_slack: {action: require_approval, limits: {per_session: 2}}
+  send_channel_message: {action: require_approval, limits: {per_session: 4}}
+  send_direct_message: {action: require_approval, limits: {per_session: 4}}

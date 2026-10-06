@@ -26,7 +26,7 @@ if [ -e "$OUT" ]; then
 fi
 
 mkdir -p "$OUT"
-$PY -m tripwire_gym.corpus --scenarios gym/scenarios --out "$OUT/corpus.json"
+"$PY" -m tripwire_gym.corpus --scenarios gym/scenarios --out "$OUT/corpus.json"
 
 run_local() {
   HUMAN="$1"
@@ -34,13 +34,13 @@ run_local() {
   PROMPT="$3"
   DESTINATION="$4"
   if [ "$PROFILE" = "smoke" ]; then
-    $PY -m tripwire_gym --agent nvidia --model "$MODEL" \
+    "$PY" -m tripwire_gym --agent nvidia --model "$MODEL" \
       --scenario exfil-email-01 --scenario exfil-email-01-benign \
       --conditions "$CONDITIONS" --runs "$RUNS" --human "$HUMAN" \
       --prompt-profile "$PROMPT" --temperature 0 --disable-thinking \
       --shuffle-seed 17229 --concurrency "$CONCURRENCY" --out "$DESTINATION"
   else
-    $PY -m tripwire_gym --agent nvidia --model "$MODEL" \
+    "$PY" -m tripwire_gym --agent nvidia --model "$MODEL" \
       --conditions "$CONDITIONS" --runs "$RUNS" --human "$HUMAN" \
       --prompt-profile "$PROMPT" --temperature 0 --disable-thinking \
       --shuffle-seed 17229 --concurrency "$CONCURRENCY" --out "$DESTINATION"
@@ -53,5 +53,5 @@ run_local deny standard plain "$OUT/local/plain/deny"
 # Prompt defense is a separately labelled baseline, never folded into "undefended".
 run_local approve undefended hardened "$OUT/local/hardened/direct"
 
-$PY -m tripwire_gym.publication --root "$OUT/local" --out "$OUT/summary"
+"$PY" -m tripwire_gym.publication --root "$OUT/local" --out "$OUT/summary"
 echo "Local publication matrix complete: $OUT/summary/REPORT.md"

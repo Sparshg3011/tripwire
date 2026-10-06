@@ -1,0 +1,199 @@
+# Anchored: standard's rules with argument anchoring on, for the toolbox
+# the adaptive corpus uses.
+#
+# How it differs from standard.yaml:
+#
+#   * `known` attests our mail domain, our hosts and the workspace root.
+#   * The corporate directory (read_directory, lookup_contact) is a
+#     trusted source.
+#   * The tools that send, write, fetch or pay an invoice have argument
+#     contracts naming the argument that decides who the call reaches
+#     (target), what it acts on (selector) or which secret it sets
+#     (credential); the rest is content. The roles are the ones
+#     `tripwire recipe` drafts from these tools' names, except that
+#     post_status is self_scoped where the draft gates it every time: it
+#     posts only to our own team channel. issue_refund keeps no contract,
+#     as in standard, so after untrusted content it is always gated.
+#   * The taint flow has `unless: anchored` and also covers the tools
+#     standard doesn't have. It covers fetch_url too, which standard never
+#     gates: a fetch is a request to a host, so after untrusted content
+#     its URL has to anchor like a recipient. execute_code is blocked
+#     outright, so it is left out of the flow.
+#   * send_email's `to` and http_post's host are no longer pinned to
+#     mycompany.example. An operator whose agent mails vendors, auditors
+#     and customers can't keep a domain allowlist, and that is the
+#     operator anchoring is for. One who can list every recipient should
+#     keep the allowlist: it is tighter than anchoring. TLS is still
+#     required.
+#
+# Standard's limits, sequences, write_file jail and blocks are unchanged.
+
+version: 1
+enforce: true
+
+defaults:
+  unknown_tools: block
+  gate_timeout_seconds: 120
+
+known:
+  email: ["@corp.example"] # any mailbox at our own domain
+  host: [".corp.example"] # our domain and every host under it
+  path: ["/workspace"] # the agent's working root
+
+sources:
+  read_email: untrusted
+  fetch_url: untrusted
+  read_file: untrusted
+  list_directory: untrusted
+  read_calendar: trusted
+  read_directory: trusted # the corporate contact directory
+  lookup_contact: trusted # a directory lookup by address
+  "*": untrusted
+
+tools:
+  read_email:
+    action: allow
+  read_file:
+    action: allow
+  list_directory:
+    action: allow
+  read_calendar:
+    action: allow
+  read_directory:
+    action: allow
+  lookup_contact:
+    action: allow
+
+  fetch_url:
+    action: allow
+    constraints:
+      url: { regex: "^https?://.*" }
+    args:
+      url: { role: target, type: url }
+
+  send_email:
+    action: allow
+    constraints:
+      body: { max_length: 10000 }
+    limits: { per_session: 3 }
+    args:
+      to: target
+      cc: { role: target, type: email }
+      subject: content
+      body: content
+
+  http_post:
+    action: allow
+    constraints:
+      url: { regex: "^https://.*" } # TLS only; the host is anchored, not allowlisted
+    limits: { per_session: 5 }
+    args:
+      url: { role: target, type: url }
+      body: content
+
+  write_file:
+    action: allow
+    constraints:
+      path: { regex: "^/workspace/.*" }
+    args:
+      path: { role: selector, type: path, match: under }
+      contents: content
+
+  pay_invoice:
+    action: allow
+    constraints:
+      amount: { type: number, min: 0, max: 10000 }
+    limits:
+      sum_per_session: { field: amount, max: 20000 }
+    args:
+      payee: { role: target, type: iban }
+      amount: content
+
+  post_status:
+    action: allow
+    limits: { per_session: 5 }
+    args:
+      message: content # self-scoped: a status post names no one
+    self_scoped: true
+
+  add_contact:
+    action: allow
+    args:
+      name: content
+      # read_directory serves this back as trusted, so it decides who
+      # later mail reaches
+      email: target
+    self_scoped: true
+
+  create_ticket:
+    action: allow
+    args:
+      title: content
+    self_scoped: true
+
+  ack_ticket:
+    action: allow
+    args:
+      ticket_id: selector
+
+  set_webhook_secret:
+    action: allow
+    limits: { per_session: 1 } # a credential write
+    args:
+      webhook_id: { role: selector, type: id }
+      secret: credential # anchors only by task or known, never a tool
+
+  delete_ticket:
+    action: allow
+    destructive: true
+    args:
+      ticket_id: selector
+
+  issue_refund:
+    action: allow
+    constraints:
+      amount: { type: number, min: 0, max: 100 }
+    limits:
+      sum_per_session: { field: amount, max: 500 }
+
+  delete_file:
+    action: block
+    reason: "Destructive; disabled."
+  execute_code:
+    action: block
+    reason: "Arbitrary code execution is off in this environment."
+
+# Standard's order-of-operations rules, unchanged.
+sequences:
+  - deny: execute_code
+    within_turns_after: fetch_url
+    turns: 3
+  - deny: http_post
+    within_turns_after: read_email
+    turns: 2
+
+# The design: once anything untrusted has been read, every outward or
+# destructive action is gated — unless every authority value it carries
+# is anchored. issue_refund has nothing to anchor (an amount is not
+# authority), so it has no contract and is never discharged: it stays
+# gated for a human, every time.
+flows:
+  - when: context_tainted
+    tools:
+      [
+        send_email,
+        http_post,
+        fetch_url,
+        write_file,
+        pay_invoice,
+        post_status,
+        add_contact,
+        create_ticket,
+        ack_ticket,
+        set_webhook_secret,
+        delete_ticket,
+        issue_refund,
+      ]
+    action: require_approval
+    unless: anchored
+    reason: "Untrusted content is in this conversation; external actions need an anchor or a human."

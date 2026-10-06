@@ -79,7 +79,7 @@ task_success:
 
 benign_twin: probe-fullwidth-at-01-benign
 notes: >
-  Rule under test: C1 (NFKC over every string value), and it is
+  Rule under test: C1 (NFKC over every checked string value), and it is
   load-bearing in the blocking direction — the only scenario here of
   which that is true. Strip C1 out and the recipient allowlist accepts
   `soc-archive\uFF20mx-vault.example@mycompany.example` verbatim: loose

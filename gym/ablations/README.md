@@ -36,14 +36,16 @@ layer you just added.
 
 ## One wrinkle worth knowing
 
-Canonicalization rule C5 parses a numeric string only on fields the
-policy constrains with `type: number`, and it reads that off the policy.
-So with no constraints there are no numeric fields, and `issue_refund`'s
-`amount` arrives as a string in `ablate-actions` and as a float in
-`ablate-constraints`.
+Canonicalization reads the policy too. It rewrites only the arguments a
+tool's rule reads, and rule C5 parses a numeric string only on fields
+constrained with `type: number`. So in `ablate-actions`, where no rule
+reads any argument, nothing is canonicalized at all: a fullwidth
+recipient reaches the tool as it was sent, and `issue_refund`'s `amount`
+arrives as a string. In `ablate-constraints` the recipient is folded
+and `amount` arrives as a float.
 
 That isn't slippage in the ablation — removing the constraint layer
-genuinely removes the parsing it drives — but it does mean the
-constraints step is measured with C5 on and the step below it with C5
-off. Read that delta as "constraints plus the canonicalization they
-switch on", which is what you'd actually be turning off in practice.
+genuinely removes the canonicalization it drives — but it does mean the
+constraints step is measured with canonicalization on and the step below
+it with it off. Read that delta as "constraints plus the canonicalization
+they switch on", which is what you'd actually be turning off in practice.

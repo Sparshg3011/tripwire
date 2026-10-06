@@ -31,11 +31,11 @@ mkdir -p "$ROOT"
 clone_at https://github.com/SaFo-Lab/AgentDyn.git "$ROOT/AgentDyn" "$AGENTDYN_COMMIT"
 clone_at https://github.com/xhOwenMa/AutoDojo.git "$ROOT/AutoDojo" "$AUTODOJO_COMMIT"
 
-$PYTHON -m venv .venv-agentdyn
+"$PYTHON" -m venv .venv-agentdyn
 .venv-agentdyn/bin/python -m pip install -e .
 .venv-agentdyn/bin/python -m pip install -e "$ROOT/AgentDyn"
 
-$PYTHON -m venv .venv-autodojo
+"$PYTHON" -m venv .venv-autodojo
 .venv-autodojo/bin/python -m pip install -e .
 .venv-autodojo/bin/python -m pip install -e "$ROOT/AutoDojo/agentdojo"
 .venv-autodojo/bin/python -m pip install json-repair nltk

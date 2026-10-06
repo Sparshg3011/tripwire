@@ -1,0 +1,131 @@
+# tripwire recipe 1, primary arm
+# tools sha256:   c76316a6378986691238682442d667f48319b825707b20efc4c80789a12766db
+# lexicon sha256: 07de0f8ba932cb66cdb2c21da8d79bedae28b28cb115e839cac67e51ebde7311
+# Drafted from tool names, input schemas and annotations, never descriptions.
+# Review every inferred role before enforcing it.
+version: 1
+defaults:
+  unknown_tools: block
+sources:
+  "*": untrusted
+tools:
+  add_calendar_event_participants:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      event_id: {role: selector, type: id}  # ends in "id"
+      participants: target  # target cue "participants"
+    limits: {per_session: 5}
+  append_to_file:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      content: content  # no cue
+      file_id: {role: selector, type: id}  # ends in "id"
+    limits: {per_session: 5}
+  cancel_calendar_event:
+    action: allow  # write: "cancel"
+    destructive: true  # "cancel"
+    args:
+      event_id: {role: selector, type: id}  # ends in "id"
+    limits: {per_session: 5}
+  create_calendar_event:
+    action: allow  # write: "create"
+    self_scoped: true
+    args:
+      description: content  # no cue
+      end_time: content  # no cue
+      location: content  # no cue
+      participants: target  # target cue "participants"
+      start_time: content  # no cue
+      title: content  # no cue
+    limits: {per_session: 5}
+  create_file:
+    action: allow  # write: "create"
+    self_scoped: true
+    args:
+      content: content  # no cue
+      filename: content  # file name on a "create" tool
+    limits: {per_session: 5}
+  delete_email:
+    action: allow  # write: "delete"
+    destructive: true  # "delete"
+    args:
+      email_id: {role: selector, type: id}  # ends in "id"
+    limits: {per_session: 5}
+  delete_file:
+    action: allow  # write: "delete"
+    destructive: true  # "delete"
+    args:
+      file_id: {role: selector, type: id}  # ends in "id"
+    limits: {per_session: 5}
+  get_current_day:
+    action: allow  # read: "get"
+  get_day_calendar_events:
+    action: allow  # read: "get"
+  get_draft_emails:
+    action: allow  # read: "get"
+  get_file_by_id:
+    action: allow  # read: "get"
+  get_received_emails:
+    action: allow  # read: "get"
+  get_sent_emails:
+    action: allow  # read: "get"
+  get_unread_emails:
+    action: allow  # read: "get"
+  list_files:
+    action: allow  # read: "list"
+  reschedule_calendar_event:
+    action: allow  # write: no read verb
+    self_scoped: true
+    args:
+      event_id: {role: selector, type: id}  # ends in "id"
+      new_end_time: content  # no cue
+      new_start_time: content  # no cue
+    limits: {per_session: 5}
+  search_calendar_events:
+    action: allow  # read: "search"
+  search_contacts_by_email:
+    action: allow  # read: "search"
+  search_contacts_by_name:
+    action: allow  # read: "search"
+  search_emails:
+    action: allow  # read: "search"
+  search_files:
+    action: allow  # read: "search"
+  search_files_by_filename:
+    action: allow  # read: "search"
+  send_email:
+    action: allow  # write: "send"
+    self_scoped: true
+    args:
+      attachments: content  # no cue
+      bcc: target  # target cue "bcc"
+      body: content  # no cue
+      cc: target  # target cue "cc"
+      recipients: target  # target cue "recipients"
+      subject: content  # no cue
+    limits: {per_session: 5}
+  share_file:
+    action: allow  # write: "share"
+    self_scoped: true
+    args:
+      email: target  # target cue "email"
+      file_id: {role: selector, type: id}  # ends in "id"
+      permission: content  # no cue
+    limits: {per_session: 5}
+flows:
+  - when: context_tainted
+    tools:
+      - add_calendar_event_participants
+      - append_to_file
+      - cancel_calendar_event
+      - create_calendar_event
+      - create_file
+      - delete_email
+      - delete_file
+      - reschedule_calendar_event
+      - send_email
+      - share_file
+    action: require_approval
+    unless: anchored

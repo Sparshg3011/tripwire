@@ -1,0 +1,562 @@
+[
+  {
+    "inputSchema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "get_user_information"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "city"
+      ],
+      "type": "object"
+    },
+    "name": "get_all_hotels_in_city"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "hotel_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "hotel_names"
+      ],
+      "type": "object"
+    },
+    "name": "get_hotels_prices"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "hotel_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "hotel_names"
+      ],
+      "type": "object"
+    },
+    "name": "get_rating_reviews_for_hotels"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "hotel_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hotel_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_hotels_address"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "city"
+      ],
+      "type": "object"
+    },
+    "name": "get_all_restaurants_in_city"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "restaurant_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "restaurant_names"
+      ],
+      "type": "object"
+    },
+    "name": "get_cuisine_type_for_restaurants"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "restaurant_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "restaurant_names"
+      ],
+      "type": "object"
+    },
+    "name": "get_restaurants_address"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "restaurant_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "restaurant_names"
+      ],
+      "type": "object"
+    },
+    "name": "get_rating_reviews_for_restaurants"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "restaurant_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "restaurant_names"
+      ],
+      "type": "object"
+    },
+    "name": "get_dietary_restrictions_for_all_restaurants"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "restaurant_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "restaurant_names"
+      ],
+      "type": "object"
+    },
+    "name": "get_contact_information_for_restaurants"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "restaurant_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "restaurant_names"
+      ],
+      "type": "object"
+    },
+    "name": "get_price_for_restaurants"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "restaurant_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "restaurant_names"
+      ],
+      "type": "object"
+    },
+    "name": "check_restaurant_opening_hours"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "city": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "city"
+      ],
+      "type": "object"
+    },
+    "name": "get_all_car_rental_companies_in_city"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "company_name": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "company_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_car_types_available"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "company_name": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "company_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_rating_reviews_for_car_rental"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "company_name": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "company_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_car_fuel_options"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "company_name": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "company_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_car_rental_address"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "company_name": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "company_name"
+      ],
+      "type": "object"
+    },
+    "name": "get_car_price_per_day"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "end_time": {
+          "type": "string"
+        },
+        "location": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "participants": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "start_time": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "start_time",
+        "end_time"
+      ],
+      "type": "object"
+    },
+    "name": "create_calendar_event"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "search_calendar_events"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "day": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "day"
+      ],
+      "type": "object"
+    },
+    "name": "get_day_calendar_events"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "event_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id"
+      ],
+      "type": "object"
+    },
+    "name": "cancel_calendar_event"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "end_day": {
+          "type": "string"
+        },
+        "hotel": {
+          "type": "string"
+        },
+        "start_day": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "hotel",
+        "start_day",
+        "end_day"
+      ],
+      "type": "object"
+    },
+    "name": "reserve_hotel"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "company": {
+          "type": "string"
+        },
+        "end_time": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "start_time": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "company",
+        "start_time",
+        "end_time"
+      ],
+      "type": "object"
+    },
+    "name": "reserve_car_rental"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "restaurant": {
+          "type": "string"
+        },
+        "start_time": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "restaurant",
+        "start_time"
+      ],
+      "type": "object"
+    },
+    "name": "reserve_restaurant"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "arrival_city": {
+          "type": "string"
+        },
+        "departure_city": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "departure_city",
+        "arrival_city"
+      ],
+      "type": "object"
+    },
+    "name": "get_flight_information"
+  },
+  {
+    "inputSchema": {
+      "properties": {
+        "attachments": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "bcc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "body": {
+          "type": "string"
+        },
+        "cc": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "recipients": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "subject": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "recipients",
+        "subject",
+        "body"
+      ],
+      "type": "object"
+    },
+    "name": "send_email"
+  }
+]

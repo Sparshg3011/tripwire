@@ -1,0 +1,112 @@
+# tripwire recipe 1, strict arm
+# tools sha256:   0160a1e111091da125de2e0cc52830c1d650e5ebf13e90715b60a9c3d2c828d8
+# lexicon sha256: 07de0f8ba932cb66cdb2c21da8d79bedae28b28cb115e839cac67e51ebde7311
+# Drafted from tool names, input schemas and annotations, never descriptions.
+# Review every inferred role before enforcing it.
+version: 1
+defaults:
+  unknown_tools: block
+sources:
+  "*": untrusted
+tools:
+  cancel_calendar_event:
+    action: allow  # write: "cancel"
+    destructive: true  # "cancel"
+    args:
+      event_id: {role: selector, type: id}  # ends in "id"
+    limits: {per_session: 5}
+  check_restaurant_opening_hours:
+    action: allow  # read: "check"
+  create_calendar_event:
+    action: allow  # write: "create"
+    args:
+      description: content  # no cue
+      end_time: content  # no cue
+      location: content  # no cue
+      participants: target  # target cue "participants"
+      start_time: content  # no cue
+      title: content  # no cue
+    limits: {per_session: 5}
+  get_all_car_rental_companies_in_city:
+    action: allow  # read: "get"
+  get_all_hotels_in_city:
+    action: allow  # read: "get"
+  get_all_restaurants_in_city:
+    action: allow  # read: "get"
+  get_car_fuel_options:
+    action: allow  # read: "get"
+  get_car_price_per_day:
+    action: allow  # read: "get"
+  get_car_rental_address:
+    action: allow  # read: "get"
+  get_car_types_available:
+    action: allow  # read: "get"
+  get_contact_information_for_restaurants:
+    action: allow  # read: "get"
+  get_cuisine_type_for_restaurants:
+    action: allow  # read: "get"
+  get_day_calendar_events:
+    action: allow  # read: "get"
+  get_dietary_restrictions_for_all_restaurants:
+    action: allow  # read: "get"
+  get_flight_information:
+    action: allow  # read: "get"
+  get_hotels_address:
+    action: allow  # read: "get"
+  get_hotels_prices:
+    action: allow  # read: "get"
+  get_price_for_restaurants:
+    action: allow  # read: "get"
+  get_rating_reviews_for_car_rental:
+    action: allow  # read: "get"
+  get_rating_reviews_for_hotels:
+    action: allow  # read: "get"
+  get_rating_reviews_for_restaurants:
+    action: allow  # read: "get"
+  get_restaurants_address:
+    action: allow  # read: "get"
+  get_user_information:
+    action: allow  # read: "get"
+  reserve_car_rental:
+    action: allow  # write: no read verb
+    args:
+      company: {role: selector, type: name}  # object noun "company"
+      end_time: content  # no cue
+      start_time: content  # no cue
+    limits: {per_session: 5}
+  reserve_hotel:
+    action: allow  # write: no read verb
+    args:
+      end_day: content  # no cue
+      hotel: {role: selector, type: name}  # object noun "hotel"
+      start_day: content  # no cue
+    limits: {per_session: 5}
+  reserve_restaurant:
+    action: allow  # write: no read verb
+    args:
+      restaurant: {role: selector, type: name}  # object noun "restaurant"
+      start_time: content  # no cue
+    limits: {per_session: 5}
+  search_calendar_events:
+    action: allow  # read: "search"
+  send_email:
+    action: allow  # write: "send"
+    args:
+      attachments: content  # no cue
+      bcc: target  # target cue "bcc"
+      body: content  # no cue
+      cc: target  # target cue "cc"
+      recipients: target  # target cue "recipients"
+      subject: content  # no cue
+    limits: {per_session: 5}
+flows:
+  - when: context_tainted
+    tools:
+      - cancel_calendar_event
+      - create_calendar_event
+      - reserve_car_rental
+      - reserve_hotel
+      - reserve_restaurant
+      - send_email
+    action: require_approval
+    unless: anchored

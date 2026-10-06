@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Which of standard's five mechanisms actually stops the attacks?
 #
-#   ./gym/run_ablation.sh                  # scripted agent, free, ~4 min
+#   ./gym/run_ablation.sh                  # scripted agent, free, ~15 min
 #   ./gym/run_ablation.sh claude 5         # real model, 5 seeds per cell
 #   ./gym/run_ablation.sh claude 5 "" 8    # 8 runs in flight
 #
@@ -41,11 +41,11 @@ fi
 # be an array that is sometimes empty.
 run_gym() {
   if [ -n "$MODEL" ]; then
-    $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$1" \
+    "$PY" -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$1" \
       --concurrency "$CONCURRENCY" \
       --conditions "$2" --policy-dir "$3" --out "$4" --model "$MODEL"
   else
-    $PY -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$1" \
+    "$PY" -m tripwire_gym --agent "$AGENT" --runs "$RUNS" --human "$1" \
       --concurrency "$CONCURRENCY" \
       --conditions "$2" --policy-dir "$3" --out "$4"
   fi
@@ -69,7 +69,7 @@ for BRACKET in approve deny; do
 done
 
 echo "==> marginal contributions"
-$PY - <<PYEOF
+"$PY" - <<PYEOF
 from tripwire_gym.analysis import load_results
 from tripwire_gym.scoring import summarize
 

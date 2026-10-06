@@ -9,7 +9,6 @@ import json
 import os
 import shutil
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,11 +24,13 @@ from tripwire_benchmarks.heldout import (
     RETRY_CAP_SECONDS,
     HeldoutError,
     _authorize_transport_resume,
+    _run_sequential,
     _run_shard,
     build_plan,
     validate_results,
 )
 from tripwire_benchmarks.report import collect, paired_effects_overall, write_outputs
+from tripwire_gym.resources import GYM
 
 CONDITION = "transformers_pi_detector"
 TARGET_MODEL = "nvidia/nemotron-3-super-120b-a12b"
@@ -59,7 +60,7 @@ def _runtime_versions() -> dict[str, str]:
 
 
 def require_frozen_protocol(*, model: str, workers: int) -> dict[str, Any]:
-    protocol_path = Path(__file__).resolve().parents[2] / "gym" / "agentdojo-protectai-heldout.yaml"
+    protocol_path = GYM / "agentdojo-protectai-heldout.yaml"
     protocol = cast(
         dict[str, Any],
         yaml.safe_load(protocol_path.read_text(encoding="utf-8")),
@@ -258,30 +259,18 @@ def run(args: argparse.Namespace) -> None:
         for suite, suite_plan in plan["suites"].items()
         for index, users in enumerate(suite_plan["shards"])
     ]
-    executor = ThreadPoolExecutor(max_workers=args.workers)
-    try:
-        futures = {
-            executor.submit(
-                _run_shard,
-                root=root,
-                suite=suite,
-                shard_index=index,
-                users=users,
-                conditions=[CONDITION],
-                model=args.model,
-                protectai_model_revision=PROTECTAI_MODEL_REVISION,
-            ): (suite, index)
-            for suite, index, users in jobs
-        }
-        for future in as_completed(futures):
-            print(future.result(), flush=True)
-    except BaseException:
-        for future in futures:
-            future.cancel()
-        executor.shutdown(wait=True, cancel_futures=True)
-        raise
-    else:
-        executor.shutdown(wait=True)
+    _run_sequential(
+        jobs,
+        lambda job: _run_shard(
+            root=root,
+            suite=job[0],
+            shard_index=job[1],
+            users=job[2],
+            conditions=[CONDITION],
+            model=args.model,
+            protectai_model_revision=PROTECTAI_MODEL_REVISION,
+        ),
+    )
 
     write_outputs(root, root / "summary")
     _validate_comparison(

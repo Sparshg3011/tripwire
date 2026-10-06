@@ -1,4 +1,11 @@
-from tripwire.tx.audit import AuditLog, AuditWriteError, VerifyResult, verify_log
+from tripwire.tx.audit import (
+    AuditKeyError,
+    AuditLog,
+    AuditWriteError,
+    VerifyResult,
+    load_key,
+    verify_log,
+)
 from tripwire.tx.forensics import (
     LogError,
     Report,
@@ -12,6 +19,7 @@ from tripwire.tx.forensics import (
 )
 
 __all__ = [
+    "AuditKeyError",
     "AuditLog",
     "AuditWriteError",
     "LogError",
@@ -20,6 +28,7 @@ __all__ = [
     "VerifyResult",
     "format_report",
     "format_trace",
+    "load_key",
     "read_records",
     "report",
     "sessions",

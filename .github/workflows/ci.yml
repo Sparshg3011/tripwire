@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -11,18 +15,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ["3.11", "3.12", "3.13"]
+        python: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: ${{ matrix.python }}
       - run: pip install -e ".[dev,gym]"
-      - run: ruff check src tests
-      - run: ruff format --check src tests
-      # strict typing where correctness is load-bearing; the rest of the
-      # tree is checked by tests instead
-      - run: mypy --strict src/tripwire/policy src/tripwire/tx
+      - run: ruff check src tests scripts
+      - run: ruff format --check src tests scripts
+      # strict typing for the firewall itself; the gym and benchmark
+      # harnesses are checked by tests instead
+      - run: mypy --strict src/tripwire
       - run: pytest -q
 
       # The benchmark harness itself, on the scripted agent: no API key,
@@ -32,21 +38,70 @@ jobs:
       # security, which is the worst number this repo could print.
       - run: python -m tripwire_gym --agent scripted --conditions undefended,standard --out /tmp/gym
 
+  # one version is enough to catch what differs by platform, like the
+  # bash 3.2 macOS still ships as /bin/bash for the gym scripts
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - run: pip install -e ".[dev,gym]"
+      - run: pytest -q
+
   publication:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: pip install -e ".[dev,publication]"
-      - run: pytest -q tests/test_agentdojo_adapter.py tests/test_autodojo.py tests/test_heldout.py
+      - run: pytest -q tests/test_agentdojo_adapter.py tests/test_autodojo.py tests/test_heldout.py tests/test_protectai_heldout.py tests/test_action_reviewer.py tests/test_agentdojo_review.py tests/test_benchmark_transport.py tests/test_review_smoke.py tests/test_review_policy_v2.py tests/test_review_audit.py tests/test_recipe_policies.py tests/test_agentdojo_interceptor.py
+
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check --strict dist/*
+      - run: python scripts/check_distribution.py
+      - name: Exercise the installed wheel outside the checkout
+        run: |
+          python -m venv /tmp/installed
+          /tmp/installed/bin/pip install dist/*.whl
+          cd /tmp
+          /tmp/installed/bin/python "$GITHUB_WORKSPACE/scripts/smoke_installed.py"
+      # pip leaves an installed mcp alone if it meets the floor, so the
+      # floor has to work, not just the newest release
+      - name: Exercise it again with the oldest mcp it accepts
+        run: |
+          python -m venv /tmp/oldest
+          /tmp/oldest/bin/pip install dist/*.whl "mcp==$(python scripts/dependency_floor.py mcp)"
+          cd /tmp
+          /tmp/oldest/bin/python "$GITHUB_WORKSPACE/scripts/smoke_installed.py"
 
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - run: pip install -e . pip-audit

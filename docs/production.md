@@ -36,7 +36,7 @@ tripwire report ~/.tripwire/audit.jsonl
 412 call(s) across 37 session(s)
   allowed outright   381
   blocked by policy  0
-  sent to a human    0  (approved 0, refused 0)
+  required approval  0  (approved 0, refused 0)
   WOULD have been stopped (shadow mode)  31
   sessions that saw untrusted content  22
 
@@ -97,6 +97,12 @@ or those calls are simply refused:
 - `--gate cli` — prompts on the controlling terminal. Only works when
   you started tripwire from a shell.
 
+Both list the arguments your policy checks first, clip long names and
+values one by one, and stop at a fixed size, saying how many arguments
+they left out. Only the web page can show what it clipped or left out,
+so prefer it for tools whose arguments run long, like an email body or
+a file's contents.
+
 ## Operations
 
 **One audit log per proxy.** Enforced: a second process trying to write
@@ -105,22 +111,100 @@ head and shred it for both.
 
 **Rotate by moving, not truncating.** The chain lives in the file, so
 `mv audit.jsonl audit-2026-08.jsonl` and let tripwire open a fresh one
-on restart. Truncating a live log breaks the chain and tripwire will
-refuse to continue it. Keep the archives — they're your evidence.
+on restart. Truncating throws evidence away without a trace: cut on a
+line boundary, the shorter log still verifies, keyed or not, and
+tripwire carries on from the new last line, so the gap ends up in the
+middle of a log that checks out. Only a cut through a line is caught,
+as a torn record tripwire refuses to continue. Adding or dropping a key
+is a rotation too: tripwire won't continue a log in a different chain
+from the one it started with. Keep the archives — they're your
+evidence.
+
+**Key the audit log.** Unkeyed, the chain catches a line edited or
+deleted in the middle, but anyone who can write the file can rewrite it
+and recompute every hash. Keyed, nobody without the key can:
+
+```bash
+openssl rand -hex 32 > ~/.tripwire/audit.key
+chmod 600 ~/.tripwire/audit.key
+tripwire serve --audit-key-file ~/.tripwire/audit.key --policy ... --upstream ...
+```
+
+`TRIPWIRE_AUDIT_KEY_FILE` works in place of the flag. An empty name in
+either is refused rather than taken to mean no key, so an unset shell
+variable can't quietly turn keying off. The key is never written to the
+log or printed, and the server tripwire wraps is started without any
+`TRIPWIRE_` variable, so it isn't handed the key's path; running as
+you, it could still read the path off tripwire's command line or
+environment, and then the key. It only protects the log from people who
+can write it but can't read the key, so keep the key away from anyone
+else with write access to the log.
+Lose the key and the log can't be verified any more.
 
 **Check integrity before you trust a log.**
 
 ```bash
-tripwire verify ~/.tripwire/audit.jsonl
+tripwire verify --audit-key-file ~/.tripwire/audit.key ~/.tripwire/audit.jsonl
 ```
 
-`trace`, `report` and `replay` also check it and warn loudly if the
-chain is broken, but they still print — so read the warning.
+It says which chain it checked and what that chain can't catch. A keyed
+log won't verify without its key, and a key won't vouch for a log that
+isn't keyed. Neither kind notices lines cut from the end; the
+[threat model](../THREAT_MODEL.md) has the detail. An archive from
+before you added the key is unkeyed, so check it without one; with the
+variable exported, that's
+`env -u TRIPWIRE_AUDIT_KEY_FILE tripwire verify audit-2026-07.jsonl`.
+
+`trace`, `report` and `replay` check it the same way before they print,
+and take `--audit-key-file` or `TRIPWIRE_AUDIT_KEY_FILE` just as
+`verify` does. They warn loudly when a log is broken or can't be
+verified, and note when it's unkeyed, but they still print — so read
+the warning.
+
+**Know what the ledger remembers.** With `--tx-db`, an identical call
+replays the first result instead of running again — within one session.
+A session is one proxy process, which is one agent connection, so a
+restarted proxy starts a new one and a call its predecessor completed
+runs again if the agent repeats it. That's deliberate: the ledger has no
+clock, and replaying across sessions would hand every later conversation
+the first one's answers. It does mean a call that completed just as the
+proxy died, before the agent got the answer, runs twice if retried; the
+audit log shows both.
+
+A call whose outcome was never recorded — the proxy died mid-call, the
+upstream dropped, the agent hung up — is different. Nobody knows whether
+it happened, so it's refused in every session that shares the database
+until someone decides. To clear one:
+
+```bash
+sqlite3 ledger.db "SELECT session, tool, key FROM intents WHERE state = 'in_flight'"
+tripwire trace ~/.tripwire/audit.jsonl <session>   # did it happen?
+sqlite3 ledger.db "DELETE FROM intents WHERE key = '<key>'"
+```
+
+Delete the row only once you're sure: the next identical call will run.
+A row left by a version of tripwire from before sessions were recorded
+has no session and can't say which call it was, so until it's cleared it
+refuses every call to its tool.
+
+A version from before one unresolved row per call was enforced could let
+two sessions start the same call at once, and leave a row for each. A
+ledger holding such a pair won't open: tripwire refuses to start and
+names the sessions and the tool. Delete all but one of the pair's rows;
+the one left keeps the call refused until you clear it as above.
+
+Shadow mode leaves the ledger alone: every call goes straight to the
+tool, nothing is replayed or refused, and nothing is written. A call an
+enforcing session left unresolved doesn't stop a shadow session, and
+shadow traffic never leaves one behind for the enforcing sessions that
+follow.
 
 **Watch the exit codes.** `2` means refused to start (bad policy, dead
-upstream, unwritable log, unusable gate). `70` means it started and
-then lost the audit log, and killed itself rather than act unrecorded.
-Both should page someone; neither should be auto-restarted in a loop.
+upstream, unwritable log, missing or wrong audit key, a ledger that
+won't open, unusable gate).
+`70` means it started and then lost the audit log, and killed itself
+rather than act unrecorded. Both should page someone; neither should be
+auto-restarted in a loop.
 
 **Disk.** Every call writes a few records. The audit log grows roughly
 linearly with tool traffic; budget for it and rotate.
@@ -149,6 +233,99 @@ Two limits worth knowing: the tx ledger stores tool results and the
 redactor does **not** reach it, so give the database the same file
 permissions as the log; and redaction is lossy by design — you cannot
 later recover what you chose not to record.
+
+## Exact pre-approvals
+
+Experimental, and library-only: `tripwire serve` doesn't expose it.
+`ExactApprovalGate` lets a trusted host approve one complete, known tool
+call before a session starts, so that call can run after untrusted
+content without approving anything else or clearing taint. It fits
+tasks whose arguments are known up front: a payment the user already
+confirmed, a fixed message, a specific record update. It doesn't infer
+intent or check a generated summary. In the 12-task AgentDojo
+development set, all eight tasks that take an action need arguments that
+depend on what the agent reads, so exact grants alone don't recover the
+utility v0.1 lost.
+
+The host, not the agent, gets approval for the exact tool name and every
+argument through its own trusted interface, then registers the grant
+before any call or untrusted result in the session:
+
+```python
+from tripwire.gate import ExactApprovalGate
+from tripwire.policy import load_policy
+from tripwire.policy.types import ToolCall
+from tripwire.proxy.interceptor import Interceptor
+from tripwire.session import SessionState
+
+policy = load_policy("policy.yaml")
+session = SessionState(policy)
+
+# Supplied by the trusted host after explicit authorization, not extracted
+# from an agent plan, email, webpage, or benchmark solution.
+gate = ExactApprovalGate(
+    session,
+    [ToolCall("send_email", {
+        "to": "colleague@example.com",
+        "subject": "Meeting",
+        "body": "The meeting is confirmed for 10:00.",
+    })],
+    ttl_seconds=300,
+)
+# audit is an AuditLog; upstream is an already-started MCP Upstream.
+interceptor = Interceptor(policy, audit, upstream, session, gate=gate)
+# Send the agent's calls through interceptor.handle(...), and revoke what
+# is left when the task ends: gate.close()
+```
+
+Every tool with a grant must have `action: require_approval`
+unconditionally:
+
+```yaml
+version: 1
+defaults: {unknown_tools: block}
+sources: {read_email: untrusted}
+tools:
+  read_email: {action: allow}
+  send_email:
+    action: require_approval
+    constraints:
+      body: {type: string, max_length: 1000}
+    limits: {per_session: 1}
+```
+
+A grant for a tool that only a flow gates is refused at registration:
+the call could run before taint without spending the grant, then run
+again after. The contract:
+
+- Matching is exact over every argument, nested values and extra or
+  missing keys included, with no wildcards, patterns or defaults.
+  Arguments the policy checks are compared in canonical form, which is
+  also what gets forwarded; the rest must match byte for byte.
+- A grant is spent once, in the live session it was registered in, and
+  expires (five minutes by default) by whichever of the monotonic and
+  wall clocks runs out first, so sleep doesn't extend it. Registering
+  the same call twice is refused, not counted as two.
+- It is spent before forwarding. An error, a cancellation or an unknown
+  outcome doesn't give it back; find out what happened before issuing
+  another.
+- It overrides nothing: blocks, constraints, limits and sequences still
+  apply, and taint stays set. A changed policy, or an execution the
+  gate didn't see, invalidates grants once noticed, so don't change a
+  policy mid-session.
+- Grants live in memory. There is no MCP endpoint to issue them and no
+  persistence across processes, so keep host code, policies and
+  approval inputs out of the agent's reach, and use upstream
+  idempotency where a side effect must happen exactly once.
+- A grant doesn't impose order. If the call must come after a read,
+  write that as a sequence rule.
+- The audit log records the gate's type, and a refusal says the gate
+  denied the call, so nothing pretends a person reviewed it.
+
+`tests/test_exact_gate.py` covers substituted recipients, amounts,
+bodies and extra fields, one-use spending before and after taint,
+replay, cross-session use, concurrency, expiry, revocation, failed and
+cancelled forwarding, and hard blocks, against a real MCP upstream.
 
 ## What to watch for
 

@@ -15,7 +15,7 @@ Everything CI runs, you can run:
 ```bash
 ruff check src tests
 ruff format --check src tests
-mypy --strict src/tripwire/policy src/tripwire/tx
+mypy --strict src/tripwire
 pytest -q
 python -m tripwire_gym --agent scripted --conditions undefended,standard --out /tmp/gym
 ```
@@ -24,8 +24,9 @@ python -m tripwire_gym --agent scripted --conditions undefended,standard --out /
 
 If you can get something past tripwire, that's the most useful thing
 you can send. A scenario is one YAML file in `gym/scenarios/` plus its
-benign twin — [docs/gym.md](docs/gym.md) has the schema and a worked
-example.
+benign twin. [docs/benchmarking.md](docs/benchmarking.md#scenarios)
+shows the format, says where the full schema and a complete pair are,
+and lists the steps for adding one.
 
 The bar is that it has to be **machine-checkable**. "The model said
 something alarming" isn't a scenario; "the agent called `send_email`
@@ -74,12 +75,18 @@ the change exists when the diff cannot do that on its own.
 Good subjects describe an outcome:
 
 - `Harden AgentDojo runs against API rate limits`
-- `Add completeness receipts to publication reports`
+- `Add completeness checks to publication reports`
 - `Document the shadow-to-enforcement rollout`
 
 Avoid subjects such as `changes`, `formatting`, or `fix stuff`. Before opening
 a pull request, squash local fixups into their logical parent commits. Never
 rewrite a branch that other contributors may already be using.
+
+## Releasing
+
+The owner cuts releases following [docs/releasing.md](docs/releasing.md),
+which says what has to be true first, how to check the archives, and
+what to verify once the version is on PyPI.
 
 ## Security issues
 

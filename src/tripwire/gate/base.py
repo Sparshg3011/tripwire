@@ -1,17 +1,32 @@
 """What an approval gate is: one yes/no question, asked with context.
 
-A gate never decides anything. Policy already decided this call needs a
-human; the gate's whole job is to put the question in front of one and
-report back what they said. Everything else — timeouts, gate crashes,
+A gate cannot override a policy block. Policy already decided this call
+needs approval; a gate obtains that approval interactively or matches a
+host-issued, exact pre-authorization. Everything else — timeouts, gate crashes,
 no gate configured — is handled by the interceptor, and every one of
 those paths ends in a refusal. Silence is a no.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import json
+import re
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol
+
+from tripwire.policy.types import AnchorReport, explain_status
+
+NAME_PREVIEW = 60  # a real argument name is a word or two; past this it's padding
+
+# Anything that can move the cursor, clear the screen, or reorder or
+# recolour text can redraw the question the human thinks they're
+# answering, so what a gate shows is plain printable text.
+SAFE = frozenset(range(0x20, 0x7F))
+
+# where a value's path leaves its argument: "cc" is the argument of
+# "cc[1]" and of "cc.to", and no contract names one with either in it
+_TOP = re.compile(r"[.\[]")
 
 
 class GateUnavailable(Exception):
@@ -37,9 +52,163 @@ class ApprovalRequest:
     tainted: bool = False
     tainted_by: tuple[str, ...] = ()
     turn: int = 0
+    # Set by the host interceptor, never taken from tool arguments.
+    checked: frozenset[str] = frozenset()  # the args the policy reads (checked_fields())
+    approval_scope: str = ""
+    # what anchoring found, when a flow with `unless: anchored` applied
+    anchors: AnchorReport | None = None
+    # the args the tool's contract gives an authority role, in its order
+    authority: tuple[str, ...] = ()
 
 
 class ApprovalGate(Protocol):
     async def request(self, req: ApprovalRequest) -> bool:
-        """True means a human approved. Anything else means no."""
+        """True means approved by this gate. Anything else means no."""
         ...
+
+
+def encode_args(args: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Every argument as a JSON-encoded (name, value) pair, shortest first.
+
+    Clipping the arguments as one sorted blob puts `body` ahead of `to`
+    and then cuts, so a long enough body pushes the recipient out of the
+    prompt and the human approves a send whose address they never saw.
+    Shortest first keeps the scalars a decision turns on — recipients,
+    amounts, paths — together at the top, and gates clip each value on
+    its own, never at another's expense.
+
+    JSON because quotes show where a name or value ends, and ensure_ascii
+    turns every control character, bidi override and lookalike letter
+    into a visible escape instead of letting it act on the screen.
+    """
+    encoded = [(json.dumps(name), _encode(value)) for name, value in args.items()]
+    return sorted(encoded, key=lambda pair: (len(pair[0]) + len(pair[1]), pair))
+
+
+def _encode(value: Any) -> str:
+    """JSON with every object's members shortest first, like the arguments
+    themselves: a message={to, body} gets clipped as one value, and sorted
+    keys would put its body ahead of its recipient. Lists keep their order,
+    because order is part of what a list says."""
+    if isinstance(value, Mapping):
+        members = [f"{json.dumps(str(key))}: {_encode(item)}" for key, item in value.items()]
+        return "{" + ", ".join(sorted(members, key=lambda m: (len(m), m))) + "}"
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_encode(item) for item in value) + "]"
+    return json.dumps(value, default=str)
+
+
+def clip(value: str, limit: int) -> str:
+    """At most `limit` characters of an encoded value, then how many
+    more there were. No encoded value contains a literal ellipsis, so
+    the marker can't be forged by the value it follows."""
+    if len(value) <= limit:
+        return value
+    return f"{value[:limit]}…[+{len(value) - limit} chars]"
+
+
+def preview_arg(name: str, value: str, limit: int) -> str:
+    """One encoded argument as a prompt shows it, name clipped as well as
+    value: the caller writes the names too."""
+    return f"{clip(name, NAME_PREVIEW)}: {clip(value, limit)}"
+
+
+def preview_args(
+    args: Mapping[str, Any],
+    checked: Collection[str],
+    limit: int,
+    width: int,
+    budget: int,
+    notes: Mapping[str, str] | None = None,
+) -> tuple[list[str], list[tuple[str, str]], list[tuple[str, str]]]:
+    """The lines a prompt shows, the encoded arguments on them, and the
+    encoded arguments it leaves out.
+
+    The caller picks how many arguments a call has and what they're
+    called, and plenty of upstreams ignore the ones they don't know. So a
+    few hundred junk arguments, each under the value clip, would bury the
+    ones that matter. The arguments the policy checks are shown first,
+    one to a line, and always: the tool's rule reads them, and their
+    names come from the policy. Ahead of them go the ones `notes` names,
+    in its order, each with its note two spaces after the value: where
+    anchoring found an authority argument's values (anchor_notes()). The
+    rest follow shortest first while the preview, read as one list,
+    stays within `budget` characters, and share lines up to `width`.
+    Capping the lines instead would let a dozen one-letter arguments
+    push out every argument of a tool with no constraints, like the code
+    of an execute_code a flow rule stopped. The first that doesn't fit
+    is left out along with everything after it, so a flood costs the
+    prompt one line saying how much it left out.
+    """
+    notes = notes or {}
+    noted = [name for name in notes if name in args]
+    shown = [(json.dumps(name), _encode(args[name])) for name in noted]
+    shown += encode_args({k: v for k, v in args.items() if k in checked and k not in notes})
+    lines = [preview_arg(name, value, limit) for name, value in shown]
+    for i, name in enumerate(noted):
+        lines[i] += f"  {notes[name]}"
+    used = len(", ".join(lines))
+    rest: list[str] = []
+    hidden: list[tuple[str, str]] = []
+    first = {*checked, *notes}
+    for name, value in encode_args({k: v for k, v in args.items() if k not in first}):
+        arg = preview_arg(name, value, limit)
+        size = used + len(", ") + len(arg) if shown else len(arg)
+        if hidden or size > budget:
+            hidden.append((name, value))
+            continue
+        shown.append((name, value))
+        used = size
+        if rest and len(f"{rest[-1]}, {arg}") <= width:
+            rest[-1] += f", {arg}"
+        else:
+            rest.append(arg)
+    return lines + rest, shown, hidden
+
+
+def anchor_notes(authority: Sequence[str], report: AnchorReport | None) -> dict[str, str]:
+    """What anchoring found, one note per argument however many values it
+    holds: for each authority argument, in contract order, then for the
+    content argument that failed, if one did. "anchored: task",
+    "unanchored at cc[1]: first seen in free text from read_email, turn
+    3; accepted: task, known, trusted", or "not checked" when anchoring
+    checked none of its values, having stopped at an earlier one. Empty
+    when anchoring didn't run.
+
+    Unescaped: a value's path holds dict keys the caller wrote, and a
+    first sighting names a tool the caller may have picked.
+    """
+    if report is None:
+        return {}
+    names = list(authority)
+    if report.failed is not None:
+        names.append(_top(report.failed.arg))
+    return {name: _note(name, report) for name in names}
+
+
+def _note(name: str, report: AnchorReport) -> str:
+    leaves = [leaf for leaf in report.leaves if _top(leaf.arg) == name]
+    failed = next((leaf for leaf in leaves if leaf.status != "anchored"), None)
+    if failed is not None:
+        # the status first, so a long path can't clip it off the note
+        where = "" if failed.arg == name else f" at {failed.arg}"
+        return f"unanchored{where}: {explain_status(failed.record())}"
+    if not leaves:
+        return "not checked"
+    return f"anchored: {', '.join(dict.fromkeys(str(leaf.via) for leaf in leaves))}"
+
+
+def _top(path: str) -> str:
+    return _TOP.split(path, maxsplit=1)[0]
+
+
+def printable(text: str) -> str:
+    """text with everything outside SAFE escaped."""
+    return "".join(c if ord(c) in SAFE else f"\\x{ord(c):02x}" for c in text)
+
+
+def more_args(hidden: list[tuple[str, str]]) -> str:
+    """Exactly what a preview left out, in encoded characters."""
+    chars = sum(len(name) + len(value) for name, value in hidden)
+    noun = "argument" if len(hidden) == 1 else "arguments"
+    return f"{len(hidden)} more {noun} ({chars} chars)"
